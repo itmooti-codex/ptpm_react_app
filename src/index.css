@@ -1,0 +1,118 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import "./features/job-direct/styles/jobDirectOverrides.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #003882;
+  --color-secondary: #0052cc;
+  --color-accent: #212b45;
+  --color-complementary: #78829d;
+  --color-dark: #414042;
+  --color-light: #efefef85;
+  --color-white: #ffffff;
+  --color-line: #d3d7e2;
+  --color-danger: #d80f0f;
+  --color-warning: #d7a21e;
+  --color-cool: #0a9efa;
+  --color-success: #36926b;
+
+  --fs-headline: 18px;
+  --lh-headline: 20px;
+  --fw-headline: 600;
+
+  --fs-subheadline: 16px;
+  --lh-subheadline: 16px;
+  --fw-subheadline: 500;
+
+  --fs-subheadline-2: 14px;
+  --lh-subheadline-2: 14px;
+  --fw-subheadline-2: 500;
+
+  --fs-label: 14px;
+  --lh-label: 20px;
+  --fw-label: 400;
+
+  --fs-button: 12px;
+  --lh-button: 12px;
+  --fw-button: 400;
+
+  --fs-bodytext: 16px;
+  --lh-bodytext: 20px;
+  --fw-bodytext: 400;
+
+  --fs-largebodytext: 16px;
+  --lh-largebodytext: 20px;
+  --fw-largebodytext: 400;
+
+  --fs-blockquote: 20px;
+  --lh-blockquote: 24px;
+  --fw-blockquote: 500;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    color: var(--color-dark);
+    font-family: Inter, sans-serif;
+    background-color: #f8fafc;
+  }
+}
+
+@layer utilities {
+  .type-headline {
+    font-size: var(--fs-headline);
+    line-height: var(--lh-headline);
+    font-weight: var(--fw-headline);
+  }
+
+  .type-subheadline {
+    font-size: var(--fs-subheadline);
+    line-height: var(--lh-subheadline);
+    font-weight: var(--fw-subheadline);
+  }
+
+  .type-subheadline-2 {
+    font-size: var(--fs-subheadline-2);
+    line-height: var(--lh-subheadline-2);
+    font-weight: var(--fw-subheadline-2);
+  }
+
+  .type-label {
+    font-size: var(--fs-label);
+    line-height: var(--lh-label);
+    font-weight: var(--fw-label);
+  }
+
+  .type-button {
+    font-size: var(--fs-button);
+    line-height: var(--lh-button);
+    font-weight: var(--fw-button);
+  }
+
+  .type-bodytext {
+    font-size: var(--fs-bodytext);
+    line-height: var(--lh-bodytext);
+    font-weight: var(--fw-bodytext);
+  }
+
+  .type-largebodytext {
+    font-size: var(--fs-largebodytext);
+    line-height: var(--lh-largebodytext);
+    font-weight: var(--fw-largebodytext);
+  }
+
+  .type-blockquote {
+    font-size: var(--fs-blockquote);
+    line-height: var(--lh-blockquote);
+    font-weight: var(--fw-blockquote);
+  }
+}

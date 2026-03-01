@@ -1,0 +1,39 @@
+import { Button } from "./Button.jsx";
+import { cx } from "../../lib/cx.js";
+
+export function Modal({
+  open,
+  title,
+  onClose,
+  children,
+  widthClass = "max-w-2xl",
+  footer,
+}) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className={cx("w-full rounded-lg bg-white p-6 shadow-xl", widthClass)}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="type-subheadline text-slate-800">{title}</h2>
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+            X
+          </Button>
+        </div>
+
+        <div>{children}</div>
+
+        {footer ? <div className="mt-6">{footer}</div> : null}
+      </div>
+    </div>
+  );
+}
