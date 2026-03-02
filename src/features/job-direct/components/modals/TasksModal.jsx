@@ -23,6 +23,7 @@ import {
 } from "../icons/ActionIcons.jsx";
 import {
   createTaskRecord,
+  fetchJobDirectDataByUid,
   fetchTasksByDealId,
   fetchTasksByJobId,
   updateTaskRecord,
@@ -30,6 +31,25 @@ import {
 
 function toString(value) {
   return String(value ?? "").trim();
+}
+
+function pickFirstId(...values) {
+  for (const value of values) {
+    const text = toString(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function dedupeTasksById(records = []) {
+  const seen = new Set();
+  return (Array.isArray(records) ? records : []).filter((task, index) => {
+    const id = toString(task?.id || task?.ID || task?.Task_ID);
+    const key = id || `idx-${index}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function normalizeAssignees(rawAssignees) {
@@ -247,15 +267,62 @@ export function TasksModal({
   contextId = "",
   additionalCreatePayload = null,
   additionalUpdatePayload = null,
+  onTasksChanged = null,
 }) {
   const normalizedContextType = toString(contextType).toLowerCase() === "deal" ? "deal" : "job";
-  const recordId =
-    toString(contextId) ||
-    toString(
-      normalizedContextType === "deal"
-        ? jobData?.inquiry_record_id || jobData?.Inquiry_Record_ID
-        : jobData?.id || jobData?.ID
-    );
+  const contextIdText = toString(contextId);
+  const directResolvedJobId = pickFirstId(
+    normalizedContextType === "job" ? contextIdText : "",
+    jobData?.id,
+    jobData?.ID,
+    jobData?.job_id,
+    jobData?.Job_id,
+    jobData?.Job_ID,
+    jobData?.related_job_id,
+    jobData?.Related_Job_ID,
+    jobData?.quote_record_id,
+    jobData?.Quote_Record_ID,
+    jobData?.Quote_record_ID,
+    jobData?.inquiry_for_job_id,
+    jobData?.Inquiry_For_Job_ID,
+    jobData?.Inquiry_for_Job_ID,
+    additionalCreatePayload?.job_id,
+    additionalCreatePayload?.Job_id,
+    additionalCreatePayload?.Job_ID,
+    additionalUpdatePayload?.job_id,
+    additionalUpdatePayload?.Job_id,
+    additionalUpdatePayload?.Job_ID
+  );
+  const jobUniqueIdCandidate = pickFirstId(
+    normalizedContextType === "job" && contextIdText && !/^\d+$/.test(contextIdText)
+      ? contextIdText
+      : "",
+    jobData?.unique_id,
+    jobData?.Unique_ID,
+    additionalCreatePayload?.job_unique_id,
+    additionalCreatePayload?.Job_Unique_ID,
+    additionalUpdatePayload?.job_unique_id,
+    additionalUpdatePayload?.Job_Unique_ID
+  );
+  const resolvedDealId = pickFirstId(
+    normalizedContextType === "deal" ? contextIdText : "",
+    jobData?.deal_id,
+    jobData?.Deal_id,
+    jobData?.Deal_ID,
+    jobData?.inquiry_record_id,
+    jobData?.Inquiry_Record_ID,
+    jobData?.inquiry_id,
+    jobData?.Inquiry_ID,
+    additionalCreatePayload?.deal_id,
+    additionalCreatePayload?.Deal_id,
+    additionalCreatePayload?.Deal_ID,
+    additionalUpdatePayload?.deal_id,
+    additionalUpdatePayload?.Deal_id,
+    additionalUpdatePayload?.Deal_ID
+  );
+  const [resolvedJobIdFromUid, setResolvedJobIdFromUid] = useState("");
+  const resolvedJobId = pickFirstId(directResolvedJobId, resolvedJobIdFromUid);
+  const hasContextIds = Boolean(resolvedJobId || resolvedDealId);
   const assignees = useMemo(() => normalizeAssignees(assigneesJson), []);
   const assigneeById = useMemo(() => {
     const map = new Map();
@@ -272,27 +339,80 @@ export function TasksModal({
   const [activeTaskId, setActiveTaskId] = useState("");
   const [taskFilter, setTaskFilter] = useState("all");
   const [form, setForm] = useState(emptyFormState);
+  const onTasksChangedRef = useRef(onTasksChanged);
+
+  useEffect(() => {
+    onTasksChangedRef.current = onTasksChanged;
+  }, [onTasksChanged]);
 
   const isEditing = Boolean(form.id);
+
+  const resolveJobIdByUid = useCallback(
+    async (uid) => {
+      const jobUid = toString(uid);
+      if (!plugin || !jobUid) return "";
+      try {
+        const jobRecord = await fetchJobDirectDataByUid({
+          plugin,
+          jobUid,
+        });
+        return toString(jobRecord?.id || jobRecord?.ID);
+      } catch (lookupError) {
+        console.warn("[JobDirect] Task modal failed to resolve job ID by unique ID", {
+          jobUid,
+          error: lookupError,
+        });
+        return "";
+      }
+    },
+    [plugin]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!open || !plugin) {
+      setResolvedJobIdFromUid("");
+      return undefined;
+    }
+    if (directResolvedJobId || !jobUniqueIdCandidate) {
+      setResolvedJobIdFromUid("");
+      return undefined;
+    }
+    resolveJobIdByUid(jobUniqueIdCandidate).then((resolvedId) => {
+      if (cancelled) return;
+      setResolvedJobIdFromUid(toString(resolvedId));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, plugin, directResolvedJobId, jobUniqueIdCandidate, resolveJobIdByUid]);
 
   const resetForm = useCallback(() => {
     setForm(emptyFormState());
   }, []);
 
   const loadTasks = useCallback(async () => {
-    if (!plugin || !recordId) {
+    if (!plugin || (!resolvedJobId && !resolvedDealId)) {
       setTasks([]);
       return [];
     }
 
     setIsLoadingTasks(true);
     try {
-      const records =
-        normalizedContextType === "deal"
-          ? await fetchTasksByDealId({ plugin, dealId: recordId })
-          : await fetchTasksByJobId({ plugin, jobId: recordId });
-      const normalized = Array.isArray(records) ? records.filter(hasMeaningfulTaskData) : [];
+      const [jobTasks, dealTasks] = await Promise.all([
+        resolvedJobId ? fetchTasksByJobId({ plugin, jobId: resolvedJobId }) : Promise.resolve([]),
+        resolvedDealId
+          ? fetchTasksByDealId({ plugin, dealId: resolvedDealId })
+          : Promise.resolve([]),
+      ]);
+      const normalized = dedupeTasksById([
+        ...(Array.isArray(jobTasks) ? jobTasks : []),
+        ...(Array.isArray(dealTasks) ? dealTasks : []),
+      ]).filter(hasMeaningfulTaskData);
       setTasks(normalized);
+      if (typeof onTasksChangedRef.current === "function") {
+        onTasksChangedRef.current(normalized);
+      }
       return normalized;
     } catch (loadError) {
       console.error("[JobDirect] Failed loading tasks", loadError);
@@ -301,7 +421,7 @@ export function TasksModal({
     } finally {
       setIsLoadingTasks(false);
     }
-  }, [plugin, recordId, normalizedContextType]);
+  }, [plugin, resolvedJobId, resolvedDealId]);
 
   useEffect(() => {
     if (!open) {
@@ -351,13 +471,8 @@ export function TasksModal({
         error("SDK unavailable", "Please wait for SDK initialization.");
         return;
       }
-      if (!recordId) {
-        error(
-          normalizedContextType === "deal" ? "Missing inquiry" : "Missing job",
-          normalizedContextType === "deal"
-            ? "Inquiry ID is required to save task."
-            : "Job ID is required to save task."
-        );
+      if (!hasContextIds) {
+        error("Missing context", "Inquiry ID and/or Job ID is required to save task.");
         return;
       }
 
@@ -382,13 +497,34 @@ export function TasksModal({
         assignee_id: assigneeId,
         details: toString(form.details),
       };
-      if (normalizedContextType === "deal") {
-        payload.deal_id = recordId;
-      } else {
-        payload.job_id = recordId;
+      let effectiveJobId = resolvedJobId;
+      if (!effectiveJobId && jobUniqueIdCandidate) {
+        const lookedUpId = await resolveJobIdByUid(jobUniqueIdCandidate);
+        effectiveJobId = toString(lookedUpId);
+        if (effectiveJobId) {
+          setResolvedJobIdFromUid(effectiveJobId);
+        }
+      }
+      if (effectiveJobId) {
+        payload.job_id = effectiveJobId;
+        payload.Job_id = effectiveJobId;
+      }
+      if (resolvedDealId) {
+        payload.deal_id = resolvedDealId;
+        payload.Deal_id = resolvedDealId;
       }
       if (additionalCreatePayload && typeof additionalCreatePayload === "object") {
         Object.assign(payload, additionalCreatePayload);
+      }
+      const payloadJobId = toString(payload.Job_id || payload.job_id);
+      const payloadDealId = toString(payload.Deal_id || payload.deal_id);
+      if (payloadJobId) {
+        payload.job_id = payloadJobId;
+        payload.Job_id = payloadJobId;
+      }
+      if (payloadDealId) {
+        payload.deal_id = payloadDealId;
+        payload.Deal_id = payloadDealId;
       }
 
       setIsSubmitting(true);
@@ -400,6 +536,16 @@ export function TasksModal({
               ? additionalUpdatePayload
               : {}),
           };
+          const updateJobId = toString(updatePayload.Job_id || updatePayload.job_id);
+          const updateDealId = toString(updatePayload.Deal_id || updatePayload.deal_id);
+          if (updateJobId) {
+            updatePayload.job_id = updateJobId;
+            updatePayload.Job_id = updateJobId;
+          }
+          if (updateDealId) {
+            updatePayload.deal_id = updateDealId;
+            updatePayload.Deal_id = updateDealId;
+          }
           await updateTaskRecord({ plugin, id: form.id, payload: updatePayload });
           success("Task updated", "Task changes have been saved.");
         } else {
@@ -420,10 +566,13 @@ export function TasksModal({
     },
     [
       plugin,
-      recordId,
-      normalizedContextType,
+      hasContextIds,
       form,
       isEditing,
+      resolvedJobId,
+      resolvedDealId,
+      jobUniqueIdCandidate,
+      resolveJobIdByUid,
       additionalCreatePayload,
       additionalUpdatePayload,
       loadTasks,
@@ -445,6 +594,8 @@ export function TasksModal({
           id,
           payload: {
             status: "Completed",
+            ...(resolvedJobId ? { job_id: resolvedJobId, Job_id: resolvedJobId } : {}),
+            ...(resolvedDealId ? { deal_id: resolvedDealId, Deal_id: resolvedDealId } : {}),
             ...(additionalUpdatePayload && typeof additionalUpdatePayload === "object"
               ? additionalUpdatePayload
               : {}),
@@ -462,7 +613,7 @@ export function TasksModal({
         setActiveTaskId("");
       }
     },
-    [plugin, loadTasks, success, error, additionalUpdatePayload]
+    [plugin, loadTasks, success, error, additionalUpdatePayload, resolvedJobId, resolvedDealId]
   );
 
   const normalizedTasks = useMemo(
@@ -495,9 +646,7 @@ export function TasksModal({
       ? "No completed tasks found."
       : taskFilter === "open"
         ? "No open tasks found."
-        : normalizedContextType === "deal"
-          ? "No tasks found for this inquiry."
-          : "No tasks found for this job.";
+        : "No tasks found for this context.";
 
   return (
     <Modal open={open} onClose={onClose} title="Tasks" widthClass="max-w-6xl">
@@ -563,7 +712,7 @@ export function TasksModal({
               <Button type="button" variant="ghost" onClick={resetForm} disabled={isSubmitting}>
                 Clear
               </Button>
-              <Button type="submit" variant="primary" disabled={isSubmitting || !recordId}>
+              <Button type="submit" variant="primary" disabled={isSubmitting || !hasContextIds}>
                 {isSubmitting ? "Saving..." : isEditing ? "Update Task" : "Add Task"}
               </Button>
             </JobDirectFormActionsRow>

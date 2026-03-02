@@ -280,15 +280,17 @@ function buildAccountSummary(job = {}) {
   const accountsContact = job?.Accounts_Contact?.Contact || {};
   const accountsContactFirstName = toText(
     job?.accounts_contact_contact_first_name ||
-      job?.Contact_First_Name1 ||
       job?.Accounts_Contact_Contact_First_Name ||
+      job?.Contact_First_Name ||
+      job?.Contact_First_Name1 ||
       accountsContact?.first_name ||
       accountsContact?.First_Name
   );
   const accountsContactLastName = toText(
     job?.accounts_contact_contact_last_name ||
-      job?.Contact_Last_Name1 ||
       job?.Accounts_Contact_Contact_Last_Name ||
+      job?.Contact_Last_Name ||
+      job?.Contact_Last_Name1 ||
       accountsContact?.last_name ||
       accountsContact?.Last_Name
   );
@@ -298,8 +300,9 @@ function buildAccountSummary(job = {}) {
     .trim();
   const accountsContactEmail = toText(
     job?.accounts_contact_contact_email ||
-      job?.ContactEmail1 ||
       job?.Accounts_Contact_Contact_Email ||
+      job?.ContactEmail ||
+      job?.ContactEmail1 ||
       accountsContact?.email ||
       accountsContact?.Email
   );
@@ -326,6 +329,7 @@ function buildServiceProviderSummary(job = {}) {
   const firstName = toText(
     job?.primary_service_provider_contact_first_name ||
       job?.Primary_Service_Provider_Contact_First_Name ||
+      job?.Contact_First_Name1 ||
       job?.Contact_First_Name2 ||
       job?.Primary_Service_Provider?.Contact_Information?.first_name ||
       job?.Primary_Service_Provider?.Contact_Information?.First_Name
@@ -333,6 +337,7 @@ function buildServiceProviderSummary(job = {}) {
   const lastName = toText(
     job?.primary_service_provider_contact_last_name ||
       job?.Primary_Service_Provider_Contact_Last_Name ||
+      job?.Contact_Last_Name1 ||
       job?.Contact_Last_Name2 ||
       job?.Primary_Service_Provider?.Contact_Information?.last_name ||
       job?.Primary_Service_Provider?.Contact_Information?.Last_Name
@@ -340,6 +345,7 @@ function buildServiceProviderSummary(job = {}) {
   const email = toText(
     job?.primary_service_provider_contact_email ||
       job?.Primary_Service_Provider_Contact_Email ||
+      job?.ContactEmail1 ||
       job?.ContactEmail2 ||
       job?.Primary_Service_Provider?.Contact_Information?.email ||
       job?.Primary_Service_Provider?.Contact_Information?.Email

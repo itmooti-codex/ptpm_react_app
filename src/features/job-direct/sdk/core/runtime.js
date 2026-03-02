@@ -76,19 +76,17 @@ function normalizeTaskMutationPayload(payload = {}, { forCreate = false } = {}) 
     next.date_due = dateDue;
   }
 
-  if (forCreate) {
-    const jobId = normalizeIdentifier(
-      source?.Job_id ?? source?.job_id ?? source?.JobID ?? source?.jobId
-    );
-    const dealId = normalizeIdentifier(
-      source?.Deal_id ?? source?.deal_id ?? source?.DealID ?? source?.dealId
-    );
-    if (jobId !== "" && jobId !== null && jobId !== undefined) {
-      next.Job_id = jobId;
-    }
-    if (dealId !== "" && dealId !== null && dealId !== undefined) {
-      next.Deal_id = dealId;
-    }
+  const jobId = normalizeIdentifier(
+    source?.Job_id ?? source?.job_id ?? source?.JobID ?? source?.jobId
+  );
+  const dealId = normalizeIdentifier(
+    source?.Deal_id ?? source?.deal_id ?? source?.DealID ?? source?.dealId
+  );
+  if (jobId !== "" && jobId !== null && jobId !== undefined) {
+    next.Job_id = jobId;
+  }
+  if (dealId !== "" && dealId !== null && dealId !== undefined) {
+    next.Deal_id = dealId;
   }
 
   return next;
@@ -152,19 +150,19 @@ function normalizeJobRecord(rawJob) {
   );
   const contactFirstName = getFirstNonEmptyText(
     rawJob?.Primary_Service_Provider_Contact_First_Name,
-    rawJob?.contact_first_name,
+    rawJob?.Contact_First_Name1,
     serviceProviderContact?.first_name,
     serviceProviderContact?.First_Name
   );
   const contactLastName = getFirstNonEmptyText(
     rawJob?.Primary_Service_Provider_Contact_Last_Name,
-    rawJob?.contact_last_name,
+    rawJob?.Contact_Last_Name1,
     serviceProviderContact?.last_name,
     serviceProviderContact?.Last_Name
   );
   const contactEmail = getFirstNonEmptyText(
     rawJob?.Primary_Service_Provider_Contact_Email,
-    rawJob?.contact_email,
+    rawJob?.ContactEmail1,
     serviceProviderContact?.email,
     serviceProviderContact?.Email
   );
@@ -234,26 +232,30 @@ function normalizeInvoiceBillContextRecord(rawJob) {
 
   const accountsContact = normalized?.Accounts_Contact?.Contact || null;
   const accountsContactFirstName = getFirstNonEmptyText(
-    normalized?.Contact_First_Name1,
     normalized?.Accounts_Contact_Contact_First_Name,
+    normalized?.Contact_First_Name,
+    normalized?.Contact_First_Name1,
     accountsContact?.first_name,
     accountsContact?.First_Name
   );
   const accountsContactLastName = getFirstNonEmptyText(
-    normalized?.Contact_Last_Name1,
     normalized?.Accounts_Contact_Contact_Last_Name,
+    normalized?.Contact_Last_Name,
+    normalized?.Contact_Last_Name1,
     accountsContact?.last_name,
     accountsContact?.Last_Name
   );
   const accountsContactEmail = getFirstNonEmptyText(
-    normalized?.ContactEmail1,
     normalized?.Accounts_Contact_Contact_Email,
+    normalized?.ContactEmail,
+    normalized?.ContactEmail1,
     accountsContact?.email,
     accountsContact?.Email
   );
   const accountsContactContactId = getFirstNonEmptyText(
-    normalized?.Contact_Contact_ID1,
     normalized?.Accounts_Contact_Contact_ID,
+    normalized?.Contact_Contact_ID,
+    normalized?.Contact_Contact_ID1,
     accountsContact?.id,
     accountsContact?.ID
   );
@@ -2729,6 +2731,7 @@ async function createUploadFromFileByField({
   missingIdMessage,
   file,
   uploadPath,
+  additionalPayload,
 } = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
   if (!resolvedPlugin?.switchTo) {
@@ -2750,7 +2753,11 @@ async function createUploadFromFileByField({
   await uploadToSignedUrl({ uploadUrl: signed.uploadUrl, file });
 
   const isPhoto = isImageUpload(file?.type || "", file?.name || "", "");
+  const extraPayload =
+    additionalPayload && typeof additionalPayload === "object" ? additionalPayload : {};
+
   const payload = {
+    ...extraPayload,
     [fieldName]: normalizedId,
     type: isPhoto ? "Photo" : "File",
     photo_upload: isPhoto ? signed.url : "",
@@ -2816,6 +2823,7 @@ export async function createPropertyUploadFromFile({
   propertyId,
   file,
   uploadPath = "property-uploads",
+  additionalPayload,
 } = {}) {
   return createUploadFromFileByField({
     plugin,
@@ -2824,6 +2832,7 @@ export async function createPropertyUploadFromFile({
     missingIdMessage: "Property ID is missing.",
     file,
     uploadPath,
+    additionalPayload,
   });
 }
 
@@ -2859,6 +2868,7 @@ export async function createJobUploadFromFile({
   jobId,
   file,
   uploadPath = "job-uploads",
+  additionalPayload,
 } = {}) {
   return createUploadFromFileByField({
     plugin,
@@ -2867,6 +2877,7 @@ export async function createJobUploadFromFile({
     missingIdMessage: "Job ID is missing.",
     file,
     uploadPath,
+    additionalPayload,
   });
 }
 

@@ -145,14 +145,19 @@ function mapInquiryRecord(raw = null) {
     deal_name: toText(raw.deal_name || raw.Deal_Name),
     deal_value: toText(raw.deal_value || raw.Deal_Value),
     service_provider_id: normalizeId(raw.service_provider_id || raw.Service_Provider_ID),
-    quote_record_id: normalizeId(raw.quote_record_id || raw.Quote_Record_ID),
-    inquiry_for_job_id: normalizeId(raw.inquiry_for_job_id || raw.Inquiry_For_Job_ID),
+    quote_record_id: normalizeId(
+      raw.quote_record_id || raw.Quote_Record_ID || raw.Quote_record_ID
+    ),
+    inquiry_for_job_id: normalizeId(
+      raw.inquiry_for_job_id || raw.Inquiry_For_Job_ID || raw.Inquiry_for_Job_ID
+    ),
     property_id: normalizeId(raw.property_id || raw.Property_ID),
   };
 }
 
 function mapJobRecord(raw = null) {
   if (!raw || typeof raw !== "object") return null;
+  const accountsContact = raw?.Accounts_Contact?.Contact || {};
   return {
     ...raw,
     id: normalizeId(raw.id || raw.ID),
@@ -178,6 +183,30 @@ function mapJobRecord(raw = null) {
     invoice_total: toText(raw.invoice_total || raw.Invoice_Total),
     xero_invoice_status: toText(raw.xero_invoice_status || raw.Xero_Invoice_Status),
     xero_bill_status: toText(raw.xero_bill_status || raw.Xero_Bill_Status),
+    accounts_contact_contact_id: normalizeId(
+      raw?.accounts_contact_contact_id ||
+        raw?.Accounts_Contact_Contact_ID ||
+        accountsContact?.id ||
+        accountsContact?.ID
+    ),
+    accounts_contact_contact_first_name: toText(
+      raw?.accounts_contact_contact_first_name ||
+        raw?.Accounts_Contact_Contact_First_Name ||
+        accountsContact?.first_name ||
+        accountsContact?.First_Name
+    ),
+    accounts_contact_contact_last_name: toText(
+      raw?.accounts_contact_contact_last_name ||
+        raw?.Accounts_Contact_Contact_Last_Name ||
+        accountsContact?.last_name ||
+        accountsContact?.Last_Name
+    ),
+    accounts_contact_contact_email: toText(
+      raw?.accounts_contact_contact_email ||
+        raw?.Accounts_Contact_Contact_Email ||
+        accountsContact?.email ||
+        accountsContact?.Email
+    ),
     bill_approved_admin:
       raw.bill_approved_admin === true ||
       toText(raw.bill_approved_admin || raw.Bill_Approved_Admin).toLowerCase() === "true",
@@ -356,6 +385,14 @@ function buildJobBaseQuery(plugin) {
         .select(["id", "job_rate_percentage"])
         .include("Contact_Information", (sq2) =>
           sq2.deSelectAll().select(["first_name", "last_name", "email"])
+        )
+    )
+    .include("Accounts_Contact", (sq) =>
+      sq
+        .deSelectAll()
+        .select(["id"])
+        .include("Contact", (sq2) =>
+          sq2.deSelectAll().select(["id", "first_name", "last_name", "email"])
         )
     )
     .include("Inquiry_Record", (sq) =>
@@ -604,22 +641,59 @@ export async function createLinkedJobForInquiry({
 
   const accountType = toText(inquiry.account_type || inquiry.Account_Type);
   const normalizedAccountType = normalizeStatus(accountType);
+  const isContactAccount =
+    normalizedAccountType === "contact" || normalizedAccountType === "individual";
+  const isBodyCorpAccount = normalizedAccountType.includes("body corp");
   const isCompanyAccount =
-    normalizedAccountType === "company" || normalizedAccountType === "entity";
+    !isContactAccount &&
+    (normalizedAccountType === "company" ||
+      normalizedAccountType === "entity" ||
+      normalizedAccountType.includes("company") ||
+      isBodyCorpAccount);
   const propertyId = normalizeId(inquiry?.Property?.id || inquiry?.PropertyID || inquiry?.property_id);
-  const contactId = normalizeId(inquiry?.Primary_Contact?.id || inquiry?.Primary_Contact_ID);
-  const companyId = normalizeId(inquiry?.Company?.id || inquiry?.Company_ID);
+  const contactId = normalizeId(
+    inquiry?.Primary_Contact?.id ||
+      inquiry?.Primary_Contact?.ID ||
+      inquiry?.Primary_Contact_ID ||
+      inquiry?.Primary_Contact_Contact_ID ||
+      inquiry?.Contact_Contact_ID
+  );
+  const companyId = normalizeId(
+    inquiry?.Company?.id ||
+      inquiry?.Company?.ID ||
+      inquiry?.company_id ||
+      inquiry?.Company_ID ||
+      inquiry?.CompanyID
+  );
+  const bodyCorpCompanyId = normalizeId(
+    inquiry?.Company?.Body_Corporate_Company?.id ||
+      inquiry?.Company?.Body_Corporate_Company?.ID ||
+      inquiry?.CompanyID1 ||
+      inquiry?.Company_ID1
+  );
+  const resolvedCompanyId = isBodyCorpAccount
+    ? bodyCorpCompanyId || companyId
+    : companyId;
+  const useCompanyClient = isCompanyAccount
+    ? Boolean(resolvedCompanyId)
+    : !isContactAccount && Boolean(resolvedCompanyId) && !contactId;
+  const resolvedClientEntityId = useCompanyClient ? resolvedCompanyId : "";
+  const resolvedClientIndividualId = useCompanyClient ? "" : contactId;
+  if (!resolvedClientEntityId && !resolvedClientIndividualId) {
+    throw new Error("Unable to resolve client entity/contact for quote creation.");
+  }
   const nowIso = new Date().toISOString();
 
   const payload = {
     inquiry_record_id: inquiryId,
+    job_status: "Quote",
     quote_date: nowIso,
     quote_status: "New",
     primary_service_provider_id: providerId,
     property_id: propertyId || null,
     account_type: accountType || null,
-    client_individual_id: isCompanyAccount ? null : contactId || null,
-    client_entity_id: isCompanyAccount ? companyId || null : null,
+    client_individual_id: resolvedClientIndividualId || null,
+    client_entity_id: resolvedClientEntityId || null,
   };
 
   const jobModel = plugin.switchTo("PeterpmJob");
@@ -723,6 +797,62 @@ export async function updateInquiryFieldsById({ plugin, inquiryId, payload } = {
     );
   }
   return { id: normalizedInquiryId, payload };
+}
+
+export async function updateContactFieldsById({ plugin, contactId, payload } = {}) {
+  if (!plugin?.switchTo) {
+    throw new Error("SDK plugin is not ready.");
+  }
+  const normalizedContactId = normalizeId(contactId);
+  if (!normalizedContactId) {
+    throw new Error("Contact ID is missing.");
+  }
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Update payload is missing.");
+  }
+
+  const contactModel = plugin.switchTo("PeterpmContact");
+  const mutation = await contactModel.mutation();
+  mutation.update((query) => query.where("id", normalizedContactId).set(payload));
+  const result = await mutation.execute(true).toPromise();
+  if (!result || result?.isCancelling) {
+    throw new Error(extractCancellationMessage(result, "Contact update was cancelled."));
+  }
+  const failure = extractStatusFailure(result);
+  if (failure) {
+    throw new Error(
+      extractMutationErrorMessage(failure.statusMessage) || "Unable to update contact."
+    );
+  }
+  return { id: normalizedContactId, payload };
+}
+
+export async function updateCompanyFieldsById({ plugin, companyId, payload } = {}) {
+  if (!plugin?.switchTo) {
+    throw new Error("SDK plugin is not ready.");
+  }
+  const normalizedCompanyId = normalizeId(companyId);
+  if (!normalizedCompanyId) {
+    throw new Error("Company ID is missing.");
+  }
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Update payload is missing.");
+  }
+
+  const companyModel = plugin.switchTo("PeterpmCompany");
+  const mutation = await companyModel.mutation();
+  mutation.update((query) => query.where("id", normalizedCompanyId).set(payload));
+  const result = await mutation.execute(true).toPromise();
+  if (!result || result?.isCancelling) {
+    throw new Error(extractCancellationMessage(result, "Company update was cancelled."));
+  }
+  const failure = extractStatusFailure(result);
+  if (failure) {
+    throw new Error(
+      extractMutationErrorMessage(failure.statusMessage) || "Unable to update company."
+    );
+  }
+  return { id: normalizedCompanyId, payload };
 }
 
 export async function fetchContactsForLookup({ plugin } = {}) {
@@ -837,8 +967,16 @@ export async function createTaskForDetails({ plugin, payload, jobId, inquiryId }
   const mergedPayload = {
     ...(payload && typeof payload === "object" ? payload : {}),
   };
-  if (normalizeId(jobId)) mergedPayload.job_id = normalizeId(jobId);
-  if (normalizeId(inquiryId)) mergedPayload.deal_id = normalizeId(inquiryId);
+  const normalizedJobId = normalizeId(jobId);
+  const normalizedInquiryId = normalizeId(inquiryId);
+  if (normalizedJobId) {
+    mergedPayload.job_id = normalizedJobId;
+    mergedPayload.Job_id = normalizedJobId;
+  }
+  if (normalizedInquiryId) {
+    mergedPayload.deal_id = normalizedInquiryId;
+    mergedPayload.Deal_id = normalizedInquiryId;
+  }
   return createTaskRecord({ plugin, payload: mergedPayload });
 }
 
@@ -852,8 +990,16 @@ export async function updateTaskForDetails({
   const mergedPayload = {
     ...(payload && typeof payload === "object" ? payload : {}),
   };
-  if (normalizeId(jobId)) mergedPayload.job_id = normalizeId(jobId);
-  if (normalizeId(inquiryId)) mergedPayload.deal_id = normalizeId(inquiryId);
+  const normalizedJobId = normalizeId(jobId);
+  const normalizedInquiryId = normalizeId(inquiryId);
+  if (normalizedJobId) {
+    mergedPayload.job_id = normalizedJobId;
+    mergedPayload.Job_id = normalizedJobId;
+  }
+  if (normalizedInquiryId) {
+    mergedPayload.deal_id = normalizedInquiryId;
+    mergedPayload.Deal_id = normalizedInquiryId;
+  }
   return updateTaskRecord({ plugin, id: taskId, payload: mergedPayload });
 }
 
@@ -879,6 +1025,11 @@ export async function createUploadForDetails({
     jobId: normalizedJobId,
     file,
     uploadPath: uploadPath || `job-uploads/${normalizedJobId}`,
+    additionalPayload: normalizeId(inquiryId)
+      ? {
+          inquiry_id: normalizeId(inquiryId),
+        }
+      : null,
   });
   const createdUploadId = normalizeId(created?.id || created?.ID);
   const normalizedInquiryId = normalizeId(inquiryId);
@@ -937,6 +1088,16 @@ function mapForumPostRecord(raw = {}, index = 0) {
     : Array.isArray(raw?.forum_comments)
       ? raw.forum_comments
       : [];
+  const dedupedComments = [];
+  const seenCommentIds = new Set();
+  comments.forEach((comment, commentIndex) => {
+    const mapped = mapForumCommentRecord(comment, commentIndex, postId);
+    const commentId = normalizeId(mapped?.id);
+    const key = commentId || `comment-${postId}-${commentIndex}`;
+    if (seenCommentIds.has(key)) return;
+    seenCommentIds.add(key);
+    dedupedComments.push(mapped);
+  });
 
   return {
     id: postId,
@@ -964,20 +1125,92 @@ function mapForumPostRecord(raw = {}, index = 0) {
       display_name: toText(author?.display_name || author?.Display_Name),
       profile_image: toText(author?.profile_image || author?.Profile_Image),
     },
-    ForumComments: comments.map((comment, commentIndex) =>
-      mapForumCommentRecord(comment, commentIndex, postId)
-    ),
+    ForumComments: dedupedComments,
   };
 }
 
 function normalizeForumPosts(records = []) {
-  return (Array.isArray(records) ? records : [])
+  const mapped = (Array.isArray(records) ? records : [])
     .map((row, index) => mapForumPostRecord(row, index))
+    .filter(Boolean);
+  const deduped = [];
+  const seenPostIds = new Set();
+  mapped.forEach((post, index) => {
+    const postId = normalizeId(post?.id || post?.ID);
+    const key = postId || `post-${index}`;
+    if (seenPostIds.has(key)) return;
+    seenPostIds.add(key);
+    deduped.push(post);
+  });
+  return deduped
     .sort((left, right) => {
       const leftTs = Number(left?.created_at || 0);
       const rightTs = Number(right?.created_at || 0);
       return leftTs - rightTs;
     });
+}
+
+async function fetchForumCommentsByPostId({ plugin, postId } = {}) {
+  const normalizedPostId = normalizeId(postId);
+  if (!plugin?.switchTo || !normalizedPostId) return [];
+  try {
+    const query = plugin
+      .switchTo("PeterpmForumComment")
+      .query()
+      .where("forum_post_id", normalizedPostId)
+      .deSelectAll()
+      .select(["id", "author_id", "comment", "comment_status", "created_at", "forum_post_id"])
+      .include("Author", (authorQuery) =>
+        authorQuery
+          .deSelectAll()
+          .select(["id", "first_name", "last_name", "display_name", "profile_image"])
+      )
+      .orderBy("created_at", "asc")
+      .limit(200)
+      .noDestroy();
+    query.getOrInitQueryCalc?.();
+    const payload = await fetchDirectWithTimeout(query, null, 20000);
+    const rows = extractRowsFromPayload(payload, "calcForumComments");
+    return (Array.isArray(rows) ? rows : []).map((row, index) =>
+      mapForumCommentRecord(row, index, normalizedPostId)
+    );
+  } catch (error) {
+    console.warn("[jobDetailsSdk] fetchForumCommentsByPostId fallback failed", {
+      postId: normalizedPostId,
+      error,
+    });
+    return [];
+  }
+}
+
+async function hydrateForumPostsWithComments({ plugin, posts = [] } = {}) {
+  const list = Array.isArray(posts) ? posts : [];
+  const postsMissingComments = list.filter((post) => {
+    const comments = Array.isArray(post?.ForumComments) ? post.ForumComments : [];
+    return comments.length === 0 && normalizeId(post?.id || post?.ID);
+  });
+
+  if (!postsMissingComments.length) return list;
+
+  const commentEntries = await Promise.all(
+    postsMissingComments.map(async (post) => {
+      const postId = normalizeId(post?.id || post?.ID);
+      const comments = await fetchForumCommentsByPostId({ plugin, postId });
+      return [postId, comments];
+    })
+  );
+  const commentMap = new Map(commentEntries);
+
+  return list.map((post) => {
+    const postId = normalizeId(post?.id || post?.ID);
+    if (!postId) return post;
+    const existingComments = Array.isArray(post?.ForumComments) ? post.ForumComments : [];
+    if (existingComments.length) return post;
+    return {
+      ...post,
+      ForumComments: commentMap.get(postId) || [],
+    };
+  });
 }
 
 function buildForumPostQuery(plugin, { inquiryId = "", jobId = "", limit = 80 } = {}) {
@@ -1046,7 +1279,8 @@ export async function fetchMemosForDetails({
     const query = buildForumPostQuery(plugin, { inquiryId, jobId, limit });
     const payload = await fetchDirectWithTimeout(query, null, 30000);
     const rows = extractRowsFromPayload(payload, "calcForumPosts");
-    return normalizeForumPosts(rows);
+    const normalized = normalizeForumPosts(rows);
+    return hydrateForumPostsWithComments({ plugin, posts: normalized });
   } catch (error) {
     console.error("[jobDetailsSdk] fetchMemosForDetails failed", error);
     return [];

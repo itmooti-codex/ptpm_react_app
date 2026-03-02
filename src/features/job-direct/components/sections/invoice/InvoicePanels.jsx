@@ -454,20 +454,23 @@ export function ServiceProviderBillPanel({
 
             <Card className="space-y-2 border-slate-200 bg-slate-50/55 p-3">
               <div className="text-xs uppercase tracking-wide text-slate-500">Bill To</div>
-              <div className="space-y-2 text-sm text-slate-700">
-                <div className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-                  <span>Reference</span>
-                  <span className="uid-text">
-                    {toText(activeJob?.unique_id || activeJob?.Unique_ID) || "--"}
-                  </span>
+              <div className="space-y-2 rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                <div className="text-sm font-semibold text-slate-900">
+                  Peter The Possum and Bird Man
                 </div>
-                <div className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-                  <span>Client</span>
-                  <span className="truncate font-medium text-slate-900">{accountSummary.accountName}</span>
+                <div>
+                  <span className="font-medium text-slate-800">Phone: </span>
+                  <a href="tel:0420908066" className="text-blue-700 hover:underline">
+                    0420908066
+                  </a>
                 </div>
-                <div className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-                  <span>Account Type</span>
-                  <span className="font-medium text-slate-900">{accountSummary.accountType}</span>
+                <div>
+                  <span className="font-medium text-slate-800">ABN: </span>
+                  --
+                </div>
+                <div>
+                  <span className="font-medium text-slate-800">Address: </span>
+                  13 Parakeet Pl Mullumbimby NSW, 2482 Australia
                 </div>
               </div>
             </Card>

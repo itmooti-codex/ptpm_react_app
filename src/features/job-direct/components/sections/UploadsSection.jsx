@@ -66,7 +66,7 @@ function dedupeUploadRecords(records = []) {
   return Array.from(map.values());
 }
 
-export function UploadsSection({ plugin, jobData }) {
+export function UploadsSection({ plugin, jobData, additionalCreatePayload = null }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
   const uploads = useJobDirectSelector(selectJobUploads);
@@ -246,6 +246,7 @@ export function UploadsSection({ plugin, jobData }) {
           jobId,
           file: pending.file,
           uploadPath: `job-uploads/${jobId}`,
+          additionalPayload: additionalCreatePayload,
         });
         if (saved) created.push(saved);
         if (pending?.previewUrl) URL.revokeObjectURL(pending.previewUrl);
