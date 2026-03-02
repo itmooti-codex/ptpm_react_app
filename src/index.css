@@ -68,6 +68,26 @@
 }
 
 @layer utilities {
+  .uid-text {
+    color: #1d4ed8;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "Courier New", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  .uid-link {
+    color: #1d4ed8;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "Courier New", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
   .type-headline {
     font-size: var(--fs-headline);
     line-height: var(--lh-headline);

@@ -472,8 +472,14 @@ export function DashboardPage() {
   const handleViewRecord = useCallback(
     (row) => {
       const uid = String(row?.uid || "").trim();
-      if (!uid || activeTab === TAB_IDS.INQUIRY) return;
-      navigate(`/job-direct/${encodeURIComponent(uid)}`);
+      if (!uid) return;
+      navigate(`/details/${encodeURIComponent(uid)}`, {
+        state: {
+          sourceTab: activeTab,
+          sourceId: row?.id ?? "",
+          sourceUid: uid,
+        },
+      });
     },
     [activeTab, navigate]
   );

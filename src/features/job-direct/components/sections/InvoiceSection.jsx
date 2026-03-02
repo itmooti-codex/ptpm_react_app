@@ -249,6 +249,29 @@ function collectMaterialSummary(materials = []) {
   );
 }
 
+function hasRenderableActivityRecord(record = {}) {
+  if (!record || typeof record !== "object") return false;
+  const task = toText(record?.task || record?.Task);
+  const option = toText(record?.option || record?.Option);
+  const serviceName = toText(record?.service_name || record?.Service_Service_Name);
+  const activityText = toText(record?.activity_text || record?.Activity_Text);
+  const note = toText(record?.note || record?.Note);
+  const warranty = toText(record?.warranty || record?.Warranty);
+  const quantity = toNumber(record?.quantity || record?.Quantity || 0);
+  const price = toNumber(record?.activity_price || record?.Activity_Price || record?.quoted_price || 0);
+
+  return Boolean(
+    task ||
+      option ||
+      serviceName ||
+      activityText ||
+      note ||
+      warranty ||
+      quantity > 0 ||
+      price > 0
+  );
+}
+
 function buildAccountSummary(job = {}) {
   const accountType =
     normalizeStatus(job?.account_type || job?.Account_Type) === "company"
@@ -368,8 +391,12 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
 
   const activeJob = jobEntity || jobData || null;
   const activeActivities = useMemo(() => {
-    if (Array.isArray(storeActivities) && storeActivities.length) return storeActivities;
-    return Array.isArray(jobData?.activities) ? jobData.activities : [];
+    const source = Array.isArray(storeActivities) && storeActivities.length
+      ? storeActivities
+      : Array.isArray(jobData?.activities)
+        ? jobData.activities
+        : [];
+    return source.filter((record) => hasRenderableActivityRecord(record));
   }, [storeActivities, jobData]);
   const activeMaterials = useMemo(() => {
     if (Array.isArray(storeMaterials) && storeMaterials.length) return storeMaterials;

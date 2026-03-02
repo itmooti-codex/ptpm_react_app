@@ -78,7 +78,7 @@ export function InquiryOptionCard({
               href={inquiryLink}
               target="_blank"
               rel="noreferrer"
-              className="text-xs font-medium text-sky-700 underline decoration-sky-300 underline-offset-2 hover:text-sky-900"
+              className="uid-link hover:text-blue-800"
             >
               {deal.unique_id}
             </a>
@@ -127,7 +127,7 @@ export function PropertyOptionCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-medium text-slate-500">
+          <div className="uid-text">
             {property?.unique_id || "No Property UID"}
           </div>
           <div className="mt-1 text-sm font-semibold text-neutral-700">

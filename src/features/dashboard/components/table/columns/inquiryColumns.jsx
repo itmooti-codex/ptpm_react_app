@@ -58,7 +58,7 @@ export function getInquiryColumns({ onView, onAddTask, onDelete, isBatchMode, so
       render: (row) => (
         <button
           type="button"
-          className="font-medium text-[#003882] hover:underline"
+          className="uid-link hover:brightness-90"
           onClick={() => onView?.(row)}
         >
           {row.uid || "—"}

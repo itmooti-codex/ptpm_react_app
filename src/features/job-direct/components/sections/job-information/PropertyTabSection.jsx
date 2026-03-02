@@ -719,7 +719,13 @@ export function PropertyTabSection({
                       <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
                         {item.label}
                       </div>
-                      <div className="text-sm text-neutral-800">{formatPropertyValue(item.value)}</div>
+                      <div
+                        className={`text-sm text-neutral-800 ${
+                          String(item.label || "").toLowerCase().includes("uid") ? "uid-text" : ""
+                        }`}
+                      >
+                        {formatPropertyValue(item.value)}
+                      </div>
                     </div>
                   ))}
                 </div>

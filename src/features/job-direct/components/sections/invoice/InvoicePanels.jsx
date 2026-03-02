@@ -445,7 +445,7 @@ export function ServiceProviderBillPanel({
                 </div>
                 <div className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-3 py-2">
                   <span>Bill Xero ID</span>
-                  <span className="font-mono text-[12px] text-slate-900">
+                  <span className="uid-text">
                     {toText(activeJob?.bill_xero_id || activeJob?.Bill_Xero_ID) || "--"}
                   </span>
                 </div>
@@ -457,7 +457,7 @@ export function ServiceProviderBillPanel({
               <div className="space-y-2 text-sm text-slate-700">
                 <div className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-3 py-2">
                   <span>Reference</span>
-                  <span className="font-medium text-slate-900">
+                  <span className="uid-text">
                     {toText(activeJob?.unique_id || activeJob?.Unique_ID) || "--"}
                   </span>
                 </div>

@@ -65,7 +65,7 @@ export function getJobsColumns({
       render: (row) => (
         <button
           type="button"
-          className="font-medium text-[#003882] hover:underline"
+          className="uid-link hover:brightness-90"
           onClick={() => onView?.(row)}
         >
           {row.uid || "—"}
@@ -108,7 +108,7 @@ export function getJobsColumns({
       header: "Job #",
       thClass: "w-[1%]",
       tdClass: "whitespace-nowrap",
-      render: (row) => <span className="font-mono text-xs">{row.jobNumber ?? "—"}</span>,
+      render: (row) => <span className="uid-text">{row.jobNumber ?? "—"}</span>,
     },
     {
       key: "status",

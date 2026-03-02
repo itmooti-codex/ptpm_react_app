@@ -245,6 +245,8 @@ export function TasksModal({
   jobData,
   contextType = "job",
   contextId = "",
+  additionalCreatePayload = null,
+  additionalUpdatePayload = null,
 }) {
   const normalizedContextType = toString(contextType).toLowerCase() === "deal" ? "deal" : "job";
   const recordId =
@@ -385,11 +387,20 @@ export function TasksModal({
       } else {
         payload.job_id = recordId;
       }
+      if (additionalCreatePayload && typeof additionalCreatePayload === "object") {
+        Object.assign(payload, additionalCreatePayload);
+      }
 
       setIsSubmitting(true);
       try {
         if (isEditing) {
-          await updateTaskRecord({ plugin, id: form.id, payload });
+          const updatePayload = {
+            ...payload,
+            ...(additionalUpdatePayload && typeof additionalUpdatePayload === "object"
+              ? additionalUpdatePayload
+              : {}),
+          };
+          await updateTaskRecord({ plugin, id: form.id, payload: updatePayload });
           success("Task updated", "Task changes have been saved.");
         } else {
           await createTaskRecord({ plugin, payload });
@@ -413,6 +424,8 @@ export function TasksModal({
       normalizedContextType,
       form,
       isEditing,
+      additionalCreatePayload,
+      additionalUpdatePayload,
       loadTasks,
       resetForm,
       success,
@@ -432,6 +445,9 @@ export function TasksModal({
           id,
           payload: {
             status: "Completed",
+            ...(additionalUpdatePayload && typeof additionalUpdatePayload === "object"
+              ? additionalUpdatePayload
+              : {}),
           },
         });
         if (!updatedTask?.id) {
@@ -446,7 +462,7 @@ export function TasksModal({
         setActiveTaskId("");
       }
     },
-    [plugin, loadTasks, success, error]
+    [plugin, loadTasks, success, error, additionalUpdatePayload]
   );
 
   const normalizedTasks = useMemo(

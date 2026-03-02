@@ -1150,6 +1150,19 @@ function normalizeTaskRecord(rawTask = {}) {
   };
 }
 
+function hasMeaningfulTaskContent(task = {}) {
+  return Boolean(
+    String(task?.subject || "").trim() ||
+      String(task?.status || "").trim() ||
+      String(task?.date_due || "").trim() ||
+      String(task?.details || "").trim() ||
+      String(task?.assignee_id || "").trim() ||
+      String(task?.assignee_first_name || "").trim() ||
+      String(task?.assignee_last_name || "").trim() ||
+      String(task?.assignee_email || "").trim()
+  );
+}
+
 export async function fetchTasksByJobId({ plugin, jobId } = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
   if (!resolvedPlugin?.switchTo) return [];
@@ -1180,7 +1193,9 @@ export async function fetchTasksByJobId({ plugin, jobId } = {}) {
     const response = await fetchDirectWithTimeout(customQuery, {
       variables: { Job_id: normalizedJobId },
     });
-    return extractRecords(response).map((record) => normalizeTaskRecord(record));
+    return extractRecords(response)
+      .map((record) => normalizeTaskRecord(record))
+      .filter((task) => hasMeaningfulTaskContent(task));
   } catch (error) {
     console.error("[JobDirect] Failed to fetch tasks", error);
     return [];
@@ -1217,7 +1232,9 @@ export async function fetchTasksByDealId({ plugin, dealId } = {}) {
     const response = await fetchDirectWithTimeout(customQuery, {
       variables: { Deal_id: normalizedDealId },
     });
-    return extractRecords(response).map((record) => normalizeTaskRecord(record));
+    return extractRecords(response)
+      .map((record) => normalizeTaskRecord(record))
+      .filter((task) => hasMeaningfulTaskContent(task));
   } catch (error) {
     console.error("[JobDirect] Failed to fetch deal tasks", error);
     return [];

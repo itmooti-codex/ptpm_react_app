@@ -65,7 +65,7 @@ export function getActiveJobsColumns({
       render: (row) => (
         <button
           type="button"
-          className="font-medium text-[#003882] hover:underline"
+          className="uid-link hover:brightness-90"
           onClick={() => onView?.(row)}
         >
           {row.uid || "—"}
@@ -127,7 +127,7 @@ export function getActiveJobsColumns({
       header: "Invoice #",
       thClass: "w-[1%]",
       tdClass: "whitespace-nowrap",
-      render: (row) => <span className="font-mono text-xs">{row.invoiceNumber ?? "—"}</span>,
+      render: (row) => <span className="uid-text">{row.invoiceNumber ?? "—"}</span>,
     },
     {
       key: "_actions",
