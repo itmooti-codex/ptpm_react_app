@@ -75,7 +75,6 @@ const PAGE_TABS = [
   "Activities",
   "Materials",
   "Invoice & Payment",
-  "Memos",
 ];
 
 const STAGES = [
@@ -276,6 +275,13 @@ function getMemoFileMeta(input) {
     };
   }
   if (typeof input === "object") {
+    if (Array.isArray(input)) {
+      const first = input.find(Boolean);
+      return first ? getMemoFileMeta(first) : null;
+    }
+    if (input.fileObject) {
+      return getMemoFileMeta(input.fileObject);
+    }
     const link = toText(input.link || input.url || input.path);
     if (!link) return null;
     return {
@@ -789,12 +795,108 @@ function StatusRow({ label, value, style }) {
   );
 }
 
+function InlineInfoItem({ label, value, mono = false }) {
+  const text = toText(value) || "—";
+  const normalizedLabel = toText(label).toLowerCase();
+  const isEmailField = normalizedLabel.includes("email");
+  const isPhoneField =
+    normalizedLabel.includes("phone") || normalizedLabel.includes("sms");
+  const canRenderEmailLink = isEmailField && isLikelyEmailValue(text);
+  const canRenderPhoneLink = isPhoneField && isLikelyPhoneValue(text);
+  const telHref = canRenderPhoneLink ? toTelHref(text) : "";
+
+  return (
+    <div className="inline-flex max-w-full items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}:
+      </span>
+      <span
+        className={`max-w-[280px] truncate text-sm text-slate-700 ${mono ? "uid-text" : ""}`}
+        title={text}
+      >
+        {canRenderEmailLink ? (
+          <a href={`mailto:${text}`} className="text-[#0056a8] underline hover:text-[#003882]">
+            {text}
+          </a>
+        ) : canRenderPhoneLink && telHref ? (
+          <a href={telHref} className="text-[#0056a8] underline hover:text-[#003882]">
+            {text}
+          </a>
+        ) : (
+          text
+        )}
+      </span>
+    </div>
+  );
+}
+
+function InlineStatusItem({ label, value, style }) {
+  const text = toText(value) || "—";
+  const colorStyle = style || resolveStatusStyle(text) || {
+    color: "#475569",
+    backgroundColor: "#e2e8f0",
+    borderColor: "#cbd5e1",
+  };
+  return (
+    <div className="inline-flex max-w-full items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}:
+      </span>
+      {text === "—" ? (
+        <span className="text-sm text-slate-700">—</span>
+      ) : (
+        <span
+          className="inline-flex rounded border px-1.5 py-0.5 text-xs font-semibold"
+          style={{
+            color: colorStyle.color,
+            backgroundColor: colorStyle.backgroundColor,
+            borderColor: colorStyle.borderColor || colorStyle.color,
+          }}
+        >
+          {text}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function InquirySubAccordion({ title, isOpen, onToggle, children }) {
+  return (
+    <section className="rounded border border-slate-200 bg-slate-50">
+      <button
+        type="button"
+        className={`flex w-full items-center justify-between px-3 py-2 text-left ${
+          isOpen ? "border-b border-slate-200" : ""
+        }`}
+        onClick={onToggle}
+        aria-expanded={isOpen}
+      >
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">{title}</span>
+        <span className="text-xs font-semibold text-slate-600">{isOpen ? "⌃" : "⌄"}</span>
+      </button>
+      {isOpen ? <div className="space-y-3 p-3">{children}</div> : null}
+    </section>
+  );
+}
+
+function LongTextRow({ label, value }) {
+  const text = toText(value) || "—";
+  return (
+    <div className="rounded border border-slate-200 bg-white p-2">
+      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <p className="whitespace-pre-wrap break-words text-sm text-slate-700">{text}</p>
+    </div>
+  );
+}
+
 function StageChip({ label, active }) {
   return (
     <div
       className={`rounded border px-3 py-2 text-xs font-semibold uppercase tracking-wide ${
         active
-          ? "border-[#003882] bg-[#003882]/10 text-[#003882]"
+          ? "bg-[rgba(54,146,107,0.12)] [border-color:var(--color-success)] [color:var(--color-success)]"
           : "border-slate-200 bg-white text-slate-500"
       }`}
     >
@@ -917,6 +1019,7 @@ export function JobDetailsPage() {
     job: null,
   });
   const [isLoadingContext, setIsLoadingContext] = useState(true);
+  const [hasInitialContextResolved, setHasInitialContextResolved] = useState(false);
   const [contextError, setContextError] = useState(null);
   const [isAddPropertyOpen, setIsAddPropertyOpen] = useState(false);
   const [propertyModalMode, setPropertyModalMode] = useState("create");
@@ -972,6 +1075,7 @@ export function JobDetailsPage() {
   const [isMemosLoading, setIsMemosLoading] = useState(false);
   const [memosError, setMemosError] = useState("");
   const [memoText, setMemoText] = useState("");
+  const [isMemoChatOpen, setIsMemoChatOpen] = useState(false);
   const [memoFile, setMemoFile] = useState(null);
   const [popupCommentDrafts, setPopupCommentDrafts] = useState({
     contact: "",
@@ -998,11 +1102,32 @@ export function JobDetailsPage() {
     processing: false,
     key: "",
   });
+  const [isEmailJobUpdating, setIsEmailJobUpdating] = useState(false);
   const [openDropdown, setOpenDropdown] = useState("");
   const [collapsedCards, setCollapsedCards] = useState({
     inquiry: true,
     property: true,
     job: true,
+  });
+  const [collapsedInquirySections, setCollapsedInquirySections] = useState({
+    overview: true,
+    primaryContact: true,
+    companyDetails: true,
+    bodyCorpCompany: true,
+    dealProvider: true,
+  });
+  const [collapsedPropertySections, setCollapsedPropertySections] = useState({
+    address: true,
+    building: true,
+    features: true,
+    contacts: true,
+  });
+  const [collapsedJobSections, setCollapsedJobSections] = useState({
+    status: true,
+    timeline: true,
+    invoice: true,
+    contacts: true,
+    workflow: true,
   });
   const uploadsInputRef = useRef(null);
   const memoFileInputRef = useRef(null);
@@ -1033,12 +1158,59 @@ export function JobDetailsPage() {
 
   useEffect(() => {
     setLinkedPropertyIdOverride("");
+    setHasInitialContextResolved(false);
+    setCollapsedInquirySections({
+      overview: true,
+      primaryContact: true,
+      companyDetails: true,
+      bodyCorpCompany: true,
+      dealProvider: true,
+    });
+    setCollapsedPropertySections({
+      address: true,
+      building: true,
+      features: true,
+      contacts: true,
+    });
+    setCollapsedJobSections({
+      status: true,
+      timeline: true,
+      invoice: true,
+      contacts: true,
+      workflow: true,
+    });
   }, [uid]);
+
+  useEffect(() => {
+    if (isLoadingContext) return;
+    setHasInitialContextResolved(true);
+  }, [isLoadingContext]);
 
   const toggleCardCollapse = useCallback((cardKey) => {
     setCollapsedCards((previous) => ({
       ...(previous || {}),
       [cardKey]: !Boolean(previous?.[cardKey]),
+    }));
+  }, []);
+
+  const toggleInquirySection = useCallback((sectionKey) => {
+    setCollapsedInquirySections((previous) => ({
+      ...(previous || {}),
+      [sectionKey]: !Boolean(previous?.[sectionKey]),
+    }));
+  }, []);
+
+  const togglePropertySection = useCallback((sectionKey) => {
+    setCollapsedPropertySections((previous) => ({
+      ...(previous || {}),
+      [sectionKey]: !Boolean(previous?.[sectionKey]),
+    }));
+  }, []);
+
+  const toggleJobSection = useCallback((sectionKey) => {
+    setCollapsedJobSections((previous) => ({
+      ...(previous || {}),
+      [sectionKey]: !Boolean(previous?.[sectionKey]),
     }));
   }, []);
 
@@ -1192,7 +1364,17 @@ export function JobDetailsPage() {
       inquiry?.Inquiry_For_Job_ID ||
       inquiry?.Inquiry_for_Job_ID
   );
+  const currentJobUniqueId = toText(job?.unique_id || job?.Unique_ID);
   const hasLinkedJob = Boolean(currentJobId);
+
+  const handleOpenPrintJobSheet = useCallback(() => {
+    if (!currentJobUniqueId) {
+      showError("Print unavailable", "No linked job unique ID found.");
+      return;
+    }
+    const targetUrl = `https://my.awesomate.pro/${encodeURIComponent(currentJobUniqueId)}/job-sheet`;
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
+  }, [currentJobUniqueId, showError]);
 
   const handleTasksChanged = useCallback((rows) => {
     const normalized = Array.isArray(rows) ? rows : [];
@@ -2340,6 +2522,27 @@ export function JobDetailsPage() {
     [canDuplicateJob, currentJobId, inquiryId, jobActionState.processing, navigate, plugin, showError, success]
   );
 
+  const handleEmailJob = useCallback(async () => {
+    if (!currentJobId || !plugin || isEmailJobUpdating) return;
+    setIsEmailJobUpdating(true);
+    try {
+      await updateJobFieldsById({
+        plugin,
+        jobId: currentJobId,
+        payload: {
+          send_job_update_to_service_provider: true,
+        },
+      });
+      success("Email job queued", "Service provider update email was marked for sending.");
+      await reloadContext();
+    } catch (error) {
+      console.error("[JobDetails] Failed to queue email job", error);
+      showError("Email job failed", error?.message || "Unable to update email flag.");
+    } finally {
+      setIsEmailJobUpdating(false);
+    }
+  }, [currentJobId, isEmailJobUpdating, plugin, reloadContext, showError, success]);
+
   const openContactDetailsModal = useCallback(({ mode = "individual", onSave = null } = {}) => {
     setContactModalState({
       open: true,
@@ -2792,6 +2995,10 @@ export function JobDetailsPage() {
     return <FullPageLoader text="Starting app..." />;
   }
 
+  if (isSdkReady && !sdkError && !hasInitialContextResolved) {
+    return <FullPageLoader text="Loading job details..." />;
+  }
+
   if (loadFailure) {
     const friendly = getFriendlyServiceMessage(loadFailure);
     return (
@@ -2897,12 +3104,18 @@ export function JobDetailsPage() {
             <Button
               variant="secondary"
               className="!text-brand-primary whitespace-nowrap"
-              onClick={() => window.print()}
+              disabled={!currentJobUniqueId}
+              onClick={handleOpenPrintJobSheet}
             >
               Print Job Sheet
             </Button>
-            <Button variant="secondary" className="!text-slate-500 whitespace-nowrap" disabled>
-              Email Job
+            <Button
+              variant="secondary"
+              className="!text-brand-primary whitespace-nowrap"
+              disabled={!currentJobId || isEmailJobUpdating}
+              onClick={handleEmailJob}
+            >
+              {isEmailJobUpdating ? "Sending..." : "Email Job"}
             </Button>
           </div>
         </div>
@@ -2994,113 +3207,66 @@ export function JobDetailsPage() {
               </div>
             </section>
 
-            <div className="flex items-stretch gap-4">
-              <section className="min-w-0 flex-1 rounded border bg-white p-3" style={inquiryCardTheme.wrapperStyle}>
-                <div className="space-y-2">
+            <div className="w-[360px] max-w-full">
+              <div className="mb-1 text-sm font-semibold" style={inquiryCardTheme.accentStyle}>
+                {selectedProviderId ? "Service Provider Assigned" : "Assign Service Provider"}
+              </div>
+              {inquiry ? (
+                <div className="flex items-end gap-2">
                   <div
-                    className="text-base font-bold leading-5"
-                    style={inquiryCardTheme.accentStyle}
-                  >
-                    Assign Service Provider
-                  </div>
-                  {inquiry ? (
-                    hasLinkedJob ? (
-                      <div
-                        className="rounded border px-3 py-2"
-                        style={{
-                          borderColor: inquiryCardTheme.wrapperStyle.borderColor,
-                          backgroundColor: inquiryCardTheme.headerStyle.backgroundColor,
-                        }}
-                      >
-                        <div className="text-sm font-semibold text-slate-900">
-                          {resolvedProviderName || "—"}
-                        </div>
-                        <p className="mt-0.5 text-xs text-slate-600">
-                          Provider allocation is locked after quote creation.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,420px)_auto]">
-                        <SearchDropdownInput
-                          label="Service Provider"
-                          field="service_provider_search"
-                          value={providerSearchValue}
-                          placeholder="Search by name, email, phone"
-                          items={providerItems}
-                          onValueChange={setProviderSearchValue}
-                          onSelect={(item) => {
-                            const nextId = toText(item?.id);
-                            setSelectedProviderId(nextId);
-                            setProviderSearchValue(item?.label || "");
-                          }}
-                          hideAddAction
-                          emptyText={isProviderLookupLoading ? "Loading service providers..." : "No service providers found."}
-                        />
-                        <div className="flex items-end gap-2">
-                          <Button
-                            variant="secondary"
-                            onClick={handleAllocateProvider}
-                            disabled={isAllocatingProvider || !selectedProviderId}
-                          >
-                            {isAllocatingProvider ? "Submitting..." : "Submit information"}
-                          </Button>
-                        </div>
-                      </div>
-                    )
-                  ) : (
-                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-                      No linked inquiry available for provider allocation.
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              {hasPopupCommentsSection ? (
-                <section className="min-w-0 w-[460px] rounded border border-slate-200 bg-white p-2.5">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="text-sm font-semibold text-slate-800">Inquiry Popup Comments</div>
-                    <button
-                      type="button"
-                      className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
-                      onClick={() => setIsPopupCommentModalOpen(true)}
-                      title="Edit popup comments"
-                      aria-label="Edit popup comments"
-                    >
-                      <EditIcon />
-                    </button>
-                  </div>
-                  <div
-                    className={`grid grid-cols-1 gap-2 ${
-                      showContactDetails && showCompanyDetails ? "2xl:grid-cols-2" : ""
+                    className={`min-w-0 flex-1 ${
+                      hasLinkedJob ? "pointer-events-none" : ""
                     }`}
                   >
-                    {showContactDetails ? (
-                      <div className="rounded border border-slate-200 bg-white p-2">
-                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Contact Comment
-                        </div>
-                        <p className="min-h-[35px] whitespace-pre-wrap text-sm text-slate-700">
-                          {contactPopupComment || "—"}
-                        </p>
-                      </div>
-                    ) : null}
-                    {showCompanyDetails ? (
-                      <div className="rounded border border-slate-200 bg-white p-2">
-                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Company Comment
-                        </div>
-                        <p className="min-h-[35px] whitespace-pre-wrap text-sm text-slate-700">
-                          {companyPopupComment || "—"}
-                        </p>
-                      </div>
-                    ) : null}
+                    <SearchDropdownInput
+                      label=""
+                      field="service_provider_search"
+                      value={hasLinkedJob ? resolvedProviderName || providerSearchValue : providerSearchValue}
+                      placeholder="Search by name, email, phone"
+                      items={providerItems}
+                      onValueChange={(nextValue) => {
+                        if (hasLinkedJob) return;
+                        setProviderSearchValue(nextValue);
+                      }}
+                      onSelect={(item) => {
+                        if (hasLinkedJob) return;
+                        const nextId = toText(item?.id);
+                        setSelectedProviderId(nextId);
+                        setProviderSearchValue(item?.label || "");
+                      }}
+                      hideAddAction
+                      emptyText={
+                        isProviderLookupLoading ? "Loading service providers..." : "No service providers found."
+                      }
+                      rootData={{
+                        className: `w-full ${
+                          hasLinkedJob ? "opacity-75" : ""
+                        } [&_[data-field='service_provider_search']]:border-[var(--provider-border)] [&_[data-field='service_provider_search']]:focus:border-[var(--provider-border)]`,
+                        style: {
+                          "--provider-border":
+                            inquiryCardTheme?.wrapperStyle?.borderColor || "#94a3b8",
+                        },
+                      }}
+                    />
                   </div>
-                </section>
-              ) : null}
+                  {!hasLinkedJob ? (
+                    <Button
+                      variant="secondary"
+                      onClick={handleAllocateProvider}
+                      disabled={isAllocatingProvider || !selectedProviderId}
+                      className="whitespace-nowrap"
+                    >
+                      {isAllocatingProvider ? "Submitting..." : "Submit information"}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500">No linked inquiry.</div>
+              )}
             </div>
 
             <section className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-start gap-4">
-              <article className="min-w-0 rounded border bg-white" style={inquiryCardTheme.wrapperStyle}>
+              <article className="min-w-0 overflow-hidden rounded border bg-white" style={inquiryCardTheme.wrapperStyle}>
                 <button
                   type="button"
                   className={`flex w-full items-center justify-between px-4 py-3 text-left ${
@@ -3126,171 +3292,192 @@ export function JobDetailsPage() {
                 {!collapsedCards.inquiry ? (
                 <div className="p-4">
                     {inquiry ? (
-                      <div className="space-y-4">
-                        <section className="rounded border border-slate-200 bg-slate-50 p-3">
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                            Inquiry Overview
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                            <div className="rounded border border-slate-200 bg-white p-3">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                Identity
-                              </div>
-                              <InfoRow label="UID" value={inquiry.unique_id || inquiry.Unique_ID} mono />
-                              <StatusRow label="Status" value={inquiryStatus} style={resolveStatusStyle(inquiryStatus)} />
-                              <InfoRow label="Created" value={formatDate(inquiry.created_at || inquiry.Date_Added)} />
-                              <InfoRow label="Account Type" value={inquiry.account_type || inquiry.Account_Type} />
+                      <div className="space-y-2">
+                        <InquirySubAccordion
+                          title="Inquiry Overview"
+                          isOpen={!collapsedInquirySections.overview}
+                          onToggle={() => toggleInquirySection("overview")}
+                        >
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              Identity
                             </div>
-                            <div className="rounded border border-slate-200 bg-white p-3">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                Source & Request
-                              </div>
-                              <InfoRow label="Source" value={inquiry.inquiry_source || inquiry.Inquiry_Source} />
-                              <InfoRow label="Inquiry Type" value={inquiry.type || inquiry.Type} />
-                              <InfoRow
+                            <div className="flex flex-wrap gap-1.5">
+                              <InlineInfoItem label="UID" value={inquiry.unique_id || inquiry.Unique_ID} mono />
+                              <InlineStatusItem
+                                label="Status"
+                                value={inquiryStatus}
+                                style={resolveStatusStyle(inquiryStatus)}
+                              />
+                              <InlineInfoItem label="Created" value={formatDate(inquiry.created_at || inquiry.Date_Added)} />
+                              <InlineInfoItem label="Account Type" value={inquiry.account_type || inquiry.Account_Type} />
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              Source & Request
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              <InlineInfoItem label="Source" value={inquiry.inquiry_source || inquiry.Inquiry_Source} />
+                              <InlineInfoItem label="Inquiry Type" value={inquiry.type || inquiry.Type} />
+                              <InlineInfoItem
                                 label="How Did You Hear"
                                 value={inquiry.how_did_you_hear || inquiry.How_did_you_hear}
                               />
-                              <InfoRow label="Other" value={inquiry.other || inquiry.Other} />
-                              <InfoRow label="How Can We Help" value={inquiry.how_can_we_help || inquiry.How_can_we_help} />
-                            </div>
-                            <div className="rounded border border-slate-200 bg-white p-3 2xl:col-span-2">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                Notes
-                              </div>
-                              <InfoRow label="Admin Notes" value={inquiry.admin_notes || inquiry.Admin_Notes} />
-                              <InfoRow label="Client Notes" value={inquiry.client_notes || inquiry.Client_Notes} />
+                              <InlineInfoItem label="Other" value={inquiry.other || inquiry.Other} />
+                              <InlineInfoItem label="How Can We Help" value={inquiry.how_can_we_help || inquiry.How_can_we_help} />
                             </div>
                           </div>
-                        </section>
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              Notes
+                            </div>
+                            <div className="space-y-2">
+                              <LongTextRow label="Admin Notes" value={inquiry.admin_notes || inquiry.Admin_Notes} />
+                              <LongTextRow label="Client Notes" value={inquiry.client_notes || inquiry.Client_Notes} />
+                            </div>
+                          </div>
+                        </InquirySubAccordion>
 
                         {showContactDetails ? (
-                          <section className="rounded border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                              Primary Contact
-                            </div>
-                            <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Identity
-                                </div>
-                                <InfoRow label="ID" value={toText(inquiryPrimaryContact?.id)} mono />
-                                <InfoRow
+                          <InquirySubAccordion
+                            title="Primary Contact"
+                            isOpen={!collapsedInquirySections.primaryContact}
+                            onToggle={() => toggleInquirySection("primaryContact")}
+                          >
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Identity
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <InlineInfoItem label="ID" value={toText(inquiryPrimaryContact?.id)} mono />
+                                <InlineInfoItem
                                   label="First Name"
                                   value={toText(inquiryPrimaryContact?.first_name || inquiryPrimaryContact?.First_Name)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Last Name"
                                   value={toText(inquiryPrimaryContact?.last_name || inquiryPrimaryContact?.Last_Name)}
                                 />
-                                <InfoRow label="Name" value={inquiryClient.name} />
+                                <InlineInfoItem label="Name" value={inquiryClient.name} />
                               </div>
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Reachability
-                                </div>
-                                <InfoRow
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Reachability
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <InlineInfoItem
                                   label="Email"
                                   value={toText(inquiryPrimaryContact?.email || inquiryPrimaryContact?.Email)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="SMS Number"
                                   value={toText(inquiryPrimaryContact?.sms_number || inquiryPrimaryContact?.SMS_Number)}
                                 />
                               </div>
-                              <div className="rounded border border-slate-200 bg-white p-3 2xl:col-span-2">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Address
-                                </div>
-                                <InfoRow
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Address
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <InlineInfoItem
                                   label="Address"
                                   value={toText(inquiryPrimaryContact?.address || inquiryPrimaryContact?.Address)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="City"
                                   value={toText(inquiryPrimaryContact?.city || inquiryPrimaryContact?.City)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="State"
                                   value={toText(inquiryPrimaryContact?.state || inquiryPrimaryContact?.State)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Zip Code"
                                   value={toText(inquiryPrimaryContact?.zip_code || inquiryPrimaryContact?.Zip_Code)}
                                 />
                               </div>
                             </div>
-                          </section>
+                          </InquirySubAccordion>
                         ) : null}
 
                         {showCompanyDetails ? (
-                          <section className="rounded border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                              Company Details
-                            </div>
-                            <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Profile
-                                </div>
-                                <InfoRow label="ID" value={toText(inquiryCompany?.id || inquiryCompany?.ID)} mono />
-                                <InfoRow label="Name" value={toText(inquiryCompany?.name || inquiryCompany?.Name)} />
-                                <InfoRow label="Type" value={companyAccountType} />
-                                <InfoRow
+                          <InquirySubAccordion
+                            title="Company Details"
+                            isOpen={!collapsedInquirySections.companyDetails}
+                            onToggle={() => toggleInquirySection("companyDetails")}
+                          >
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Profile
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <InlineInfoItem label="ID" value={toText(inquiryCompany?.id || inquiryCompany?.ID)} mono />
+                                <InlineInfoItem label="Name" value={toText(inquiryCompany?.name || inquiryCompany?.Name)} />
+                                <InlineInfoItem label="Type" value={companyAccountType} />
+                                <InlineInfoItem
                                   label="Category"
                                   value={toText(inquiryCompany?.type || inquiryCompany?.Type)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Description"
                                   value={toText(inquiryCompany?.description || inquiryCompany?.Description)}
                                 />
-                                <InfoRow label="Phone" value={toText(inquiryCompany?.phone || inquiryCompany?.Phone)} />
+                                <InlineInfoItem label="Phone" value={toText(inquiryCompany?.phone || inquiryCompany?.Phone)} />
                               </div>
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Location
-                                </div>
-                                <InfoRow
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Location
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <InlineInfoItem
                                   label="Address"
                                   value={toText(inquiryCompany?.address || inquiryCompany?.Address)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="City"
                                   value={toText(inquiryCompany?.city || inquiryCompany?.City)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="State"
                                   value={toText(inquiryCompany?.state || inquiryCompany?.State)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Postal Code"
                                   value={toText(inquiryCompany?.postal_code || inquiryCompany?.Postal_Code)}
                                 />
                               </div>
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Business Metrics
-                                </div>
-                                <InfoRow
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Business Metrics
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <InlineInfoItem
                                   label="Industry"
                                   value={toText(inquiryCompany?.industry || inquiryCompany?.Industry)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Annual Revenue"
                                   value={toText(inquiryCompany?.annual_revenue || inquiryCompany?.Annual_Revenue)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Employees"
                                   value={toText(
                                     inquiryCompany?.number_of_employees || inquiryCompany?.Number_of_Employees
                                   )}
                                 />
                               </div>
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Primary Person
-                                </div>
-                                <InfoRow
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Primary Person
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <InlineInfoItem
                                   label="Name"
                                   value={fullName(
                                     inquiryCompanyPrimaryPerson?.first_name ||
@@ -3299,11 +3486,11 @@ export function JobDetailsPage() {
                                       inquiryCompanyPrimaryPerson?.Last_Name
                                   )}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Email"
                                   value={toText(inquiryCompanyPrimaryPerson?.email || inquiryCompanyPrimaryPerson?.Email)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Phone"
                                   value={toText(
                                     inquiryCompanyPrimaryPerson?.sms_number || inquiryCompanyPrimaryPerson?.SMS_Number
@@ -3311,67 +3498,70 @@ export function JobDetailsPage() {
                                 />
                               </div>
                             </div>
-                          </section>
+                          </InquirySubAccordion>
                         ) : null}
 
                         {isBodyCorpAccount ? (
-                          <section className="rounded border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                              Body Corp Company
-                            </div>
-                            <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Profile
-                                </div>
-                                <InfoRow
+                          <InquirySubAccordion
+                            title="Body Corp Company"
+                            isOpen={!collapsedInquirySections.bodyCorpCompany}
+                            onToggle={() => toggleInquirySection("bodyCorpCompany")}
+                          >
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Profile
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <InlineInfoItem
                                   label="Name"
                                   value={toText(inquiryBodyCorpCompany?.name || inquiryBodyCorpCompany?.Name)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Type"
                                   value={toText(inquiryBodyCorpCompany?.type || inquiryBodyCorpCompany?.Type)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Description"
                                   value={toText(inquiryBodyCorpCompany?.description || inquiryBodyCorpCompany?.Description)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Phone"
                                   value={toText(inquiryBodyCorpCompany?.phone || inquiryBodyCorpCompany?.Phone)}
                                 />
                               </div>
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Location & Metrics
-                                </div>
-                                <InfoRow
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Location & Metrics
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <InlineInfoItem
                                   label="Address"
                                   value={toText(inquiryBodyCorpCompany?.address || inquiryBodyCorpCompany?.Address)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="City"
                                   value={toText(inquiryBodyCorpCompany?.city || inquiryBodyCorpCompany?.City)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="State"
                                   value={toText(inquiryBodyCorpCompany?.state || inquiryBodyCorpCompany?.State)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Postal Code"
                                   value={toText(inquiryBodyCorpCompany?.postal_code || inquiryBodyCorpCompany?.Postal_Code)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Industry"
                                   value={toText(inquiryBodyCorpCompany?.industry || inquiryBodyCorpCompany?.Industry)}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Annual Revenue"
                                   value={toText(
                                     inquiryBodyCorpCompany?.annual_revenue || inquiryBodyCorpCompany?.Annual_Revenue
                                   )}
                                 />
-                                <InfoRow
+                                <InlineInfoItem
                                   label="Employees"
                                   value={toText(
                                     inquiryBodyCorpCompany?.number_of_employees ||
@@ -3380,17 +3570,20 @@ export function JobDetailsPage() {
                                 />
                               </div>
                             </div>
-                          </section>
+                          </InquirySubAccordion>
                         ) : null}
 
-                        <section className="rounded border border-slate-200 bg-slate-50 p-3">
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                            Deal & Provider
+                        <InquirySubAccordion
+                          title="Deal & Provider"
+                          isOpen={!collapsedInquirySections.dealProvider}
+                          onToggle={() => toggleInquirySection("dealProvider")}
+                        >
+                          <div className="flex flex-wrap gap-1.5">
+                            <InlineInfoItem label="Deal Name" value={inquiry.deal_name || inquiry.Deal_Name} />
+                            <InlineInfoItem label="Deal Value" value={inquiry.deal_value || inquiry.Deal_Value} />
+                            <InlineInfoItem label="Provider" value={resolvedProviderName} />
                           </div>
-                          <InfoRow label="Deal Name" value={inquiry.deal_name || inquiry.Deal_Name} />
-                          <InfoRow label="Deal Value" value={inquiry.deal_value || inquiry.Deal_Value} />
-                          <InfoRow label="Provider" value={resolvedProviderName} />
-                        </section>
+                        </InquirySubAccordion>
                       </div>
                     ) : (
                       <div className="rounded border border-slate-200 bg-slate-50 px-3 py-6 text-sm text-slate-500">
@@ -3401,7 +3594,7 @@ export function JobDetailsPage() {
                 ) : null}
               </article>
 
-              <article className="min-w-0 rounded border border-slate-200 bg-white">
+              <article className="min-w-0 overflow-hidden rounded border border-slate-200 bg-white">
                 <button
                   type="button"
                   className={`flex w-full items-center justify-between bg-slate-100 px-4 py-3 text-left ${
@@ -3422,7 +3615,7 @@ export function JobDetailsPage() {
                   </span>
                 </button>
                 {!collapsedCards.property ? (
-                <div className="space-y-4 p-4">
+                <div className="space-y-3 p-4">
                     <div className="rounded border border-slate-200 bg-slate-50 p-3">
                       <SearchDropdownInput
                         label="Property Search"
@@ -3453,61 +3646,65 @@ export function JobDetailsPage() {
                             Edit Property
                           </Button>
                         </div>
-                        <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                          <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Address
-                            </div>
-                            <InfoRow
+                        <InquirySubAccordion
+                          title="Address"
+                          isOpen={!collapsedPropertySections.address}
+                          onToggle={() => togglePropertySection("address")}
+                        >
+                          <div className="flex flex-wrap gap-1.5">
+                            <InlineInfoItem
                               label="Property Name"
                               value={resolvedProperty?.property_name || resolvedProperty?.Property_Name}
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Address 1"
                               value={resolvedProperty?.address_1 || resolvedProperty?.Address_1}
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Address 2"
                               value={resolvedProperty?.address_2 || resolvedProperty?.Address_2}
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Suburb / Town"
                               value={resolvedProperty?.suburb_town || resolvedProperty?.Suburb_Town}
                             />
-                            <InfoRow label="State" value={resolvedProperty?.state || resolvedProperty?.State} />
-                            <InfoRow
+                            <InlineInfoItem label="State" value={resolvedProperty?.state || resolvedProperty?.State} />
+                            <InlineInfoItem
                               label="Postal Code"
                               value={resolvedProperty?.postal_code || resolvedProperty?.Postal_Code}
                             />
                           </div>
-                          <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Building Details
-                            </div>
-                            <InfoRow
+                        </InquirySubAccordion>
+                        <InquirySubAccordion
+                          title="Building Details"
+                          isOpen={!collapsedPropertySections.building}
+                          onToggle={() => togglePropertySection("building")}
+                        >
+                          <div className="flex flex-wrap gap-1.5">
+                            <InlineInfoItem
                               label="Property Type"
                               value={resolvedProperty?.property_type || resolvedProperty?.Property_Type}
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Building Type"
                               value={resolvedProperty?.building_type || resolvedProperty?.Building_Type}
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Building Type Other"
                               value={
                                 resolvedProperty?.building_type_other ||
                                 resolvedProperty?.Building_Type_Other
                               }
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Foundation Type"
                               value={resolvedProperty?.foundation_type || resolvedProperty?.Foundation_Type}
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Bedrooms"
                               value={resolvedProperty?.bedrooms || resolvedProperty?.Bedrooms}
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Manhole"
                               value={
                                 resolvedProperty?.manhole === true ||
@@ -3523,118 +3720,122 @@ export function JobDetailsPage() {
                                     : "—"
                               }
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Stories"
                               value={resolvedProperty?.stories || resolvedProperty?.Stories}
                             />
-                            <InfoRow
+                            <InlineInfoItem
                               label="Building Age"
                               value={resolvedProperty?.building_age || resolvedProperty?.Building_Age}
                             />
                           </div>
-                          <div className="rounded border border-slate-200 bg-slate-50 p-3 2xl:col-span-2">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Features
+                        </InquirySubAccordion>
+                        <InquirySubAccordion
+                          title="Features"
+                          isOpen={!collapsedPropertySections.features}
+                          onToggle={() => togglePropertySection("features")}
+                        >
+                          <LongTextRow label="Building Features" value={getPropertyFeatureText(resolvedProperty)} />
+                        </InquirySubAccordion>
+                        <InquirySubAccordion
+                          title="Property Contacts"
+                          isOpen={!collapsedPropertySections.contacts}
+                          onToggle={() => togglePropertySection("contacts")}
+                        >
+                          <div className="rounded border border-slate-200 bg-white">
+                            <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                                Property Contacts
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={openAddAffiliationModal}
+                                disabled={!resolvedPropertyId}
+                              >
+                                Add Property Contact
+                              </Button>
                             </div>
-                            <InfoRow
-                              label="Building Features"
-                              value={getPropertyFeatureText(resolvedProperty)}
-                            />
-                          </div>
-                        </div>
-                        <div className="rounded border border-slate-200">
-                          <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                              Property Contacts
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={openAddAffiliationModal}
-                              disabled={!resolvedPropertyId}
-                            >
-                              Add Property Contact
-                            </Button>
-                          </div>
-                          {isAffiliationsLoading ? (
-                            <div className="px-3 py-4 text-sm text-slate-500">Loading property contacts...</div>
-                          ) : affiliationsError ? (
-                            <div className="px-3 py-4 text-sm text-red-600">{affiliationsError}</div>
-                          ) : affiliations.length ? (
-                            <div className="max-h-56 overflow-auto">
-                              <table className="table-fixed w-full text-left text-sm text-slate-600">
-                                <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
-                                  <tr>
-                                    <th className="w-1/5 px-2 py-2">Primary</th>
-                                    <th className="w-1/5 px-2 py-2">Role</th>
-                                    <th className="w-1/5 px-2 py-2">Contact</th>
-                                    <th className="w-1/5 px-2 py-2">Company</th>
-                                    <th className="w-1/5 px-2 py-2 text-right">Actions</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {affiliations.map((affiliation) => (
-                                    <tr key={toText(affiliation?.id)} className="border-b border-slate-100 last:border-b-0">
-                                      <td className="px-2 py-3">
-                                        <span
-                                          className="inline-flex items-center"
-                                          title={isPrimaryAffiliation(affiliation) ? "Primary" : "Not Primary"}
-                                        >
-                                          <StarIcon active={isPrimaryAffiliation(affiliation)} />
-                                        </span>
-                                      </td>
-                                      <td className="px-2 py-3">{toText(affiliation?.role) || "-"}</td>
-                                      <td className="px-2 py-3">
-                                        {getAffiliationContactName(affiliation) !== "-"
-                                          ? getAffiliationContactName(affiliation)
-                                          : fullName(
-                                              contactLookupById.get(toText(affiliation?.contact_id))?.first_name,
-                                              contactLookupById.get(toText(affiliation?.contact_id))?.last_name
-                                            ) || "-"}
-                                      </td>
-                                      <td className="px-2 py-3">
-                                        {getAffiliationCompanyName(affiliation) !== "-"
-                                          ? getAffiliationCompanyName(affiliation)
-                                          : toText(companyLookupById.get(toText(affiliation?.company_id))?.name) || "-"}
-                                      </td>
-                                      <td className="px-2 py-3 text-right">
-                                        <div className="flex w-full items-center justify-end gap-2">
-                                          <button
-                                            type="button"
-                                            className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800"
-                                            onClick={() => openEditAffiliationModal(affiliation)}
-                                            aria-label="Edit property contact"
-                                            title="Edit"
-                                          >
-                                            <EditIcon />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-red-300 hover:text-red-700"
-                                            onClick={() => setDeleteAffiliationTarget(affiliation)}
-                                            aria-label="Delete property contact"
-                                            title="Delete"
-                                          >
-                                            <TrashIcon />
-                                          </button>
-                                        </div>
-                                      </td>
+                            {isAffiliationsLoading ? (
+                              <div className="px-3 py-4 text-sm text-slate-500">Loading property contacts...</div>
+                            ) : affiliationsError ? (
+                              <div className="px-3 py-4 text-sm text-red-600">{affiliationsError}</div>
+                            ) : affiliations.length ? (
+                              <div className="max-h-56 overflow-auto">
+                                <table className="table-fixed w-full text-left text-sm text-slate-600">
+                                  <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
+                                    <tr>
+                                      <th className="w-1/5 px-2 py-2">Primary</th>
+                                      <th className="w-1/5 px-2 py-2">Role</th>
+                                      <th className="w-1/5 px-2 py-2">Contact</th>
+                                      <th className="w-1/5 px-2 py-2">Company</th>
+                                      <th className="w-1/5 px-2 py-2 text-right">Actions</th>
                                     </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          ) : (
-                            <div className="px-3 py-4 text-sm text-slate-500">No property contacts yet.</div>
-                          )}
-                        </div>
+                                  </thead>
+                                  <tbody>
+                                    {affiliations.map((affiliation) => (
+                                      <tr key={toText(affiliation?.id)} className="border-b border-slate-100 last:border-b-0">
+                                        <td className="px-2 py-3">
+                                          <span
+                                            className="inline-flex items-center"
+                                            title={isPrimaryAffiliation(affiliation) ? "Primary" : "Not Primary"}
+                                          >
+                                            <StarIcon active={isPrimaryAffiliation(affiliation)} />
+                                          </span>
+                                        </td>
+                                        <td className="px-2 py-3">{toText(affiliation?.role) || "-"}</td>
+                                        <td className="px-2 py-3">
+                                          {getAffiliationContactName(affiliation) !== "-"
+                                            ? getAffiliationContactName(affiliation)
+                                            : fullName(
+                                                contactLookupById.get(toText(affiliation?.contact_id))?.first_name,
+                                                contactLookupById.get(toText(affiliation?.contact_id))?.last_name
+                                              ) || "-"}
+                                        </td>
+                                        <td className="px-2 py-3">
+                                          {getAffiliationCompanyName(affiliation) !== "-"
+                                            ? getAffiliationCompanyName(affiliation)
+                                            : toText(companyLookupById.get(toText(affiliation?.company_id))?.name) || "-"}
+                                        </td>
+                                        <td className="px-2 py-3 text-right">
+                                          <div className="flex w-full items-center justify-end gap-2">
+                                            <button
+                                              type="button"
+                                              className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800"
+                                              onClick={() => openEditAffiliationModal(affiliation)}
+                                              aria-label="Edit property contact"
+                                              title="Edit"
+                                            >
+                                              <EditIcon />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-red-300 hover:text-red-700"
+                                              onClick={() => setDeleteAffiliationTarget(affiliation)}
+                                              aria-label="Delete property contact"
+                                              title="Delete"
+                                            >
+                                              <TrashIcon />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="px-3 py-4 text-sm text-slate-500">No property contacts yet.</div>
+                            )}
+                          </div>
+                        </InquirySubAccordion>
                       </>
                     )}
                 </div>
                 ) : null}
               </article>
 
-              <article className="min-w-0 rounded border bg-white" style={quoteCardTheme.wrapperStyle}>
+              <article className="min-w-0 overflow-hidden rounded border bg-white" style={quoteCardTheme.wrapperStyle}>
                 <button
                   type="button"
                   className={`flex w-full items-center justify-between px-4 py-3 text-left ${
@@ -3659,97 +3860,24 @@ export function JobDetailsPage() {
                 {!collapsedCards.job ? (
                 <div className="p-4">
                     {job ? (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                          <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Status
-                            </div>
-                            <InfoRow label="Job UID" value={job.unique_id || job.Unique_ID} mono />
-                            <StatusRow
-                              label="Job Status"
-                              value={jobStatus}
-                              style={resolveStatusStyleNormalized(jobStatus)}
-                            />
-                            <StatusRow label="Quote Status" value={quoteStatus} style={quoteStatusStyle} />
-                            <StatusRow
-                              label="Payment Status"
-                              value={paymentStatus}
-                              style={resolveStatusStyleNormalized(paymentStatus)}
-                            />
-                          </div>
-                          <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Timeline
-                            </div>
-                            <InfoRow label="Created" value={formatDate(job.created_at || job.Date_Added)} />
-                            <InfoRow label="Quote Date" value={formatDate(job.quote_date || job.Quote_Date)} />
-                            <InfoRow
-                              label="Quote Sent Date"
-                              value={formatDate(job.date_quote_sent || job.Date_Quote_Sent)}
-                            />
-                            <InfoRow
-                              label="Quote Accepted Date"
-                              value={formatDate(job.date_quoted_accepted || job.Date_Quoted_Accepted)}
-                            />
-                            <InfoRow label="Invoice Date" value={formatDate(job.invoice_date || job.Invoice_Date)} />
-                            <InfoRow label="Due Date" value={formatDate(job.due_date || job.Due_Date)} />
-                          </div>
-                          <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Invoice
-                            </div>
-                            <InfoRow label="Invoice #" value={job.invoice_number || job.Invoice_Number} mono />
-                            <InfoRow
-                              label="Invoice Total"
-                              value={formatCurrency(job.invoice_total || job.Invoice_Total)}
-                            />
-                          </div>
-                          <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Contacts
-                            </div>
-                            <InfoRow label="Client Name" value={jobClient.name} />
-                            <InfoRow label="Phone" value={jobClient.phone} />
-                            <InfoRow label="Email" value={jobClient.email} />
-                            <InfoRow label="Provider" value={resolvedProviderName} />
-                          </div>
-                        </div>
-                        <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3">
-                          <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      <div className="space-y-2">
+                        <div className="rounded border border-slate-200 bg-slate-50 p-3">
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
                             Quote Workflow
                           </div>
                           {quoteStatusNormalized === "accepted" ? (
-                            <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  {isCompanyAccount ? "Job Email Company" : "Job Email Contact"}
-                                </div>
-                                <InfoRow
-                                  label="Selection"
-                                  value={
-                                    resolvedJobEmailSelectionLabel ||
-                                    selectedJobEmailContactId ||
-                                    "-"
-                                  }
-                                />
-                              </div>
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                  Accounts Contact
-                                </div>
-                                <InfoRow
-                                  label="Selection"
-                                  value={
-                                    resolvedAccountsContactSelectionLabel ||
-                                    selectedAccountsContactId ||
-                                    "-"
-                                  }
-                                />
-                              </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              <InlineInfoItem
+                                label={isCompanyAccount ? "Job Email Company" : "Job Email Contact"}
+                                value={resolvedJobEmailSelectionLabel || selectedJobEmailContactId || "-"}
+                              />
+                              <InlineInfoItem
+                                label="Accounts Contact"
+                                value={resolvedAccountsContactSelectionLabel || selectedAccountsContactId || "-"}
+                              />
                             </div>
                           ) : (
-                            <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+                            <div className="space-y-3">
                               <div className="relative z-40">
                                 <SearchDropdownInput
                                   label={isCompanyAccount ? "Job Email Company" : "Job Email Contact"}
@@ -3835,6 +3963,71 @@ export function JobDetailsPage() {
                             <span className="text-xs text-slate-500">Current quote status: {quoteStatus || "New"}</span>
                           </div>
                         </div>
+                        <InquirySubAccordion
+                          title="Status"
+                          isOpen={!collapsedJobSections.status}
+                          onToggle={() => toggleJobSection("status")}
+                        >
+                          <div className="flex flex-wrap gap-1.5">
+                            <InlineInfoItem label="Job UID" value={job.unique_id || job.Unique_ID} mono />
+                            <InlineStatusItem
+                              label="Job Status"
+                              value={jobStatus}
+                              style={resolveStatusStyleNormalized(jobStatus)}
+                            />
+                            <InlineStatusItem label="Quote Status" value={quoteStatus} style={quoteStatusStyle} />
+                            <InlineStatusItem
+                              label="Payment Status"
+                              value={paymentStatus}
+                              style={resolveStatusStyleNormalized(paymentStatus)}
+                            />
+                          </div>
+                        </InquirySubAccordion>
+                        <InquirySubAccordion
+                          title="Timeline"
+                          isOpen={!collapsedJobSections.timeline}
+                          onToggle={() => toggleJobSection("timeline")}
+                        >
+                          <div className="flex flex-wrap gap-1.5">
+                            <InlineInfoItem label="Created" value={formatDate(job.created_at || job.Date_Added)} />
+                            <InlineInfoItem label="Quote Date" value={formatDate(job.quote_date || job.Quote_Date)} />
+                            <InlineInfoItem
+                              label="Quote Sent Date"
+                              value={formatDate(job.date_quote_sent || job.Date_Quote_Sent)}
+                            />
+                            <InlineInfoItem
+                              label="Quote Accepted Date"
+                              value={formatDate(job.date_quoted_accepted || job.Date_Quoted_Accepted)}
+                            />
+                            <InlineInfoItem label="Invoice Date" value={formatDate(job.invoice_date || job.Invoice_Date)} />
+                            <InlineInfoItem label="Due Date" value={formatDate(job.due_date || job.Due_Date)} />
+                          </div>
+                        </InquirySubAccordion>
+                        <InquirySubAccordion
+                          title="Invoice"
+                          isOpen={!collapsedJobSections.invoice}
+                          onToggle={() => toggleJobSection("invoice")}
+                        >
+                          <div className="flex flex-wrap gap-1.5">
+                            <InlineInfoItem label="Invoice #" value={job.invoice_number || job.Invoice_Number} mono />
+                            <InlineInfoItem
+                              label="Invoice Total"
+                              value={formatCurrency(job.invoice_total || job.Invoice_Total)}
+                            />
+                          </div>
+                        </InquirySubAccordion>
+                        <InquirySubAccordion
+                          title="Contacts"
+                          isOpen={!collapsedJobSections.contacts}
+                          onToggle={() => toggleJobSection("contacts")}
+                        >
+                          <div className="flex flex-wrap gap-1.5">
+                            <InlineInfoItem label="Client Name" value={jobClient.name} />
+                            <InlineInfoItem label="Phone" value={jobClient.phone} />
+                            <InlineInfoItem label="Email" value={jobClient.email} />
+                            <InlineInfoItem label="Provider" value={resolvedProviderName} />
+                          </div>
+                        </InquirySubAccordion>
                       </div>
                     ) : (
                       <div className="space-y-3 rounded border border-slate-200 bg-slate-50 px-3 py-6 text-sm text-slate-500">
@@ -4060,244 +4253,280 @@ export function JobDetailsPage() {
                 </div>
               ) : null}
 
-              {activeTab === "Memos" ? (
-                <div className="space-y-4">
-                  <div className="rounded border border-slate-200 bg-white p-4">
-                    {!hasMemoContext ? (
-                      <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                        Memos are available when inquiry or quote/job is linked.
-                      </div>
-                    ) : (
-                      <>
-                        <h3 className="mb-3 text-sm font-semibold text-slate-800">New Memo</h3>
-                        <textarea
-                          className="min-h-[90px] w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
-                          placeholder="Write a memo..."
-                          value={memoText}
-                          onChange={(event) => setMemoText(event.target.value)}
-                        />
-                        <div className="mt-3 flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => memoFileInputRef.current?.click()}
-                              disabled={isPostingMemo}
-                            >
-                              Attach File
-                            </Button>
-                            <input
-                              ref={memoFileInputRef}
-                              type="file"
-                              className="hidden"
-                              onChange={handleMemoFileChange}
-                            />
-                            {memoFile ? (
-                              <div className="inline-flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">
-                                <span className="max-w-[240px] truncate">{memoFile.name}</span>
-                                <button
-                                  type="button"
-                                  className="text-red-600 hover:underline"
-                                  onClick={() => setMemoFile(null)}
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ) : null}
-                          </div>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={handleSendMemo}
-                            disabled={isPostingMemo}
-                          >
-                            {isPostingMemo ? "Posting..." : "Post Memo"}
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="rounded border border-slate-200 bg-white p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-slate-800">Thread</h3>
-                      <span className="text-xs text-slate-500">{memos.length} message(s)</span>
-                    </div>
-
-                    {isMemosLoading ? (
-                      <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                        Loading memos...
-                      </div>
-                    ) : memosError ? (
-                      <div className="rounded border border-red-200 bg-red-50 px-3 py-4 text-sm text-red-600">
-                        {memosError}
-                      </div>
-                    ) : !memos.length ? (
-                      <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                        No memos yet.
-                      </div>
-                    ) : (
-                      <div className="max-h-[560px] space-y-3 overflow-auto pr-1">
-                        {memos.map((memo, memoIndex) => {
-                          const memoId = toText(memo?.id || memo?.ID) || `memo-${memoIndex}`;
-                          const memoAuthor = memo?.Author || {};
-                          const memoIsMine =
-                            Boolean(currentUserId) &&
-                            toText(memo?.author_id || memoAuthor?.id) === currentUserId;
-                          const memoAuthorName = getAuthorName(memoAuthor);
-                          const memoFileMeta = getMemoFileMeta(memo?.file || memo?.File);
-                          const replies = Array.isArray(memo?.ForumComments) ? memo.ForumComments : [];
-                          const isReplySending = sendingReplyPostId === memoId;
-                          return (
-                            <div key={memoId} className="rounded border border-slate-200 bg-white p-3">
-                              <div className="mb-2 flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#003882] text-xs font-semibold text-white">
-                                    {memoAuthorName.charAt(0).toUpperCase() || "U"}
-                                  </div>
-                                  <div>
-                                    <div className="text-sm font-semibold text-slate-800">
-                                      {memoIsMine ? "You" : memoAuthorName}
-                                    </div>
-                                    <div className="text-xs text-slate-500">
-                                      {formatRelativeTime(memo?.created_at || memo?.Date_Added)}
-                                    </div>
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
-                                  onClick={() => setMemoDeleteTarget({ type: "post", id: memoId })}
-                                  title="Delete memo"
-                                  aria-label="Delete memo"
-                                >
-                                  <TrashIcon />
-                                </button>
-                              </div>
-                              {toText(
-                                memo?.post_copy ||
-                                  memo?.Post_Copy ||
-                                  memo?.comment ||
-                                  memo?.Comment ||
-                                  memo?.text ||
-                                  memo?.Text ||
-                                  memo?.content ||
-                                  memo?.Content
-                              ) ? (
-                                <p className="whitespace-pre-wrap text-sm text-slate-700">
-                                  {toText(
-                                    memo?.post_copy ||
-                                      memo?.Post_Copy ||
-                                      memo?.comment ||
-                                      memo?.Comment ||
-                                      memo?.text ||
-                                      memo?.Text ||
-                                      memo?.content ||
-                                      memo?.Content
-                                  )}
-                                </p>
-                              ) : null}
-                              {memoFileMeta?.link ? (
-                                <a
-                                  href={memoFileMeta.link}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="mt-2 inline-flex rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-[#003882] underline underline-offset-2"
-                                >
-                                  {memoFileMeta.name || "View attachment"}
-                                  {memoFileMeta.size ? ` (${formatFileSize(memoFileMeta.size)})` : ""}
-                                </a>
-                              ) : null}
-
-                              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-                                {replies.map((reply, replyIndex) => {
-                                  const replyId =
-                                    toText(reply?.id || reply?.ID) ||
-                                    `${memoId}-reply-${replyIndex}`;
-                                  const replyAuthor = reply?.Author || {};
-                                  const replyIsMine =
-                                    Boolean(currentUserId) &&
-                                    toText(reply?.author_id || replyAuthor?.id) === currentUserId;
-                                  const replyAuthorName = getAuthorName(replyAuthor);
-                                  return (
-                                    <div
-                                      key={replyId}
-                                      className="rounded border border-slate-100 bg-slate-50 px-3 py-2"
-                                    >
-                                      <div className="mb-1 flex items-center justify-between gap-2">
-                                        <div className="text-xs font-semibold text-slate-700">
-                                          {replyIsMine ? "You" : replyAuthorName}
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-[11px] text-slate-500">
-                                            {formatRelativeTime(reply?.created_at)}
-                                          </span>
-                                          <button
-                                            type="button"
-                                            className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
-                                            onClick={() =>
-                                              setMemoDeleteTarget({ type: "comment", id: replyId })
-                                            }
-                                            title="Delete reply"
-                                            aria-label="Delete reply"
-                                          >
-                                            <TrashIcon />
-                                          </button>
-                                        </div>
-                                      </div>
-                                      <p className="whitespace-pre-wrap text-sm text-slate-700">
-                                        {toText(
-                                          reply?.comment ||
-                                            reply?.Comment ||
-                                            reply?.post_copy ||
-                                            reply?.Post_Copy ||
-                                            reply?.text ||
-                                            reply?.Text ||
-                                            reply?.content ||
-                                            reply?.Content
-                                        ) || "-"}
-                                      </p>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              <div className="mt-3 flex flex-wrap items-end gap-2">
-                                <textarea
-                                  className="min-h-[40px] flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-700 outline-none focus:border-slate-400"
-                                  placeholder="Reply..."
-                                  value={toText(memoReplyDrafts?.[memoId])}
-                                  onChange={(event) =>
-                                    setMemoReplyDrafts((previous) => ({
-                                      ...(previous || {}),
-                                      [memoId]: event.target.value,
-                                    }))
-                                  }
-                                />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={Boolean(sendingReplyPostId)}
-                                  onClick={() => handleSendMemoReply(memoId)}
-                                >
-                                  {isReplySending ? "Sending..." : "Reply"}
-                                </Button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : null}
               </section>
             </JobDirectStoreProvider>
           </div>
         </div>
+      </div>
+
+      <div className="pointer-events-none fixed bottom-5 right-6 z-[60] flex flex-col items-end gap-3">
+        <button
+          type="button"
+          className={`pointer-events-auto relative inline-flex h-12 w-12 items-center justify-center rounded-full border border-red-700 bg-red-600 text-white shadow-[0_10px_24px_rgba(220,38,38,0.35)] transition ${
+            hasPopupCommentsSection
+              ? "hover:bg-red-700"
+              : "cursor-not-allowed opacity-45"
+          }`}
+          onClick={() => {
+            if (!hasPopupCommentsSection) return;
+            setIsPopupCommentModalOpen(true);
+          }}
+          disabled={!hasPopupCommentsSection}
+          aria-label="Open popup comments"
+          title={hasPopupCommentsSection ? "Popup comments" : "Popup comments unavailable"}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+            <path
+              d="M12 7.25V13.25"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+            <circle cx="12" cy="17.1" r="1.25" fill="currentColor" />
+          </svg>
+        </button>
+
+        {isMemoChatOpen ? (
+          <section className="pointer-events-auto flex w-[370px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.22)]">
+            <header className="flex items-center justify-between bg-[#003882] px-3 py-2.5 text-white">
+              <div className="text-sm font-semibold">Memos</div>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 items-center justify-center rounded border border-white/30 text-white hover:bg-white/10"
+                onClick={() => setIsMemoChatOpen(false)}
+                aria-label="Close memos chat"
+                title="Close"
+              >
+                ✕
+              </button>
+            </header>
+
+            <div className="max-h-[420px] min-h-[340px] space-y-2 overflow-y-auto bg-slate-50 p-2.5">
+              {!hasMemoContext ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  Memos are available when inquiry or quote/job is linked.
+                </div>
+              ) : isMemosLoading ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  Loading memos...
+                </div>
+              ) : memosError ? (
+                <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+                  {memosError}
+                </div>
+              ) : !memos.length ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  No memos yet.
+                </div>
+              ) : (
+                memos.map((memo, memoIndex) => {
+                  const memoId = toText(memo?.id || memo?.ID) || `memo-chat-${memoIndex}`;
+                  const memoAuthor = memo?.Author || {};
+                  const memoIsMine =
+                    Boolean(currentUserId) && toText(memo?.author_id || memoAuthor?.id) === currentUserId;
+                  const memoAuthorName = getAuthorName(memoAuthor);
+                  const memoFileMeta = getMemoFileMeta(memo?.file || memo?.File);
+                  const replies = Array.isArray(memo?.ForumComments) ? memo.ForumComments : [];
+                  const isReplySending = sendingReplyPostId === memoId;
+                  return (
+                    <div
+                      key={memoId}
+                      className={`rounded-lg border px-2.5 py-2 ${
+                        memoIsMine
+                          ? "border-blue-200 bg-blue-50"
+                          : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <div className="truncate text-[11px] font-semibold text-slate-700">
+                          {memoIsMine ? "You" : memoAuthorName}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-slate-500">
+                            {formatRelativeTime(memo?.created_at || memo?.Date_Added)}
+                          </span>
+                          <button
+                            type="button"
+                            className="inline-flex h-5 w-5 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
+                            onClick={() => setMemoDeleteTarget({ type: "post", id: memoId })}
+                            title="Delete memo"
+                            aria-label="Delete memo"
+                          >
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="whitespace-pre-wrap text-xs text-slate-700">
+                        {toText(
+                          memo?.post_copy ||
+                            memo?.Post_Copy ||
+                            memo?.comment ||
+                            memo?.Comment ||
+                            memo?.text ||
+                            memo?.Text ||
+                            memo?.content ||
+                            memo?.Content
+                        ) || "-"}
+                      </p>
+                      {memoFileMeta?.link ? (
+                        <a
+                          href={memoFileMeta.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1.5 inline-flex max-w-full rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-[#003882] underline underline-offset-2"
+                        >
+                          <span className="max-w-[240px] truncate">
+                            {memoFileMeta.name || "View attachment"}
+                            {memoFileMeta.size ? ` (${formatFileSize(memoFileMeta.size)})` : ""}
+                          </span>
+                        </a>
+                      ) : null}
+
+                      {replies.length ? (
+                        <div className="mt-2 space-y-1.5 border-t border-slate-200 pt-2">
+                          {replies.map((reply, replyIndex) => {
+                            const replyId = toText(reply?.id || reply?.ID) || `${memoId}-reply-${replyIndex}`;
+                            const replyAuthor = reply?.Author || {};
+                            const replyIsMine =
+                              Boolean(currentUserId) &&
+                              toText(reply?.author_id || replyAuthor?.id) === currentUserId;
+                            return (
+                              <div key={replyId} className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+                                <div className="mb-0.5 flex items-center justify-between gap-2">
+                                  <span className="truncate text-[10px] font-semibold text-slate-700">
+                                    {replyIsMine ? "You" : getAuthorName(replyAuthor)}
+                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] text-slate-500">
+                                      {formatRelativeTime(reply?.created_at)}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
+                                      onClick={() =>
+                                        setMemoDeleteTarget({ type: "comment", id: replyId })
+                                      }
+                                      title="Delete reply"
+                                      aria-label="Delete reply"
+                                    >
+                                      <TrashIcon />
+                                    </button>
+                                  </div>
+                                </div>
+                                <p className="whitespace-pre-wrap text-xs text-slate-700">
+                                  {toText(
+                                    reply?.comment ||
+                                      reply?.Comment ||
+                                      reply?.post_copy ||
+                                      reply?.Post_Copy ||
+                                      reply?.text ||
+                                      reply?.Text ||
+                                      reply?.content ||
+                                      reply?.Content
+                                  ) || "-"}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-2 flex items-end gap-1.5">
+                        <textarea
+                          className="min-h-[34px] flex-1 rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 outline-none focus:border-slate-400"
+                          placeholder="Reply..."
+                          value={toText(memoReplyDrafts?.[memoId])}
+                          onChange={(event) =>
+                            setMemoReplyDrafts((previous) => ({
+                              ...(previous || {}),
+                              [memoId]: event.target.value,
+                            }))
+                          }
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="!px-2 !py-1 !text-xs"
+                          disabled={Boolean(sendingReplyPostId)}
+                          onClick={() => handleSendMemoReply(memoId)}
+                        >
+                          {isReplySending ? "..." : "Send"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <footer className="space-y-2 border-t border-slate-200 bg-white p-2.5">
+              <textarea
+                className="min-h-[52px] w-full rounded border border-slate-300 px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-slate-400"
+                placeholder="Write a memo..."
+                value={memoText}
+                onChange={(event) => setMemoText(event.target.value)}
+                disabled={!hasMemoContext || isPostingMemo}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="!px-2 !py-1 !text-xs"
+                    onClick={() => memoFileInputRef.current?.click()}
+                    disabled={!hasMemoContext || isPostingMemo}
+                  >
+                    Attach
+                  </Button>
+                  <input
+                    ref={memoFileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleMemoFileChange}
+                  />
+                  {memoFile ? (
+                    <span className="max-w-[150px] truncate text-[11px] text-slate-500">{memoFile.name}</span>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="!bg-[#003882] !px-2 !py-1 !text-xs !text-white hover:!bg-[#0A4A9E]"
+                  onClick={handleSendMemo}
+                  disabled={!hasMemoContext || isPostingMemo}
+                >
+                  {isPostingMemo ? "Posting..." : "Send"}
+                </Button>
+              </div>
+            </footer>
+          </section>
+        ) : null}
+
+        <button
+          type="button"
+          className="pointer-events-auto relative inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#003882] text-white shadow-[0_10px_24px_rgba(0,56,130,0.35)] transition hover:bg-[#0A4A9E]"
+          onClick={() => setIsMemoChatOpen((previous) => !previous)}
+          aria-label={isMemoChatOpen ? "Close memos chat" : "Open memos chat"}
+          title={isMemoChatOpen ? "Close memos chat" : "Open memos chat"}
+        >
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" aria-hidden="true">
+            <path
+              d="M20 6.5v7A3.5 3.5 0 0 1 16.5 17H9l-4 3v-3A3.5 3.5 0 0 1 1.5 13.5v-7A3.5 3.5 0 0 1 5 3h11.5A3.5 3.5 0 0 1 20 6.5Z"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+            <path d="M6.5 8.5h8M6.5 11.5h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+          {memos.length ? (
+            <span className="absolute -right-1 -top-1 inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white">
+              {memos.length > 99 ? "99+" : memos.length}
+            </span>
+          ) : null}
+        </button>
       </div>
 
       <Modal
