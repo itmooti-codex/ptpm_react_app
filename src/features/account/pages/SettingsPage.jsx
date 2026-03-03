@@ -1,17 +1,42 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
 import { Button } from "../../../shared/components/ui/Button.jsx";
+import { useToast } from "../../../shared/providers/ToastProvider.jsx";
+import { useCurrentUserProfile } from "../../../shared/hooks/useCurrentUserProfile.js";
 
-function Toggle({ checked, onChange }) {
+function normalizeBoolean(value, fallback = false) {
+  if (value == null || value === "") return fallback;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return fallback;
+  return text === "true" || text === "1" || text === "yes";
+}
+
+function createDefaultSettings() {
+  return {
+    pauseAllNotification: true,
+    quotesJobs: true,
+    inquiries: true,
+    memosComments: true,
+    extras: true,
+  };
+}
+
+function Toggle({ checked, onChange, disabled = false }) {
   return (
     <button
       type="button"
       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
         checked ? "bg-[#003882]" : "bg-slate-300"
-      }`}
-      onClick={() => onChange(!checked)}
+      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+      onClick={() => {
+        if (disabled) return;
+        onChange(!checked);
+      }}
       aria-pressed={checked}
+      disabled={disabled}
     >
       <span
         className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -22,33 +47,89 @@ function Toggle({ checked, onChange }) {
   );
 }
 
-function SettingRow({ title, description, checked, onChange }) {
+function SettingRow({ title, description, checked, onChange, disabled = false }) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3">
+    <div
+      className={`flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 ${
+        disabled ? "opacity-60" : ""
+      }`}
+    >
       <div>
         <div className="text-sm font-medium text-slate-800">{title}</div>
         <div className="mt-0.5 text-xs text-slate-500">{description}</div>
       </div>
-      <Toggle checked={checked} onChange={onChange} />
+      <Toggle checked={checked} onChange={onChange} disabled={disabled} />
     </div>
   );
 }
 
 export function SettingsPage() {
-  const [inquiryPush, setInquiryPush] = useState(true);
-  const [taskReminder, setTaskReminder] = useState(true);
-  const [paymentAlerts, setPaymentAlerts] = useState(true);
-  const [weeklyDigest, setWeeklyDigest] = useState(false);
-  const [compactTables, setCompactTables] = useState(false);
-  const [quickPreview, setQuickPreview] = useState(true);
-  const [defaultLanding, setDefaultLanding] = useState("Dashboard");
-  const [dateFormat, setDateFormat] = useState("DD/MM/YY");
+  const { success, error: showError } = useToast();
+  const { profile, isLoadingProfile, isSavingProfile, updateProfile } = useCurrentUserProfile();
+  const [settings, setSettings] = useState(createDefaultSettings());
   const [saved, setSaved] = useState(false);
 
-  const handleSavePreferences = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1800);
+  useEffect(() => {
+    setSettings({
+      pauseAllNotification: normalizeBoolean(profile?.pauseAllNotification),
+      quotesJobs: normalizeBoolean(profile?.quotesJobs, true),
+      inquiries: normalizeBoolean(profile?.inquiries, true),
+      memosComments: normalizeBoolean(profile?.memosComments, true),
+      extras: normalizeBoolean(profile?.extras, true),
+    });
+  }, [
+    profile?.pauseAllNotification,
+    profile?.quotesJobs,
+    profile?.inquiries,
+    profile?.memosComments,
+    profile?.extras,
+  ]);
+
+  const setSetting = (key, value) => {
+    setSettings((previous) => ({
+      ...previous,
+      [key]: Boolean(value),
+    }));
   };
+
+  const handleSavePreferences = async () => {
+    try {
+      await updateProfile({
+        Pause_All_Notification: Boolean(settings.pauseAllNotification),
+        Quotes_Jobs: Boolean(settings.quotesJobs),
+        Inquiries: Boolean(settings.inquiries),
+        Memos_Comments: Boolean(settings.memosComments),
+        Extras: Boolean(settings.extras),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
+      success("Settings saved", "Notification preferences were updated.");
+    } catch (saveError) {
+      showError("Save failed", saveError?.message || "Unable to save settings.");
+    }
+  };
+
+  const handleResetDefaults = async () => {
+    const defaults = createDefaultSettings();
+    setSettings(defaults);
+    try {
+      await updateProfile({
+        Pause_All_Notification: true,
+        Quotes_Jobs: true,
+        Inquiries: true,
+        Memos_Comments: true,
+        Extras: true,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
+      success("Defaults restored", "All notification settings were reset to true.");
+    } catch (saveError) {
+      showError("Reset failed", saveError?.message || "Unable to reset settings.");
+    }
+  };
+
+  const pauseEnabled = Boolean(settings.pauseAllNotification);
+  const isBusy = isLoadingProfile || isSavingProfile;
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-slate-100 font-['Inter']">
@@ -68,99 +149,67 @@ export function SettingsPage() {
             <div className="text-xs uppercase tracking-[0.2em] text-white/70">Settings</div>
             <h1 className="mt-1 text-2xl font-semibold">Workspace Preferences</h1>
             <p className="mt-1 text-sm text-white/85">
-              Configure notifications, behavior, and account security controls.
+              Configure which announcement groups should be visible.
             </p>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-[1.2fr,0.8fr]">
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-800">Notifications</h2>
+                <h2 className="text-lg font-semibold text-slate-800">Announcement Preferences</h2>
                 {saved ? (
                   <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                    Saved (local)
+                    Saved
                   </span>
                 ) : null}
               </div>
 
               <div className="space-y-2">
                 <SettingRow
-                  title="Inquiry updates"
-                  description="Receive notifications when inquiry status changes."
-                  checked={inquiryPush}
-                  onChange={setInquiryPush}
+                  title="Pause all notifications"
+                  description="Stops notification fetching entirely."
+                  checked={settings.pauseAllNotification}
+                  onChange={(value) => setSetting("pauseAllNotification", value)}
+                  disabled={isBusy}
                 />
                 <SettingRow
-                  title="Task reminders"
-                  description="Alert before due tasks and overdue task events."
-                  checked={taskReminder}
-                  onChange={setTaskReminder}
+                  title="Quotes / Jobs"
+                  description='Show announcements with type "Quote/Job".'
+                  checked={settings.quotesJobs}
+                  onChange={(value) => setSetting("quotesJobs", value)}
+                  disabled={isBusy || pauseEnabled}
                 />
                 <SettingRow
-                  title="Payment alerts"
-                  description="Notify when invoices become overdue or paid."
-                  checked={paymentAlerts}
-                  onChange={setPaymentAlerts}
+                  title="Inquiries"
+                  description='Show announcements with type "Inquiry".'
+                  checked={settings.inquiries}
+                  onChange={(value) => setSetting("inquiries", value)}
+                  disabled={isBusy || pauseEnabled}
                 />
                 <SettingRow
-                  title="Weekly digest"
-                  description="Send one summary digest every Monday morning."
-                  checked={weeklyDigest}
-                  onChange={setWeeklyDigest}
-                />
-              </div>
-
-              <h3 className="mt-5 text-sm font-semibold uppercase tracking-wide text-slate-600">
-                Display Preferences
-              </h3>
-              <div className="mt-2 grid gap-3 md:grid-cols-2">
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Default Landing Page
-                  </span>
-                  <select
-                    className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-[#003882] focus:outline-none"
-                    value={defaultLanding}
-                    onChange={(event) => setDefaultLanding(event.target.value)}
-                  >
-                    <option>Dashboard</option>
-                    <option>Job Direct</option>
-                    <option>Calendar</option>
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Date Format
-                  </span>
-                  <select
-                    className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-[#003882] focus:outline-none"
-                    value={dateFormat}
-                    onChange={(event) => setDateFormat(event.target.value)}
-                  >
-                    <option>DD/MM/YY</option>
-                    <option>MM/DD/YY</option>
-                    <option>YYYY-MM-DD</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="mt-3 space-y-2">
-                <SettingRow
-                  title="Compact table density"
-                  description="Reduce row height and spacing in tables."
-                  checked={compactTables}
-                  onChange={setCompactTables}
+                  title="Memos / Comments"
+                  description='Show announcements with type "Post" and "Comment".'
+                  checked={settings.memosComments}
+                  onChange={(value) => setSetting("memosComments", value)}
+                  disabled={isBusy || pauseEnabled}
                 />
                 <SettingRow
-                  title="Quick preview in lists"
-                  description="Enable lightweight detail preview on hover."
-                  checked={quickPreview}
-                  onChange={setQuickPreview}
+                  title="Extras"
+                  description="Show all other announcement types (activities, appointments, uploads, materials, tasks, etc.)."
+                  checked={settings.extras}
+                  onChange={(value) => setSetting("extras", value)}
+                  disabled={isBusy || pauseEnabled}
                 />
               </div>
 
               <div className="mt-5 flex items-center justify-end gap-2">
-                <Button variant="ghost" size="sm" className="border border-slate-300">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="border border-slate-300"
+                  onClick={handleResetDefaults}
+                  disabled={isBusy}
+                >
                   Reset Defaults
                 </Button>
                 <Button
@@ -168,8 +217,9 @@ export function SettingsPage() {
                   size="sm"
                   className="bg-[#003882]"
                   onClick={handleSavePreferences}
+                  disabled={isBusy}
                 >
-                  Save Preferences
+                  {isSavingProfile ? "Saving..." : "Save Preferences"}
                 </Button>
               </div>
             </section>
@@ -215,31 +265,6 @@ export function SettingsPage() {
                 <Button variant="secondary" size="sm" className="mt-4 border-[#003882] text-[#003882]">
                   Update Password
                 </Button>
-              </div>
-
-              <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 shadow-sm">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-700">
-                  Danger Zone
-                </h3>
-                <p className="mt-1 text-sm text-rose-700/90">
-                  Disable account notifications temporarily or request account deactivation.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-rose-300 text-rose-700 hover:bg-rose-100"
-                  >
-                    Pause Notifications
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-rose-300 text-rose-700 hover:bg-rose-100"
-                  >
-                    Request Deactivation
-                  </Button>
-                </div>
               </div>
             </section>
           </div>

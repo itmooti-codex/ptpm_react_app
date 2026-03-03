@@ -937,6 +937,7 @@ function HeaderDropdown({
   align = "left",
   buttonVariant = "ghost",
   buttonClassName = "",
+  panelClassName = "",
   textTrigger = false,
 }) {
   const position = align === "right" ? "right-0" : "left-0";
@@ -963,7 +964,7 @@ function HeaderDropdown({
       )}
       {isOpen ? (
         <div
-          className={`absolute ${position} top-11 z-20 min-w-[220px] rounded border border-slate-200 bg-white py-1 text-slate-700 shadow-lg`}
+          className={`absolute ${position} top-11 z-20 min-w-[220px] rounded border border-slate-200 bg-white py-1 text-slate-700 shadow-lg ${panelClassName}`}
         >
           {children}
         </div>
@@ -1423,6 +1424,36 @@ export function JobDetailsPage() {
     },
     [focusedKind, focusedId]
   );
+
+  useEffect(() => {
+    if (!focusedKind || !focusedId) return;
+
+    const scrollToAnnouncementTarget = () => {
+      const matches = Array.from(
+        document.querySelectorAll(`[data-ann-kind="${focusedKind}"]`)
+      );
+      const target = matches.find(
+        (node) => toText(node?.getAttribute("data-ann-id")) === focusedId
+      );
+      if (!target) return false;
+      if (typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      }
+      return true;
+    };
+
+    if (scrollToAnnouncementTarget()) return;
+
+    let attempts = 0;
+    const intervalId = window.setInterval(() => {
+      attempts += 1;
+      if (scrollToAnnouncementTarget() || attempts >= 40) {
+        window.clearInterval(intervalId);
+      }
+    }, 120);
+
+    return () => window.clearInterval(intervalId);
+  }, [focusedKind, focusedId, activeTab]);
 
   const handleOpenPrintJobSheet = useCallback(() => {
     if (!currentJobUniqueId) {
@@ -1898,9 +1929,12 @@ export function JobDetailsPage() {
   }, [currentJobId, job, jobActivities, jobMaterials]);
   const jobDirectLookupData = useMemo(
     () => ({
+      contacts: Array.isArray(contactsLookup) ? contactsLookup : [],
+      companies: Array.isArray(companiesLookup) ? companiesLookup : [],
+      properties: Array.isArray(propertiesLookup) ? propertiesLookup : [],
       serviceProviders: Array.isArray(serviceProviders) ? serviceProviders : [],
     }),
-    [serviceProviders]
+    [contactsLookup, companiesLookup, propertiesLookup, serviceProviders]
   );
   const jobDirectUid = toText(job?.unique_id || job?.Unique_ID || uid);
   const companyItems = useMemo(
@@ -3364,6 +3398,7 @@ export function JobDetailsPage() {
                       onToggle={() =>
                         setOpenDropdown((prev) => (prev === `email-${groupKey}` ? "" : `email-${groupKey}`))
                       }
+                      panelClassName="min-w-[360px]"
                       textTrigger
                     >
                       {group.buttons.map((option) => (
@@ -3381,7 +3416,7 @@ export function JobDetailsPage() {
                             return (
                               <button
                                 type="button"
-                                className={`text-left text-sm text-slate-600 ${
+                                className={`whitespace-nowrap text-left text-sm text-slate-600 ${
                                   sendingEmailOptionId ? "pointer-events-none opacity-70" : ""
                                 }`}
                                 onClick={() => handleEmailOptionClick(option)}
@@ -4006,6 +4041,13 @@ export function JobDetailsPage() {
                                     {affiliations.map((affiliation) => (
                                       <tr
                                         key={toText(affiliation?.id)}
+                                        data-ann-kind="affiliation"
+                                        data-ann-id={toText(affiliation?.id)}
+                                        data-ann-highlighted={
+                                          isFocusedEntity("affiliation", toText(affiliation?.id))
+                                            ? "true"
+                                            : "false"
+                                        }
                                         className={`border-b border-slate-100 last:border-b-0 ${
                                           isFocusedEntity("affiliation", toText(affiliation?.id))
                                             ? "bg-amber-50"
@@ -4425,6 +4467,13 @@ export function JobDetailsPage() {
                           {taskRows.map((task) => (
                             <tr
                               key={toText(task?.id || task?.ID)}
+                              data-ann-kind="task"
+                              data-ann-id={toText(task?.id || task?.ID)}
+                              data-ann-highlighted={
+                                isFocusedEntity("task", toText(task?.id || task?.ID))
+                                  ? "true"
+                                  : "false"
+                              }
                               className={`border-b border-slate-100 last:border-b-0 ${
                                 isFocusedEntity("task", toText(task?.id || task?.ID))
                                   ? "bg-amber-50"
@@ -4608,6 +4657,9 @@ export function JobDetailsPage() {
                   return (
                     <div
                       key={memoId}
+                      data-ann-kind="post"
+                      data-ann-id={memoId}
+                      data-ann-highlighted={isFocusedEntity("post", memoId) ? "true" : "false"}
                       className={`rounded-lg border px-2.5 py-2 ${
                         isFocusedEntity("post", memoId)
                           ? "border-amber-300 bg-amber-50"
@@ -4672,6 +4724,11 @@ export function JobDetailsPage() {
                             return (
                               <div
                                 key={replyId}
+                                data-ann-kind="comment"
+                                data-ann-id={replyId}
+                                data-ann-highlighted={
+                                  isFocusedEntity("comment", replyId) ? "true" : "false"
+                                }
                                 className={`rounded border px-2 py-1.5 ${
                                   isFocusedEntity("comment", replyId)
                                     ? "border-amber-300 bg-amber-50"

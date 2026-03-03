@@ -8,5 +8,6 @@ export {
   createInquiryUploadFromFile,
   subscribeJobUploadsByJobId,
   subscribeInquiryUploadsByInquiryId,
+  uploadMaterialFile,
   deleteUploadRecord,
 } from "../core/runtime.js";

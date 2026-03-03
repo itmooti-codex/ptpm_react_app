@@ -288,6 +288,37 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
     pageSize: 120,
   });
 
+  useEffect(() => {
+    if (!normalizedHighlightActivityId || !hasMoreActivities) return;
+    const hasVisibleHighlightedRow = visibleActivities.some((activity) => {
+      const activityId = toText(activity?.id || activity?.ID);
+      return normalizeActivityId(activityId) === normalizedHighlightActivityId;
+    });
+    if (hasVisibleHighlightedRow) return;
+    showMoreActivities();
+  }, [
+    normalizedHighlightActivityId,
+    hasMoreActivities,
+    visibleActivities,
+    showMoreActivities,
+  ]);
+
+  useEffect(() => {
+    if (!normalizedHighlightActivityId) return;
+    const timeoutId = window.setTimeout(() => {
+      const matches = Array.from(document.querySelectorAll('[data-ann-kind="activity"]'));
+      const target = matches.find(
+        (node) =>
+          String(node?.getAttribute("data-ann-id") || "").trim() ===
+          normalizedHighlightActivityId
+      );
+      if (target && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      }
+    }, 80);
+    return () => window.clearTimeout(timeoutId);
+  }, [normalizedHighlightActivityId, visibleActivities.length]);
+
   const serviceById = useMemo(() => {
     const map = new Map();
     services.forEach((service) => {
@@ -691,6 +722,9 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
                     return (
                       <tr
                         key={activityId || `${activity.task}-${activity.option}`}
+                        data-ann-kind="activity"
+                        data-ann-id={normalizedActivityId || activityId}
+                        data-ann-highlighted={isHighlighted ? "true" : "false"}
                         className={`border-b border-slate-100 ${
                           isHighlighted ? "bg-amber-50" : ""
                         }`}

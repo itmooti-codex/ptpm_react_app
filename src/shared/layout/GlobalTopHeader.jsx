@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { APP_USER } from "../../config/userConfig.js";
 import { useAnnouncements } from "../hooks/useAnnouncements.js";
+import { useCurrentUserProfile } from "../hooks/useCurrentUserProfile.js";
 import appLogo from "../../assets/logo.webp";
 
 function BellIcon() {
@@ -73,6 +73,7 @@ export function GlobalTopHeader() {
     markAllAsRead,
     openNotification,
   } = useAnnouncements();
+  const { profile, displayName } = useCurrentUserProfile();
 
   useEffect(() => {
     const onDocumentClick = (event) => {
@@ -88,12 +89,19 @@ export function GlobalTopHeader() {
     return () => document.removeEventListener("mousedown", onDocumentClick);
   }, []);
 
-  const fullName = `${APP_USER.firstName || ""} ${APP_USER.lastName || ""}`.trim() || "User";
-  const initials = `${String(APP_USER.firstName || "").slice(0, 1)}${String(
-    APP_USER.lastName || ""
-  ).slice(0, 1)}`
-    .toUpperCase()
-    .trim();
+  const fullName =
+    String(displayName || "").trim() ||
+    `${String(profile?.firstName || "").trim()} ${String(profile?.lastName || "").trim()}`
+      .trim() ||
+    "User";
+  const initials = (() => {
+    const first = String(profile?.firstName || "").trim();
+    const last = String(profile?.lastName || "").trim();
+    if (first || last) {
+      return `${first.slice(0, 1)}${last.slice(0, 1)}`.toUpperCase().trim();
+    }
+    return String(fullName).slice(0, 2).toUpperCase().trim();
+  })();
 
   const visibleNotifications = useMemo(() => {
     return notifications.filter((item) => {
@@ -246,9 +254,9 @@ export function GlobalTopHeader() {
               className="inline-flex items-center gap-2 rounded px-2 py-1 hover:underline hover:decoration-white/80 hover:underline-offset-2"
               onClick={() => setIsProfileOpen((prev) => !prev)}
             >
-              {APP_USER.profileImage ? (
+              {profile?.profileImage ? (
                 <img
-                  src={APP_USER.profileImage}
+                  src={profile.profileImage}
                   alt={fullName}
                   className="h-7 w-7 rounded-full object-cover"
                 />

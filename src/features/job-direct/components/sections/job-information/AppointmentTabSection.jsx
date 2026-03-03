@@ -451,6 +451,7 @@ export function AppointmentTabSection({
   const [updatingId, setUpdatingId] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const sectionRef = useRef(null);
   const {
     hasMore: hasMoreAppointments,
     remainingCount: remainingAppointmentsCount,
@@ -465,6 +466,39 @@ export function AppointmentTabSection({
   useEffect(() => {
     onCountChange?.(appointments.length);
   }, [appointments.length, onCountChange]);
+
+  useEffect(() => {
+    if (!normalizedHighlightAppointmentId || !hasMoreAppointments) return;
+    const hasVisibleHighlightedRow = visibleAppointments.some(
+      (record) =>
+        String(record?.id || record?.ID || "").trim() === normalizedHighlightAppointmentId
+    );
+    if (hasVisibleHighlightedRow) return;
+    showMoreAppointments();
+  }, [
+    normalizedHighlightAppointmentId,
+    hasMoreAppointments,
+    visibleAppointments,
+    showMoreAppointments,
+  ]);
+
+  useEffect(() => {
+    if (!normalizedHighlightAppointmentId) return;
+    const timeoutId = window.setTimeout(() => {
+      const root = sectionRef.current;
+      if (!root) return;
+      const matches = Array.from(root.querySelectorAll('[data-ann-kind="appointment"]'));
+      const target = matches.find(
+        (node) =>
+          String(node?.getAttribute("data-ann-id") || "").trim() ===
+          normalizedHighlightAppointmentId
+      );
+      if (target && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      }
+    }, 80);
+    return () => window.clearTimeout(timeoutId);
+  }, [normalizedHighlightAppointmentId, visibleAppointments.length]);
 
   useEffect(() => {
     if (!plugin || jobId || !inquiryUidValue) return undefined;
@@ -733,6 +767,7 @@ export function AppointmentTabSection({
 
   return (
     <div
+      ref={sectionRef}
       data-job-section="job-section-appointment"
       className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[460px_minmax(0,1fr)]"
     >
@@ -956,6 +991,9 @@ export function AppointmentTabSection({
                     return (
                       <tr
                         key={recordId}
+                        data-ann-kind="appointment"
+                        data-ann-id={recordId}
+                        data-ann-highlighted={isHighlighted ? "true" : "false"}
                         className={`border-b border-slate-100 last:border-b-0 ${
                           isHighlighted ? "bg-amber-50" : ""
                         }`}

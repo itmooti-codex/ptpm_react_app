@@ -96,6 +96,7 @@ export function UploadsSection({
   const [isUploading, setIsUploading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const sectionRef = useRef(null);
   const inputRef = useRef(null);
   const pendingUploadsRef = useRef([]);
   const jobId = useMemo(() => normalizeJobId(jobData), [jobData]);
@@ -195,6 +196,37 @@ export function UploadsSection({
       return [];
     });
   }, [targetRecordId]);
+
+  useEffect(() => {
+    if (!normalizedHighlightUploadId || !hasMoreExistingUploads) return;
+    const hasVisibleHighlightedRow = visibleExistingUploads.some(
+      (record) => normalizeRecordId(record?.id || record?.ID) === normalizedHighlightUploadId
+    );
+    if (hasVisibleHighlightedRow) return;
+    showMoreExistingUploads();
+  }, [
+    normalizedHighlightUploadId,
+    hasMoreExistingUploads,
+    visibleExistingUploads,
+    showMoreExistingUploads,
+  ]);
+
+  useEffect(() => {
+    if (!normalizedHighlightUploadId) return;
+    const timeoutId = window.setTimeout(() => {
+      const root = sectionRef.current;
+      if (!root) return;
+      const matches = Array.from(root.querySelectorAll('[data-ann-kind="upload"]'));
+      const target = matches.find(
+        (node) =>
+          String(node?.getAttribute("data-ann-id") || "").trim() === normalizedHighlightUploadId
+      );
+      if (target && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      }
+    }, 80);
+    return () => window.clearTimeout(timeoutId);
+  }, [normalizedHighlightUploadId, visibleExistingUploads.length]);
 
   const triggerFilePicker = () => {
     if (!targetRecordId) {
@@ -391,7 +423,11 @@ export function UploadsSection({
   };
 
   return (
-    <section data-section="uploads" className="grid grid-cols-1 gap-4 xl:grid-cols-[480px_1fr]">
+    <section
+      ref={sectionRef}
+      data-section="uploads"
+      className="grid grid-cols-1 gap-4 xl:grid-cols-[480px_1fr]"
+    >
       <Card className="space-y-4">
         <h3 className="type-subheadline text-slate-800">Upload Files</h3>
         <div
@@ -558,6 +594,9 @@ export function UploadsSection({
                       return (
                         <tr
                           key={`${uploadId || uploadUrl || "upload"}-${index}`}
+                          data-ann-kind="upload"
+                          data-ann-id={normalizeRecordId(uploadId)}
+                          data-ann-highlighted={isHighlighted ? "true" : "false"}
                           className={`border-b border-slate-100 last:border-b-0 ${
                             isHighlighted ? "bg-amber-50" : ""
                           }`}

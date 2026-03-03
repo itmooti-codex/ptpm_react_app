@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { APP_USER } from "../../config/userConfig.js";
 import { ensureVitalStatsPlugin } from "../../features/job-direct/sdk/vitalStatsBootstrap.js";
 import { resolveNotificationNavigation } from "../announcements/announcementNavigation.js";
+import { useCurrentUserProfile } from "../hooks/useCurrentUserProfile.js";
 
 export const AnnouncementsContext = createContext(null);
 
@@ -89,6 +90,19 @@ function normalizeBoolean(value) {
   if (typeof value === "number") return value === 1;
   const text = toText(value).toLowerCase();
   return text === "true" || text === "1" || text === "yes";
+}
+
+function normalizeAnnouncementType(value) {
+  return toText(value).toLowerCase();
+}
+
+function isNotificationAllowedByPreferences(notification, preferences) {
+  if (preferences.pauseAllNotification) return false;
+  const type = normalizeAnnouncementType(notification?.rawType || notification?.type);
+  if (type === "quote/job") return preferences.quotesJobs;
+  if (type === "inquiry") return preferences.inquiries;
+  if (type === "post" || type === "comment") return preferences.memosComments;
+  return preferences.extras;
 }
 
 function readRecordField(record, keys = []) {
@@ -265,6 +279,7 @@ async function fetchLatestAnnouncementById(plugin, id) {
 
 export function AnnouncementsProvider({ children }) {
   const navigate = useNavigate();
+  const { profile } = useCurrentUserProfile();
   const [notifications, setNotifications] = useState([]);
   const [isNotifLoading, setIsNotifLoading] = useState(false);
   const [notificationError, setNotificationError] = useState(null);
@@ -272,6 +287,22 @@ export function AnnouncementsProvider({ children }) {
   const [isMarkingAll, setIsMarkingAll] = useState(false);
   const pluginRef = useRef(null);
   const notificationsRef = useRef([]);
+  const preferences = useMemo(
+    () => ({
+      pauseAllNotification: normalizeBoolean(profile?.pauseAllNotification),
+      quotesJobs: normalizeBoolean(profile?.quotesJobs, true),
+      inquiries: normalizeBoolean(profile?.inquiries, true),
+      memosComments: normalizeBoolean(profile?.memosComments, true),
+      extras: normalizeBoolean(profile?.extras, true),
+    }),
+    [
+      profile?.pauseAllNotification,
+      profile?.quotesJobs,
+      profile?.inquiries,
+      profile?.memosComments,
+      profile?.extras,
+    ]
+  );
 
   useEffect(() => {
     notificationsRef.current = notifications;
@@ -281,6 +312,15 @@ export function AnnouncementsProvider({ children }) {
     let isActive = true;
     let activeQuery = null;
     let activeSubscription = null;
+
+    if (preferences.pauseAllNotification) {
+      setNotifications([]);
+      setNotificationError(null);
+      setIsNotifLoading(false);
+      return () => {
+        isActive = false;
+      };
+    }
 
     const subscribeToAnnouncements = async () => {
       setIsNotifLoading(true);
@@ -403,11 +443,19 @@ export function AnnouncementsProvider({ children }) {
         // ignore
       }
     };
-  }, []);
+  }, [preferences.pauseAllNotification]);
+
+  const filteredNotifications = useMemo(
+    () =>
+      (Array.isArray(notifications) ? notifications : []).filter((item) =>
+        isNotificationAllowedByPreferences(item, preferences)
+      ),
+    [notifications, preferences]
+  );
 
   const unreadCount = useMemo(
-    () => notifications.filter((item) => !item.read).length,
-    [notifications]
+    () => filteredNotifications.filter((item) => !item.read).length,
+    [filteredNotifications]
   );
 
   const persistReadState = useCallback(async (ids) => {
@@ -437,12 +485,22 @@ export function AnnouncementsProvider({ children }) {
   }, []);
 
   const markAllAsRead = useCallback(async () => {
-    const unreadIds = notifications.filter((item) => !item.read).map((item) => item.id);
+    const unreadIds = filteredNotifications.filter((item) => !item.read).map((item) => item.id);
     if (!unreadIds.length || isMarkingAll) return;
+    const unreadSet = new Set(unreadIds);
 
     const previous = notifications;
     setIsMarkingAll(true);
-    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
+    setNotifications((prev) =>
+      prev.map((item) =>
+        unreadSet.has(item.id)
+          ? {
+              ...item,
+              read: true,
+            }
+          : item
+      )
+    );
 
     try {
       await persistReadState(unreadIds);
@@ -452,7 +510,7 @@ export function AnnouncementsProvider({ children }) {
     } finally {
       setIsMarkingAll(false);
     }
-  }, [notifications, isMarkingAll, persistReadState]);
+  }, [filteredNotifications, notifications, isMarkingAll, persistReadState]);
 
   const markOneAsRead = useCallback(
     async (notification) => {
@@ -526,7 +584,7 @@ export function AnnouncementsProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      notifications,
+      notifications: filteredNotifications,
       unreadCount,
       isNotifLoading,
       notificationError,
@@ -537,7 +595,7 @@ export function AnnouncementsProvider({ children }) {
       openNotification,
     }),
     [
-      notifications,
+      filteredNotifications,
       unreadCount,
       isNotifLoading,
       notificationError,
