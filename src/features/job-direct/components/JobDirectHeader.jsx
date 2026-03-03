@@ -17,15 +17,21 @@ export function JobDirectHeader({
   onBack,
   onNext,
   onSave,
+  title = "New Job Direct",
+  sectionLabels = SECTION_LABELS,
+  pageDataAttr = "new-direct-job",
+  saveEnabled = true,
   hasUnsavedChanges = false,
 }) {
   const { success, error } = useToast();
   const [isSaving, setIsSaving] = useState(false);
-  const nextLabel = navState.next ? `Next: ${SECTION_LABELS[navState.next]}` : "Next";
-  const backLabel = navState.previous ? `Back: ${SECTION_LABELS[navState.previous]}` : "Back";
+  const nextLabel = navState.next ? `Next: ${sectionLabels[navState.next] || navState.next}` : "Next";
+  const backLabel = navState.previous
+    ? `Back: ${sectionLabels[navState.previous] || navState.previous}`
+    : "Back";
 
   const handleResetForm = () => {
-    const root = document.querySelector('[data-page="new-direct-job"]');
+    const root = document.querySelector(`[data-page="${pageDataAttr}"]`);
     if (!root) return;
 
     const fields = root.querySelectorAll("input, textarea, select");
@@ -56,6 +62,7 @@ export function JobDirectHeader({
   };
 
   const handleSave = async () => {
+    if (!saveEnabled) return;
     if (isSaving) return;
     if (typeof onSave !== "function") {
       error("Save failed", "Save action is not available.");
@@ -83,7 +90,7 @@ export function JobDirectHeader({
         <div className="justify-self-start">
           <Link to="/" className="type-headline inline-flex items-center gap-3">
             <TitleBackIcon className="h-6 w-6 text-white" />
-            <span>New Job Direct</span>
+            <span>{title}</span>
           </Link>
         </div>
 
@@ -100,7 +107,7 @@ export function JobDirectHeader({
             variant="ghost"
             className="border border-white text-white disabled:cursor-not-allowed disabled:opacity-70"
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || !saveEnabled}
           >
             <HeaderSaveIcon className="h-3.5 w-3.5 text-white" />
             {isSaving ? "Saving..." : "Save"}

@@ -84,13 +84,14 @@ export function DashboardHeader({
   isBatchMode = false,
   batchSelectedCount = 0,
   onBatchDeleteClick,
+  onCreateInquiry,
   onCreateJob,
   onPrintCurrentTable,
   onExportCurrentTable,
   onExportServiceProviders,
 }) {
   const createItems = [
-    { label: "New Inquiry", onClick: () => {} },
+    { label: "New Inquiry", onClick: () => onCreateInquiry?.() },
     { label: "New Quote/Job", onClick: () => onCreateJob?.() },
   ];
 

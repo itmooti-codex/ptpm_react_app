@@ -298,17 +298,34 @@ function buildInquiryBaseQuery(plugin) {
         )
     )
     .include("Property", (sq) =>
-      sq.deSelectAll().select([
-        "id",
-        "unique_id",
-        "property_name",
-        "address_1",
-        "address_2",
-        "suburb_town",
-        "state",
-        "postal_code",
-        "country",
-      ])
+      sq
+        .deSelectAll()
+        .select([
+          "id",
+          "unique_id",
+          "property_name",
+          "lot_number",
+          "unit_number",
+          "address_1",
+          "address_2",
+          "suburb_town",
+          "state",
+          "postal_code",
+          "country",
+          "property_type",
+          "building_type",
+          "building_type_other",
+          "foundation_type",
+          "bedrooms",
+          "manhole",
+          "stories",
+          "building_age",
+          "building_features",
+          "building_features_options_as_text",
+        ])
+        .include("Building_Features", (featureQuery) =>
+          featureQuery.deSelectAll().select(["id"])
+        )
     )
     .include("Service_Provider", (sq) =>
       sq
@@ -367,17 +384,34 @@ function buildJobBaseQuery(plugin) {
         )
     )
     .include("Property", (sq) =>
-      sq.deSelectAll().select([
-        "id",
-        "unique_id",
-        "property_name",
-        "address_1",
-        "address_2",
-        "suburb_town",
-        "state",
-        "postal_code",
-        "country",
-      ])
+      sq
+        .deSelectAll()
+        .select([
+          "id",
+          "unique_id",
+          "property_name",
+          "lot_number",
+          "unit_number",
+          "address_1",
+          "address_2",
+          "suburb_town",
+          "state",
+          "postal_code",
+          "country",
+          "property_type",
+          "building_type",
+          "building_type_other",
+          "foundation_type",
+          "bedrooms",
+          "manhole",
+          "stories",
+          "building_age",
+          "building_features",
+          "building_features_options_as_text",
+        ])
+        .include("Building_Features", (featureQuery) =>
+          featureQuery.deSelectAll().select(["id"])
+        )
     )
     .include("Primary_Service_Provider", (sq) =>
       sq

@@ -14,15 +14,16 @@ import {
   useJobDirectSelector,
   useJobDirectStoreActions,
 } from "../../../hooks/useJobDirectStore.jsx";
+import { useServiceProviderLookupData } from "../../../hooks/useServiceProviderLookupData.js";
 import {
   selectAppointments,
   selectContacts,
   selectProperties,
-  selectServiceProviders,
 } from "../../../state/selectors.js";
 import {
   createAppointmentRecord,
   deleteAppointmentRecord,
+  fetchAppointmentsByInquiryUid,
   updateAppointmentRecord,
 } from "../../../sdk/jobDirectSdk.js";
 import {
@@ -382,13 +383,18 @@ export function AppointmentTabSection({
   preloadedLookupData,
   onCountChange,
   inquiryRecordId = "",
+  inquiryUid = "",
 }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
   const appointments = useJobDirectSelector(selectAppointments);
   const properties = useJobDirectSelector(selectProperties);
-  const serviceProviders = useJobDirectSelector(selectServiceProviders);
   const contacts = useJobDirectSelector(selectContacts);
+  const { serviceProviders, isLookupLoading: isServiceProviderLookupLoading } =
+    useServiceProviderLookupData(plugin, {
+      initialProviders: preloadedLookupData?.serviceProviders || [],
+      skipInitialFetch: true,
+    });
   const emptyForm = useMemo(
     () => ({
       status: "",
@@ -418,6 +424,14 @@ export function AppointmentTabSection({
     () => normalizeIdValue(jobData?.id || jobData?.ID || ""),
     [jobData, normalizeIdValue]
   );
+  const inquiryUidValue = useMemo(
+    () => String(inquiryUid || "").trim(),
+    [inquiryUid]
+  );
+  const dealId = useMemo(
+    () => normalizeIdValue(inquiryRecordId),
+    [inquiryRecordId, normalizeIdValue]
+  );
 
   const [form, setForm] = useState(emptyForm);
   const [locationQuery, setLocationQuery] = useState("");
@@ -442,6 +456,26 @@ export function AppointmentTabSection({
   useEffect(() => {
     onCountChange?.(appointments.length);
   }, [appointments.length, onCountChange]);
+
+  useEffect(() => {
+    if (!plugin || jobId || !inquiryUidValue) return undefined;
+
+    let isActive = true;
+    fetchAppointmentsByInquiryUid({ plugin, inquiryUid: inquiryUidValue })
+      .then((records) => {
+        if (!isActive) return;
+        storeActions.replaceEntityCollection("appointments", records || []);
+      })
+      .catch((fetchError) => {
+        if (!isActive) return;
+        console.error("[JobDirect] Failed loading inquiry appointments", fetchError);
+        storeActions.replaceEntityCollection("appointments", []);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [plugin, jobId, inquiryUidValue, storeActions]);
 
   const locationItems = useMemo(
     () =>
@@ -551,8 +585,13 @@ export function AppointmentTabSection({
       error("Create failed", "SDK is still initializing. Please try again.");
       return;
     }
-    if (!jobId) {
-      error("Create failed", "Job ID is missing. Refresh and try again.");
+    const hasInquiryContext = Boolean(inquiryUidValue || dealId);
+    if (!jobId && !hasInquiryContext) {
+      error("Create failed", "Appointment context is missing. Refresh and try again.");
+      return;
+    }
+    if (hasInquiryContext && !dealId) {
+      error("Create failed", "Inquiry ID is missing. Refresh and try again.");
       return;
     }
     if (!form.status || !form.location_id || !form.host_id || !form.primary_guest_contact_id) {
@@ -577,7 +616,7 @@ export function AppointmentTabSection({
 
     const guestId = normalizeIdValue(form.primary_guest_contact_id);
     const isInquiryType = normalizeAppointmentValue(form.type) === "inquiry";
-    const dealId = normalizeIdValue(inquiryRecordId);
+    const shouldAttachInquiry = hasInquiryContext || isInquiryType;
     const payload = {
       status: form.status,
       type: form.type,
@@ -587,13 +626,12 @@ export function AppointmentTabSection({
       description: String(form.description || "").trim(),
       location_id: normalizeIdValue(form.location_id),
       host_id: normalizeIdValue(form.host_id),
-      primary_guest_contact_id: guestId,
       primary_guest_id: guestId,
       event_color: form.event_color,
       duration_hours: String(form.duration_hours || "0").trim(),
       duration_minutes: String(form.duration_minutes || "0").trim(),
-      job_id: normalizeIdValue(jobId),
-      inquiry_id: isInquiryType ? dealId || "" : "",
+      job_id: jobId ? normalizeIdValue(jobId) : "",
+      inquiry_id: shouldAttachInquiry ? dealId || "" : "",
     };
 
     setIsCreating(true);
@@ -779,7 +817,11 @@ export function AppointmentTabSection({
               handleFieldChange("host_id", String(item?.id || "").trim());
             }}
             hideAddAction
-            emptyText="No service providers found."
+            emptyText={
+              isServiceProviderLookupLoading
+                ? "Loading service providers..."
+                : "No service providers found."
+            }
           />
 
           <SearchDropdownInput
@@ -861,7 +903,9 @@ export function AppointmentTabSection({
                     const hostName =
                       [record?.host_first_name, record?.host_last_name].filter(Boolean).join(" ").trim() ||
                       hostItems.find((item) => String(item.id) === String(record?.host_id || "").trim())?.label ||
-                      "-";
+                      (String(record?.host_id || "").trim()
+                        ? `Provider #${String(record?.host_id || "").trim()}`
+                        : "-");
                     const guestName =
                       [record?.primary_guest_first_name, record?.primary_guest_last_name]
                         .filter(Boolean)

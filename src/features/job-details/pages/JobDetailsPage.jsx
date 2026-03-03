@@ -1364,7 +1364,15 @@ export function JobDetailsPage() {
       inquiry?.Inquiry_For_Job_ID ||
       inquiry?.Inquiry_for_Job_ID
   );
-  const currentJobUniqueId = toText(job?.unique_id || job?.Unique_ID);
+  const currentJobUniqueId = toText(job?.unique_id || job?.Unique_ID || uid);
+  const currentInquiryUniqueId = toText(
+    inquiry?.unique_id ||
+      inquiry?.Unique_ID ||
+      job?.Inquiry_Record?.unique_id ||
+      job?.Inquiry_Record?.Unique_ID ||
+      job?.Inquiry_Record_Unique_ID
+  );
+  const isQuoteAccepted = quoteStatusNormalized === "accepted";
   const hasLinkedJob = Boolean(currentJobId);
 
   const handleOpenPrintJobSheet = useCallback(() => {
@@ -1546,6 +1554,22 @@ export function JobDetailsPage() {
   const handleBackDashboard = useCallback(() => {
     navigate("/");
   }, [navigate]);
+
+  const handleEditRecord = useCallback(() => {
+    if (isQuoteAccepted) {
+      if (!currentJobUniqueId) {
+        showError("Navigation unavailable", "No linked job found.");
+        return;
+      }
+      navigate(`/job-direct/${encodeURIComponent(currentJobUniqueId)}`);
+      return;
+    }
+    if (!currentInquiryUniqueId) {
+      showError("Navigation unavailable", "No linked inquiry found.");
+      return;
+    }
+    navigate(`/inquiry-direct/${encodeURIComponent(currentInquiryUniqueId)}`);
+  }, [isQuoteAccepted, currentJobUniqueId, currentInquiryUniqueId, navigate, showError]);
 
   const handleAddPropertySave = useCallback(
     async (payload) => {
@@ -3186,9 +3210,10 @@ export function JobDetailsPage() {
                     size="sm"
                     variant="outline"
                     className="whitespace-nowrap"
-                    onClick={() => setIsDealInfoOpen(true)}
+                    onClick={handleEditRecord}
+                    disabled={isQuoteAccepted ? !currentJobUniqueId : !currentInquiryUniqueId}
                   >
-                    Edit Inquiry
+                    {isQuoteAccepted ? "Edit Job" : "Edit Inquiry"}
                   </Button>
                 </div>
               </div>

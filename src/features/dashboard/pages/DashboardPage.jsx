@@ -402,6 +402,10 @@ export function DashboardPage() {
     }
   }, [plugin, isCreatingJob, success, showError, navigate]);
 
+  const handleCreateInquiry = useCallback(() => {
+    navigate("/inquiry-direct");
+  }, [navigate]);
+
   const handleEnableBatchDelete = useCallback(() => {
     setIsBatchMode(true);
     setBatchSelectedIds([]);
@@ -570,6 +574,7 @@ export function DashboardPage() {
         isBatchMode={isBatchMode}
         batchSelectedCount={batchSelectedIds.length}
         onBatchDeleteClick={() => setBatchDeleteModal(true)}
+        onCreateInquiry={handleCreateInquiry}
         onCreateJob={handleCreateJob}
         onPrintCurrentTable={handlePrintCurrentTable}
         onExportCurrentTable={handleExportCurrentTable}

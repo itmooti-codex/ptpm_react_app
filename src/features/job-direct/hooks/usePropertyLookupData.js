@@ -194,7 +194,7 @@ export function usePropertyLookupData(
       return undefined;
     }
 
-    if (skipInitialFetch && properties.length > 0) {
+    if (skipInitialFetch) {
       setIsLoading(false);
       return undefined;
     }
@@ -221,7 +221,7 @@ export function usePropertyLookupData(
     return () => {
       isActive = false;
     };
-  }, [actions, plugin, properties.length, skipInitialFetch]);
+  }, [actions, plugin, skipInitialFetch]);
 
   const addProperty = useCallback((newProperty) => {
     const normalized = normalizeProperty(newProperty);

@@ -5,6 +5,7 @@ import { ProfilePage } from "../features/account/pages/ProfilePage.jsx";
 import { SettingsPage } from "../features/account/pages/SettingsPage.jsx";
 import { NotificationsPage } from "../features/account/pages/NotificationsPage.jsx";
 import { JobDetailsPage } from "../features/job-details/pages/JobDetailsPage.jsx";
+import { InquiryDirectPage } from "../features/inquiry-direct/pages/InquiryDirectPage.jsx";
 
 export default function App() {
   return (
@@ -12,6 +13,9 @@ export default function App() {
       <Route path="/" element={<DashboardPage />} />
       <Route path="/job-direct" element={<JobDirectPage />} />
       <Route path="/job-direct/:jobuid" element={<JobDirectPage />} />
+      <Route path="/inquiry-direct" element={<InquiryDirectPage />} />
+      <Route path="/inquiry-direct/:inquiryuid" element={<InquiryDirectPage />} />
+      <Route path="/inquiry-direct/new" element={<InquiryDirectPage />} />
       <Route path="/details/:uid" element={<JobDetailsPage />} />
       <Route path="/profile" element={<ProfilePage />} />
       <Route path="/settings" element={<SettingsPage />} />

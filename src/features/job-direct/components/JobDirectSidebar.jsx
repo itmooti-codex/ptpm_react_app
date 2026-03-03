@@ -22,7 +22,12 @@ export function JobDirectSidebar({
   sidebarCollapsed,
   setSidebarCollapsed,
   onSelectSection,
+  sectionOrder = SECTION_ORDER,
+  sectionLabels = SECTION_LABELS,
 }) {
+  const resolvedSectionOrder =
+    Array.isArray(sectionOrder) && sectionOrder.length > 0 ? sectionOrder : SECTION_ORDER;
+
   return (
     <aside
       className={cx(
@@ -40,7 +45,7 @@ export function JobDirectSidebar({
       </button>
 
       <ul className="space-y-2">
-        {SECTION_ORDER.map((sectionId, index) => {
+        {resolvedSectionOrder.map((sectionId, index) => {
           const active = sectionId === activeSection;
           const Icon = SECTION_ICON_MAP[sectionId];
           return (
@@ -64,7 +69,7 @@ export function JobDirectSidebar({
                   {Icon ? <Icon className="h-6 w-6" /> : index + 1}
                 </span>
                 <span className={cx("type-subheadline-2", sidebarCollapsed && "hidden")}>
-                  {SECTION_LABELS[sectionId]}
+                  {sectionLabels[sectionId] || sectionId}
                 </span>
               </button>
             </li>

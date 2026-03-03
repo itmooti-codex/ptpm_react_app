@@ -10,8 +10,10 @@ import {
 import { selectJobUploads } from "../../state/selectors.js";
 import { useRenderWindow } from "../primitives/JobDirectTable.jsx";
 import {
+  createInquiryUploadFromFile,
   createJobUploadFromFile,
   deleteUploadRecord,
+  fetchInquiryUploads,
   fetchJobUploads,
 } from "../../sdk/jobDirectSdk.js";
 
@@ -42,10 +44,14 @@ function TrashIcon() {
   );
 }
 
-function normalizeJobId(jobData = null) {
-  const raw = String(jobData?.id || jobData?.ID || "").trim();
+function normalizeRecordId(value = "") {
+  const raw = String(value || "").trim();
   if (!raw) return "";
   return /^\d+$/.test(raw) ? String(Number.parseInt(raw, 10)) : raw;
+}
+
+function normalizeJobId(jobData = null) {
+  return normalizeRecordId(jobData?.id || jobData?.ID || "");
 }
 
 function formatFileSize(size) {
@@ -66,7 +72,15 @@ function dedupeUploadRecords(records = []) {
   return Array.from(map.values());
 }
 
-export function UploadsSection({ plugin, jobData, additionalCreatePayload = null }) {
+export function UploadsSection({
+  plugin,
+  jobData,
+  additionalCreatePayload = null,
+  uploadsMode = "job",
+  inquiryId = "",
+  inquiryUid = "",
+  linkedJobId = "",
+}) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
   const uploads = useJobDirectSelector(selectJobUploads);
@@ -80,6 +94,11 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
   const inputRef = useRef(null);
   const pendingUploadsRef = useRef([]);
   const jobId = useMemo(() => normalizeJobId(jobData), [jobData]);
+  const normalizedInquiryId = useMemo(() => normalizeRecordId(inquiryId), [inquiryId]);
+  const normalizedLinkedJobId = useMemo(() => normalizeRecordId(linkedJobId), [linkedJobId]);
+  const mode = String(uploadsMode || "job").trim().toLowerCase() === "inquiry" ? "inquiry" : "job";
+  const isInquiryMode = mode === "inquiry";
+  const targetRecordId = isInquiryMode ? normalizedInquiryId : jobId;
   const {
     hasMore: hasMorePendingUploads,
     remainingCount: remainingPendingUploadsCount,
@@ -103,7 +122,7 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
 
   useEffect(() => {
     let isActive = true;
-    if (!plugin || !jobId) {
+    if (!plugin || !targetRecordId) {
       storeActions.replaceEntityCollection("jobUploads", []);
       setLoadError("");
       setIsLoading(false);
@@ -112,7 +131,11 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
 
     setIsLoading(true);
     setLoadError("");
-    fetchJobUploads({ plugin, jobId })
+    const fetchPromise = isInquiryMode
+      ? fetchInquiryUploads({ plugin, inquiryId: normalizedInquiryId })
+      : fetchJobUploads({ plugin, jobId });
+
+    fetchPromise
       .then((records) => {
         if (!isActive) return;
         storeActions.replaceEntityCollection("jobUploads", records || []);
@@ -131,7 +154,7 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
     return () => {
       isActive = false;
     };
-  }, [plugin, jobId, storeActions]);
+  }, [plugin, targetRecordId, isInquiryMode, normalizedInquiryId, jobId, storeActions]);
 
   useEffect(() => {
     pendingUploadsRef.current = pendingUploads;
@@ -153,18 +176,21 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
       });
       return [];
     });
-  }, [jobId]);
+  }, [targetRecordId]);
 
   const triggerFilePicker = () => {
-    if (!jobId) {
-      error("Cannot upload", "Job record is not loaded yet.");
+    if (!targetRecordId) {
+      error(
+        "Cannot upload",
+        isInquiryMode ? "Inquiry record is not loaded yet." : "Job record is not loaded yet."
+      );
       return;
     }
     inputRef.current?.click();
   };
 
   const queuePendingFiles = (files = []) => {
-    if (!files.length || !jobId) return;
+    if (!files.length || !targetRecordId) return;
     setPendingUploads((previous) => {
       const existingSignatures = new Set(
         previous.map((item) => `${item.name}::${item.size}::${item.type}::${item.lastModified}`)
@@ -198,7 +224,7 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
   const handleDropZoneDragOver = (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (!jobId || isUploading) return;
+    if (!targetRecordId || isUploading) return;
     if (!isDropActive) setIsDropActive(true);
   };
 
@@ -212,7 +238,7 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
     event.preventDefault();
     event.stopPropagation();
     setIsDropActive(false);
-    if (!jobId || isUploading) return;
+    if (!targetRecordId || isUploading) return;
     const files = Array.from(event?.dataTransfer?.files || []);
     queuePendingFiles(files);
   };
@@ -232,7 +258,7 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
   };
 
   const savePendingUploads = async () => {
-    if (!plugin || !jobId || !pendingUploads.length || isUploading) return;
+    if (!plugin || !targetRecordId || !pendingUploads.length || isUploading) return;
 
     setIsUploading(true);
     setLoadError("");
@@ -241,13 +267,27 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
 
     for (const pending of pendingUploads) {
       try {
-        const saved = await createJobUploadFromFile({
-          plugin,
-          jobId,
-          file: pending.file,
-          uploadPath: `job-uploads/${jobId}`,
-          additionalPayload: additionalCreatePayload,
-        });
+        const effectiveAdditionalPayload = {
+          ...(additionalCreatePayload && typeof additionalCreatePayload === "object"
+            ? additionalCreatePayload
+            : {}),
+          ...(isInquiryMode && normalizedLinkedJobId ? { job_id: normalizedLinkedJobId } : {}),
+        };
+        const saved = isInquiryMode
+          ? await createInquiryUploadFromFile({
+              plugin,
+              inquiryId: normalizedInquiryId,
+              file: pending.file,
+              uploadPath: `inquiry-uploads/${normalizedInquiryId || inquiryUid || "inquiry"}`,
+              additionalPayload: effectiveAdditionalPayload,
+            })
+          : await createJobUploadFromFile({
+              plugin,
+              jobId,
+              file: pending.file,
+              uploadPath: `job-uploads/${jobId}`,
+              additionalPayload: effectiveAdditionalPayload,
+            });
         if (saved) created.push(saved);
         if (pending?.previewUrl) URL.revokeObjectURL(pending.previewUrl);
       } catch (uploadError) {
@@ -271,8 +311,8 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
       success(
         created.length > 1 ? "Uploads added" : "Upload added",
         created.length > 1
-          ? `${created.length} files were uploaded to this job.`
-          : "File was uploaded to this job."
+          ? `${created.length} files were uploaded to this ${isInquiryMode ? "inquiry" : "job"}.`
+          : `File was uploaded to this ${isInquiryMode ? "inquiry" : "job"}.`
       );
     }
 
@@ -331,7 +371,7 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
             className="mt-4"
             variant="secondary"
             onClick={triggerFilePicker}
-            disabled={!jobId || isUploading}
+            disabled={!targetRecordId || isUploading}
           >
             Choose Files
           </Button>
@@ -353,7 +393,7 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
               size="sm"
               variant="primary"
               onClick={savePendingUploads}
-              disabled={!jobId || !pendingUploads.length || isUploading}
+              disabled={!targetRecordId || !pendingUploads.length || isUploading}
             >
               {isUploading ? "Saving..." : "Save Uploads"}
             </Button>
@@ -433,25 +473,25 @@ export function UploadsSection({ plugin, jobData, additionalCreatePayload = null
           <h3 className="type-subheadline text-slate-800">Existing Uploads</h3>
         </div>
 
-        {!jobId ? (
+        {!targetRecordId ? (
           <div className="rounded-lg border border-slate-200 p-6 text-sm text-slate-400">
-            Job is not loaded yet.
+            {isInquiryMode ? "Inquiry is not loaded yet." : "Job is not loaded yet."}
           </div>
         ) : null}
 
-        {jobId && isLoading ? (
+        {targetRecordId && isLoading ? (
           <div className="rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
             Loading uploads...
           </div>
         ) : null}
 
-        {jobId && !isLoading && loadError ? (
+        {targetRecordId && !isLoading && loadError ? (
           <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700">
             {loadError}
           </div>
         ) : null}
 
-        {jobId && !isLoading && !loadError ? (
+        {targetRecordId && !isLoading && !loadError ? (
           <>
             <div className="overflow-x-auto">
               <table className="table-fixed w-full text-left text-sm text-slate-600">

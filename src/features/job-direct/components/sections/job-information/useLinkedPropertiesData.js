@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJobDirectSelector, useJobDirectStoreActions } from "../../../hooks/useJobDirectStore.jsx";
 import { selectLinkedPropertiesByAccountKey } from "../../../state/selectors.js";
 import {
@@ -28,9 +28,14 @@ export function useLinkedPropertiesData({
   const persistedPropertyId = normalizePropertyId(persistedRelatedProperty?.id);
   const [selectedPropertyId, setSelectedPropertyId] = useState(persistedPropertyId);
   const [linkedProperties, setLinkedProperties] = useState([]);
+  const linkedPropertiesRef = useRef([]);
   const [isPropertiesLoading, setIsPropertiesLoading] = useState(false);
   const [propertyLoadError, setPropertyLoadError] = useState("");
   const [propertySearchQuery, setPropertySearchQuery] = useState("");
+
+  useEffect(() => {
+    linkedPropertiesRef.current = Array.isArray(linkedProperties) ? linkedProperties : [];
+  }, [linkedProperties]);
 
   useEffect(() => {
     setSelectedPropertyId(persistedPropertyId);
@@ -124,19 +129,19 @@ export function useLinkedPropertiesData({
   const hasCachedLinkedProperties = useJobDirectSelector(hasCachedLinkedPropertiesSelector);
   const setLinkedPropertiesWithCache = useCallback(
     (valueOrUpdater) => {
-      setLinkedProperties((previous) => {
-        const nextValue =
-          typeof valueOrUpdater === "function" ? valueOrUpdater(previous) : valueOrUpdater;
-        const safeNext = Array.isArray(nextValue) ? nextValue : [];
-        if (linkedPropertyCacheKey) {
-          storeActions.replaceRelationCollection(
-            "linkedPropertiesByAccount",
-            linkedPropertyCacheKey,
-            safeNext
-          );
-        }
-        return safeNext;
-      });
+      const previous = linkedPropertiesRef.current;
+      const nextValue =
+        typeof valueOrUpdater === "function" ? valueOrUpdater(previous) : valueOrUpdater;
+      const safeNext = Array.isArray(nextValue) ? nextValue : [];
+      linkedPropertiesRef.current = safeNext;
+      setLinkedProperties(safeNext);
+      if (linkedPropertyCacheKey) {
+        storeActions.replaceRelationCollection(
+          "linkedPropertiesByAccount",
+          linkedPropertyCacheKey,
+          safeNext
+        );
+      }
     },
     [linkedPropertyCacheKey, storeActions]
   );

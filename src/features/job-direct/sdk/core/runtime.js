@@ -744,15 +744,12 @@ export function subscribeAppointmentsByJobId({ plugin, jobId, onChange, onError 
       "description",
       "start_time",
       "end_time",
-      "event_color",
-      "google_calendar_event_color",
-      "google_calendar_color",
+      "event_colour",
       "duration_hours",
       "duration_minutes",
       "job_id",
       "location_id",
       "host_id",
-      "primary_guest_contact_id",
       "primary_guest_id",
     ])
     .include("Location", (locationQuery) =>
@@ -800,10 +797,14 @@ export async function fetchContactsForSearch({ plugin } = {}) {
       .select(["id", "first_name", "last_name", "email", "sms_number", "office_phone"])
       .noDestroy();
     query.getOrInitQueryCalc?.();
-    const response = await fetchDirectWithTimeout(query);
+    const response = await fetchDirectWithTimeout(query, null, 30000);
     return extractRecords(response);
   } catch (error) {
-    console.error("[JobDirect] Failed to fetch contact search data", error);
+    if (isTimeoutError(error)) {
+      console.warn("[JobDirect] Contact search request timed out.");
+    } else {
+      console.error("[JobDirect] Failed to fetch contact search data", error);
+    }
     return [];
   }
 }
@@ -848,10 +849,14 @@ export async function fetchCompaniesForSearch({ plugin } = {}) {
       )
       .noDestroy();
     query.getOrInitQueryCalc?.();
-    const response = await fetchDirectWithTimeout(query);
+    const response = await fetchDirectWithTimeout(query, null, 30000);
     return extractRecords(response);
   } catch (error) {
-    console.error("[JobDirect] Failed to fetch company search data", error);
+    if (isTimeoutError(error)) {
+      console.warn("[JobDirect] Company search request timed out.");
+    } else {
+      console.error("[JobDirect] Failed to fetch company search data", error);
+    }
     return [];
   }
 }
@@ -921,10 +926,14 @@ export async function fetchPropertiesForSearch({ plugin } = {}) {
       ]);
 
     query.getOrInitQueryCalc?.();
-    const response = await fetchDirectWithTimeout(query);
+    const response = await fetchDirectWithTimeout(query, null, 30000);
     return extractRecords(response);
   } catch (error) {
-    console.error("[JobDirect] Failed to fetch property search data", error);
+    if (isTimeoutError(error)) {
+      console.warn("[JobDirect] Property search request timed out.");
+    } else {
+      console.error("[JobDirect] Failed to fetch property search data", error);
+    }
     return [];
   }
 }
@@ -2169,6 +2178,7 @@ function normalizeAppointmentRecord(rawAppointment = {}) {
         ""
     ).trim(),
     job_id: String(rawAppointment?.job_id || rawAppointment?.Job_ID || "").trim(),
+    inquiry_id: String(rawAppointment?.inquiry_id || rawAppointment?.Inquiry_ID || "").trim(),
     location_id: String(
       rawAppointment?.location_id || rawAppointment?.Location_ID || ""
     ).trim(),
@@ -2189,6 +2199,10 @@ function normalizeAppointmentRecord(rawAppointment = {}) {
     ).trim(),
     host_first_name: String(
       rawAppointment?.Host_Contact_Information_First_Name ||
+        rawAppointment?.Host_First_Name ||
+        rawAppointment?.host_first_name ||
+        rawAppointment?.contact_first_name ||
+        rawAppointment?.Contact_First_Name ||
         rawAppointment?.host_contact_information_first_name ||
         hostContact?.first_name ||
         hostContact?.First_Name ||
@@ -2196,6 +2210,10 @@ function normalizeAppointmentRecord(rawAppointment = {}) {
     ).trim(),
     host_last_name: String(
       rawAppointment?.Host_Contact_Information_Last_Name ||
+        rawAppointment?.Host_Last_Name ||
+        rawAppointment?.host_last_name ||
+        rawAppointment?.contact_last_name ||
+        rawAppointment?.Contact_Last_Name ||
         rawAppointment?.host_contact_information_last_name ||
         hostContact?.last_name ||
         hostContact?.Last_Name ||
@@ -2216,6 +2234,49 @@ function normalizeAppointmentRecord(rawAppointment = {}) {
         ""
     ).trim(),
   };
+}
+
+function normalizeAppointmentMutationPayload(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const next = { ...source };
+  const colorValue = String(
+    source?.event_colour ??
+      source?.event_color ??
+      source?.Event_Colour ??
+      source?.Event_Color ??
+      ""
+  ).trim();
+
+  delete next.event_color;
+  delete next.Event_Color;
+
+  if (
+    Object.prototype.hasOwnProperty.call(source, "event_colour") ||
+    Object.prototype.hasOwnProperty.call(source, "event_color") ||
+    Object.prototype.hasOwnProperty.call(source, "Event_Colour") ||
+    Object.prototype.hasOwnProperty.call(source, "Event_Color")
+  ) {
+    next.event_colour = colorValue;
+  }
+
+  const primaryGuestValue = normalizeIdentifier(
+    source?.primary_guest_id ??
+      source?.Primary_Guest_ID ??
+      source?.primary_guest_contact_id ??
+      source?.Primary_Guest_Contact_ID
+  );
+  delete next.primary_guest_contact_id;
+  delete next.Primary_Guest_Contact_ID;
+  if (
+    Object.prototype.hasOwnProperty.call(source, "primary_guest_id") ||
+    Object.prototype.hasOwnProperty.call(source, "Primary_Guest_ID") ||
+    Object.prototype.hasOwnProperty.call(source, "primary_guest_contact_id") ||
+    Object.prototype.hasOwnProperty.call(source, "Primary_Guest_Contact_ID")
+  ) {
+    next.primary_guest_id = primaryGuestValue;
+  }
+
+  return next;
 }
 
 export async function fetchAppointmentsByJobId({ plugin, jobId } = {}) {
@@ -2239,15 +2300,12 @@ export async function fetchAppointmentsByJobId({ plugin, jobId } = {}) {
         "description",
         "start_time",
         "end_time",
-        "event_color",
-        "google_calendar_event_color",
-        "google_calendar_color",
+        "event_colour",
         "duration_hours",
         "duration_minutes",
         "job_id",
         "location_id",
         "host_id",
-        "primary_guest_contact_id",
         "primary_guest_id",
       ])
       .include("Location", (locationQuery) =>
@@ -2279,6 +2337,123 @@ export async function fetchAppointmentsByJobId({ plugin, jobId } = {}) {
   }
 }
 
+export async function fetchAppointmentsByInquiryUid({ plugin, inquiryUid } = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) return [];
+
+  const normalizedInquiryUid = String(inquiryUid || "").trim();
+  if (!normalizedInquiryUid) return [];
+
+  const appointmentModel = resolvedPlugin.switchTo("PeterpmAppointment");
+  if (!appointmentModel?.query) return [];
+
+  try {
+    const customQuery = appointmentModel.query().fromGraphql(`
+      query calcAppointments($unique_id: StringScalar_0_8!) {
+        calcAppointments(
+          query: [
+            {
+              where: {
+                Inquiry: [{ where: { unique_id: $unique_id } }]
+              }
+            }
+          ]
+        ) {
+          ID: field(arg: ["id"])
+          Status: field(arg: ["status"])
+          Type: field(arg: ["type"])
+          Title: field(arg: ["title"])
+          Description: field(arg: ["description"])
+          Start_Time: field(arg: ["start_time"])
+          End_Time: field(arg: ["end_time"])
+          Duration_Hours: field(arg: ["duration_hours"])
+          Duration_Minutes: field(arg: ["duration_minutes"])
+          Event_Colour: field(arg: ["event_colour"])
+          Job_ID: field(arg: ["job_id"])
+          Inquiry_ID: field(arg: ["inquiry_id"])
+          Location_ID: field(arg: ["location_id"])
+          Host_ID: field(arg: ["host_id"])
+          Primary_Guest_ID: field(arg: ["primary_guest_id"])
+          Location_Property_Name: field(arg: ["Location", "property_name"])
+          Host_Contact_Information_First_Name: field(
+            arg: ["Host", "Contact_Information", "first_name"]
+          )
+          Host_Contact_Information_Last_Name: field(
+            arg: ["Host", "Contact_Information", "last_name"]
+          )
+          Primary_Guest_First_Name: field(arg: ["Primary_Guest", "first_name"])
+          Primary_Guest_Last_Name: field(arg: ["Primary_Guest", "last_name"])
+        }
+      }
+    `);
+
+    const response = await fetchDirectWithTimeout(customQuery, {
+      variables: { unique_id: normalizedInquiryUid },
+    });
+    const records = extractRecords(response)
+      .map((record) => normalizeAppointmentRecord(record))
+      .filter((record) => record.id);
+    if (records.length) return records;
+  } catch (error) {
+    console.warn(
+      "[JobDirect] Custom inquiry appointments query failed, using model fallback",
+      error
+    );
+  }
+
+  try {
+    const query = appointmentModel
+      .query()
+      .where("Inquiry", (inquiryQuery) =>
+        inquiryQuery.where("unique_id", normalizedInquiryUid)
+      )
+      .deSelectAll()
+      .select([
+        "id",
+        "status",
+        "type",
+        "title",
+        "description",
+        "start_time",
+        "end_time",
+        "event_colour",
+        "duration_hours",
+        "duration_minutes",
+        "job_id",
+        "inquiry_id",
+        "location_id",
+        "host_id",
+        "primary_guest_id",
+      ])
+      .include("Location", (locationQuery) =>
+        locationQuery.deSelectAll().select(["id", "property_name"])
+      )
+      .include("Host", (hostQuery) =>
+        hostQuery
+          .deSelectAll()
+          .select(["id"])
+          .include("Contact_Information", (contactQuery) =>
+            contactQuery
+              .deSelectAll()
+              .select(["first_name", "last_name", "email", "sms_number"])
+          )
+      )
+      .include("Primary_Guest", (guestQuery) =>
+        guestQuery.deSelectAll().select(["id", "first_name", "last_name", "email", "sms_number"])
+      )
+      .noDestroy();
+
+    query.getOrInitQueryCalc?.();
+    const response = await fetchDirectWithTimeout(query);
+    return extractRecords(response)
+      .map((record) => normalizeAppointmentRecord(record))
+      .filter((record) => record.id);
+  } catch (error) {
+    console.error("[JobDirect] Failed to fetch inquiry appointments", error);
+    return [];
+  }
+}
+
 export async function createAppointmentRecord({ plugin, payload } = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
   if (!resolvedPlugin?.switchTo) {
@@ -2291,7 +2466,8 @@ export async function createAppointmentRecord({ plugin, payload } = {}) {
   }
 
   const mutation = await appointmentModel.mutation();
-  mutation.createOne(payload || {});
+  const normalizedPayload = normalizeAppointmentMutationPayload(payload || {});
+  mutation.createOne(normalizedPayload);
   const result = await mutation.execute(true).toPromise();
   if (!result || result?.isCancelling) {
     throw new Error("Appointment create was cancelled.");
@@ -2321,7 +2497,7 @@ export async function createAppointmentRecord({ plugin, payload } = {}) {
   }
 
   return normalizeAppointmentRecord({
-    ...(payload || {}),
+    ...normalizedPayload,
     ...(createdRecord && typeof createdRecord === "object" ? createdRecord : {}),
     id: resolvedId,
   });
@@ -2344,7 +2520,8 @@ export async function updateAppointmentRecord({ plugin, id, payload } = {}) {
   }
 
   const mutation = await appointmentModel.mutation();
-  mutation.update((query) => query.where("id", normalizedId).set(payload || {}));
+  const normalizedPayload = normalizeAppointmentMutationPayload(payload || {});
+  mutation.update((query) => query.where("id", normalizedId).set(normalizedPayload));
   const result = await mutation.execute(true).toPromise();
   if (!result || result?.isCancelling) {
     throw new Error("Appointment update was cancelled.");
@@ -2372,7 +2549,7 @@ export async function updateAppointmentRecord({ plugin, id, payload } = {}) {
   }
 
   return normalizeAppointmentRecord({
-    ...(payload || {}),
+    ...normalizedPayload,
     ...(updatedRecord && typeof updatedRecord === "object" ? updatedRecord : {}),
     id: updatedRecord?.id || updatedRecord?.ID || updatedId || normalizedId,
   });
@@ -2543,6 +2720,8 @@ function normalizeUploadRecord(rawUpload = {}) {
     property_name_id: String(
       rawUpload?.property_name_id || rawUpload?.Property_Name_ID || ""
     ).trim(),
+    inquiry_id: String(rawUpload?.inquiry_id || rawUpload?.Inquiry_ID || "").trim(),
+    job_id: String(rawUpload?.job_id || rawUpload?.Job_ID || "").trim(),
   };
 }
 
@@ -2636,6 +2815,7 @@ async function fetchUploadsByField({
           Created_At: field(arg: ["created_at"])
           Property_Name_ID: field(arg: ["property_name_id"])
           Job_ID: field(arg: ["job_id"])
+          Inquiry_ID: field(arg: ["inquiry_id"])
         }
       }
     `);
@@ -2666,6 +2846,7 @@ async function fetchUploadsByField({
         "created_at",
         "property_name_id",
         "job_id",
+        "inquiry_id",
       ])
       .noDestroy();
     query.getOrInitQueryCalc?.();
@@ -2708,6 +2889,7 @@ function subscribeUploadsByField({
       "created_at",
       "property_name_id",
       "job_id",
+      "inquiry_id",
     ])
     .noDestroy();
   query.getOrInitQueryCalc?.();
@@ -2863,6 +3045,17 @@ export async function fetchJobUploads({ plugin, jobId } = {}) {
   });
 }
 
+export async function fetchInquiryUploads({ plugin, inquiryId } = {}) {
+  return fetchUploadsByField({
+    plugin,
+    fieldName: "inquiry_id",
+    variableName: "inquiryid",
+    variableType: "PeterpmDealID",
+    idValue: inquiryId,
+    fetchErrorLabel: "inquiry uploads",
+  });
+}
+
 export async function createJobUploadFromFile({
   plugin,
   jobId,
@@ -2881,6 +3074,24 @@ export async function createJobUploadFromFile({
   });
 }
 
+export async function createInquiryUploadFromFile({
+  plugin,
+  inquiryId,
+  file,
+  uploadPath = "inquiry-uploads",
+  additionalPayload,
+} = {}) {
+  return createUploadFromFileByField({
+    plugin,
+    fieldName: "inquiry_id",
+    idValue: inquiryId,
+    missingIdMessage: "Inquiry ID is missing.",
+    file,
+    uploadPath,
+    additionalPayload,
+  });
+}
+
 export function subscribeJobUploadsByJobId({ plugin, jobId, onChange, onError } = {}) {
   return subscribeUploadsByField({
     plugin,
@@ -2889,6 +3100,22 @@ export function subscribeJobUploadsByJobId({ plugin, jobId, onChange, onError } 
     onChange,
     onError,
     logLabel: "Job uploads",
+  });
+}
+
+export function subscribeInquiryUploadsByInquiryId({
+  plugin,
+  inquiryId,
+  onChange,
+  onError,
+} = {}) {
+  return subscribeUploadsByField({
+    plugin,
+    fieldName: "inquiry_id",
+    idValue: inquiryId,
+    onChange,
+    onError,
+    logLabel: "Inquiry uploads",
   });
 }
 
@@ -3088,20 +3315,37 @@ function extractPropertyFeatureTokens(value) {
     .filter(Boolean);
 }
 
-function preparePropertyMutationPayload(payload = {}) {
-  const valueOrEmpty = (value) => String(value || "").trim();
-  const features = Array.isArray(payload?.building_features)
-    ? payload.building_features
-        .flatMap((item) => extractPropertyFeatureTokens(item))
+function serializePropertyFeatureTokens(values = []) {
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
         .map((item) => normalizePropertyFeatureValue(item))
         .filter(Boolean)
-    : extractPropertyFeatureTokens(valueOrEmpty(payload?.building_features))
-        .map((item) => normalizePropertyFeatureValue(item))
-        .filter(Boolean);
+    )
+  );
+  if (!normalized.length) return "";
+  return normalized.map((item) => `*/*${item}*/*`).join("");
+}
+
+function preparePropertyMutationPayload(payload = {}) {
+  const valueOrEmpty = (value) => String(value || "").trim();
+  const rawFeatureValues = Array.isArray(payload?.building_features)
+    ? payload.building_features
+    : Array.isArray(payload?.Building_Features)
+      ? payload.Building_Features
+      : extractPropertyFeatureTokens(
+          valueOrEmpty(payload?.building_features) ||
+            valueOrEmpty(payload?.building_features_options_as_text)
+        );
+  const features = rawFeatureValues
+    .flatMap((item) => extractPropertyFeatureTokens(item))
+    .map((item) => normalizePropertyFeatureValue(item))
+    .filter(Boolean);
   const uniqueFeatures = Array.from(new Set(features));
   const featuresText = uniqueFeatures
     .map((featureId) => PROPERTY_FEATURE_LABEL_BY_VALUE[featureId] || featureId)
     .join(", ");
+  const featureOptionsText = serializePropertyFeatureTokens(uniqueFeatures);
   const buildingFeaturesRelation = uniqueFeatures.map((featureId) => ({
     id: /^\d+$/.test(String(featureId)) ? Number.parseInt(featureId, 10) : featureId,
   }));
@@ -3125,7 +3369,7 @@ function preparePropertyMutationPayload(payload = {}) {
     stories: valueOrEmpty(payload?.stories),
     building_age: valueOrEmpty(payload?.building_age),
     building_features: featuresText,
-    building_features_options_as_text: featuresText,
+    building_features_options_as_text: featureOptionsText,
     Building_Features: buildingFeaturesRelation,
   };
 }

@@ -1,5 +1,6 @@
 export {
   fetchAppointmentsByJobId,
+  fetchAppointmentsByInquiryUid,
   subscribeAppointmentsByJobId,
   createAppointmentRecord,
   updateAppointmentRecord,

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ensureVitalStatsPlugin } from "../../features/job-direct/sdk/vitalStatsBootstrap.js";
 
-const ANNOUNCEMENT_DEBUG = true;
+const ANNOUNCEMENT_DEBUG = false;
 
 function logAnnouncementDebug(...args) {
   if (!ANNOUNCEMENT_DEBUG) return;

@@ -10,7 +10,13 @@ function PlaceholderModal({ open, onClose, title, body }) {
   );
 }
 
-export function LegacyRuntimeModals({ modals, onClose, plugin, jobData }) {
+export function LegacyRuntimeModals({
+  modals,
+  onClose,
+  plugin,
+  jobData,
+  tasksModalProps = null,
+}) {
   return (
     <>
       <DealInformationModal
@@ -42,6 +48,9 @@ export function LegacyRuntimeModals({ modals, onClose, plugin, jobData }) {
         onClose={() => onClose("tasks")}
         plugin={plugin}
         jobData={jobData}
+        {...(tasksModalProps && typeof tasksModalProps === "object"
+          ? tasksModalProps
+          : {})}
       />
     </>
   );

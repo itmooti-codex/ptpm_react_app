@@ -7,7 +7,7 @@ import { JobDirectHeader } from "./JobDirectHeader.jsx";
 import { ContactDetailsModal } from "./modals/ContactDetailsModal.jsx";
 import { AddPropertyModal } from "./modals/AddPropertyModal.jsx";
 import { LegacyRuntimeModals } from "./modals/LegacyRuntimeModals.jsx";
-import { MODAL_KEYS } from "../constants/navigation.js";
+import { MODAL_KEYS, SECTION_LABELS, SECTION_ORDER } from "../constants/navigation.js";
 import { JobDirectSidebar } from "./JobDirectSidebar.jsx";
 import { updateJobRecordById, updateJobRecordByUid } from "../sdk/jobDirectSdk.js";
 import { useJobDirectSelector, useJobDirectStoreActions } from "../hooks/useJobDirectStore.jsx";
@@ -90,12 +90,30 @@ function createOverviewDraftFromJob(job = {}) {
   };
 }
 
-export function JobDirectLayout({ jobData, plugin, jobUid, preloadedLookupData }) {
+export function JobDirectLayout({
+  jobData,
+  plugin,
+  jobUid,
+  preloadedLookupData,
+  headerTitle = "New Job Direct",
+  pageDataAttr = "new-direct-job",
+  sectionOrder = SECTION_ORDER,
+  sectionLabels = SECTION_LABELS,
+  onSaveOverride = undefined,
+  onSubmitServiceProviderOverride = undefined,
+  informationSectionComponent = null,
+  uploadsSectionProps = null,
+  saveEnabled = true,
+  showDealInfoButton = true,
+  runtimeModalProps = null,
+}) {
   const storeActions = useJobDirectStoreActions();
   useJobDirectRealtimeSync({ plugin, initialJobData: jobData });
   const storeJobEntity = useJobDirectSelector(selectJobEntity);
   const overviewDraft = useJobDirectSelector(selectOverviewDraft);
   const activeJobData = storeJobEntity || jobData || null;
+  const resolvedSectionOrder =
+    Array.isArray(sectionOrder) && sectionOrder.length > 0 ? sectionOrder : SECTION_ORDER;
 
   const {
     activeSection,
@@ -110,7 +128,7 @@ export function JobDirectLayout({ jobData, plugin, jobUid, preloadedLookupData }
     goNext,
     openModal,
     closeModal,
-  } = useJobDirectState();
+  } = useJobDirectState({ sectionOrder: resolvedSectionOrder });
   const [contactDetailsContext, setContactDetailsContext] = useState({
     mode: "individual",
     onSave: null,
@@ -369,6 +387,12 @@ export function JobDirectLayout({ jobData, plugin, jobUid, preloadedLookupData }
     });
   };
 
+  const saveHandler = onSaveOverride === undefined ? handleSaveJob : onSaveOverride;
+  const submitServiceProviderHandler =
+    onSubmitServiceProviderOverride === undefined
+      ? handleSubmitServiceProvider
+      : onSubmitServiceProviderOverride;
+
   return (
     <>
       <PageScaffold
@@ -377,7 +401,11 @@ export function JobDirectLayout({ jobData, plugin, jobUid, preloadedLookupData }
             navState={navState}
             onBack={goBack}
             onNext={goNext}
-            onSave={handleSaveJob}
+            onSave={saveHandler}
+            title={headerTitle}
+            sectionLabels={sectionLabels}
+            pageDataAttr={pageDataAttr}
+            saveEnabled={saveEnabled && typeof saveHandler === "function"}
             hasUnsavedChanges={hasUnsavedChanges || hasExternalUnsavedChanges}
           />
         }
@@ -387,6 +415,8 @@ export function JobDirectLayout({ jobData, plugin, jobUid, preloadedLookupData }
             sidebarCollapsed={sidebarCollapsed}
             setSidebarCollapsed={setSidebarCollapsed}
             onSelectSection={setSection}
+            sectionOrder={resolvedSectionOrder}
+            sectionLabels={sectionLabels}
           />
         }
       >
@@ -397,14 +427,18 @@ export function JobDirectLayout({ jobData, plugin, jobUid, preloadedLookupData }
           plugin={plugin}
           jobUid={jobUid}
           preloadedLookupData={preloadedLookupData}
-          onSaveJob={handleSaveJob}
-          onSubmitServiceProvider={handleSubmitServiceProvider}
+          onSaveJob={saveHandler}
+          onSubmitServiceProvider={submitServiceProviderHandler}
           onTabChange={setActiveTab}
           onOpenModal={openModal}
           onOpenContactDetailsModal={openContactDetailsModal}
           onOpenAddPropertyModal={openAddPropertyModal}
           onExternalUnsavedChange={setHasExternalUnsavedChanges}
           onOverviewDraftChange={handleOverviewDraftChange}
+          sectionOrder={resolvedSectionOrder}
+          informationSectionComponent={informationSectionComponent}
+          uploadsSectionProps={uploadsSectionProps}
+          showDealInfoButton={showDealInfoButton}
         />
       </PageScaffold>
 
@@ -437,6 +471,9 @@ export function JobDirectLayout({ jobData, plugin, jobUid, preloadedLookupData }
         onClose={closeModal}
         plugin={plugin}
         jobData={activeJobData}
+        {...(runtimeModalProps && typeof runtimeModalProps === "object"
+          ? runtimeModalProps
+          : {})}
       />
     </>
   );

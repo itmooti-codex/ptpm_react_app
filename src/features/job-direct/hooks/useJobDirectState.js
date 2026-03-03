@@ -8,32 +8,34 @@ function createInitialModalState() {
   }, {});
 }
 
-export function useJobDirectState() {
-  const [activeSection, setActiveSection] = useState(SECTION_ORDER[0]);
+export function useJobDirectState({ sectionOrder = SECTION_ORDER } = {}) {
+  const resolvedSectionOrder =
+    Array.isArray(sectionOrder) && sectionOrder.length > 0 ? sectionOrder : SECTION_ORDER;
+  const [activeSection, setActiveSection] = useState(resolvedSectionOrder[0]);
   const [activeTab, setActiveTab] = useState("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [modals, setModals] = useState(createInitialModalState);
 
-  const sectionIndex = SECTION_ORDER.indexOf(activeSection);
+  const sectionIndex = resolvedSectionOrder.indexOf(activeSection);
 
   const navState = useMemo(
     () => ({
       canGoBack: sectionIndex > 0,
-      canGoNext: sectionIndex < SECTION_ORDER.length - 1,
-      previous: sectionIndex > 0 ? SECTION_ORDER[sectionIndex - 1] : null,
+      canGoNext: sectionIndex < resolvedSectionOrder.length - 1,
+      previous: sectionIndex > 0 ? resolvedSectionOrder[sectionIndex - 1] : null,
       next:
-        sectionIndex < SECTION_ORDER.length - 1
-          ? SECTION_ORDER[sectionIndex + 1]
+        sectionIndex < resolvedSectionOrder.length - 1
+          ? resolvedSectionOrder[sectionIndex + 1]
           : null,
     }),
-    [sectionIndex]
+    [sectionIndex, resolvedSectionOrder]
   );
 
   const openModal = (key) => setModals((prev) => ({ ...prev, [key]: true }));
   const closeModal = (key) => setModals((prev) => ({ ...prev, [key]: false }));
 
   const setSection = (section) => {
-    if (!SECTION_ORDER.includes(section)) return;
+    if (!resolvedSectionOrder.includes(section)) return;
     setActiveSection(section);
   };
 

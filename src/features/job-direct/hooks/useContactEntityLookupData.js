@@ -219,7 +219,7 @@ export function useContactEntityLookupData(
       return undefined;
     }
 
-    if (skipInitialFetch && (contacts.length > 0 || companies.length > 0)) {
+    if (skipInitialFetch) {
       setIsLoading(false);
       return undefined;
     }
@@ -256,8 +256,6 @@ export function useContactEntityLookupData(
     };
   }, [
     actions,
-    contacts.length,
-    companies.length,
     plugin,
     skipInitialFetch,
   ]);
