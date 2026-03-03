@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
+import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../../shared/announcements/announcementEmitter.js";
 import { useJobDirectSelector, useJobDirectStoreActions } from "../../hooks/useJobDirectStore.jsx";
 import {
   ClientInvoicePanel,
@@ -394,6 +398,8 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
   const [isBillSaving, setIsBillSaving] = useState(false);
   const [isSendingToCustomer, setIsSendingToCustomer] = useState(false);
   const [isWaitingForInvoiceResponse, setIsWaitingForInvoiceResponse] = useState(false);
+  const hasSeenPaymentStatusRef = useRef(false);
+  const previousPaymentStatusRef = useRef("");
 
   const activeJob = jobEntity || jobData || null;
   const activeActivities = useMemo(() => {
@@ -410,6 +416,7 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
   }, [storeMaterials, jobData]);
 
   const jobId = normalizeId(activeJob?.id || activeJob?.ID);
+  const inquiryRecordId = toText(activeJob?.inquiry_record_id || activeJob?.Inquiry_Record_ID);
 
   const accountSummary = useMemo(() => buildAccountSummary(activeJob || {}), [activeJob]);
   const serviceProviderSummary = useMemo(
@@ -558,6 +565,42 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
     onExternalUnsavedChange(hasUnsavedChanges);
   }, [hasUnsavedChanges, onExternalUnsavedChange]);
 
+  useEffect(() => {
+    const currentStatus = normalizeStatus(activeJob?.payment_status || activeJob?.Payment_Status);
+    if (!hasSeenPaymentStatusRef.current) {
+      hasSeenPaymentStatusRef.current = true;
+      previousPaymentStatusRef.current = currentStatus;
+      return;
+    }
+
+    const previousStatus = previousPaymentStatusRef.current;
+    previousPaymentStatusRef.current = currentStatus;
+
+    if (!jobId || !currentStatus || !previousStatus || previousStatus === currentStatus) {
+      return;
+    }
+
+    emitAnnouncement({
+      plugin,
+      eventKey: ANNOUNCEMENT_EVENT_KEYS.PAYMENT_STATUS_CHANGED,
+      quoteJobId: toText(jobId),
+      inquiryId: inquiryRecordId,
+      focusId: toText(jobId),
+      dedupeEntityId: `${toText(jobId)}:${previousStatus}->${currentStatus}`,
+      title: "Payment status changed",
+      content: `Payment status changed from ${previousStatus} to ${currentStatus}.`,
+      logContext: "job-direct:InvoiceSection:paymentStatusWatcher",
+    }).catch((announcementError) => {
+      console.warn("[JobDirect] Payment status announcement emit failed", announcementError);
+    });
+  }, [
+    activeJob?.payment_status,
+    activeJob?.Payment_Status,
+    plugin,
+    jobId,
+    inquiryRecordId,
+  ]);
+
   const toggleActivitySelection = (activityId, checked) => {
     const normalized = toText(activityId);
     if (!normalized) return;
@@ -661,6 +704,17 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
       if (updatedRecord && typeof updatedRecord === "object") {
         storeActions.patchJobEntity(updatedRecord);
       }
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.INVOICE_TRIGGERED,
+        quoteJobId: toText(jobId),
+        inquiryId: inquiryRecordId,
+        focusId: toText(jobId),
+        dedupeEntityId: `${toText(jobId)}:${invoiceDate}:${invoiceDueDate}`,
+        title: "Invoice update requested",
+        content: "Invoice generation/update was requested.",
+        logContext: "job-direct:InvoiceSection:handleGenerateOrUpdateInvoice",
+      });
       setInvoiceDirty(false);
       await waitForInvoiceApiResponse(previousInvoiceSnapshot);
     } catch (saveError) {
@@ -724,6 +778,17 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
       if (approvedRecord && typeof approvedRecord === "object") {
         storeActions.patchJobEntity(approvedRecord);
       }
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.BILL_APPROVED,
+        quoteJobId: toText(jobId),
+        inquiryId: inquiryRecordId,
+        focusId: toText(jobId),
+        dedupeEntityId: `${toText(jobId)}:bill-approved`,
+        title: "Bill approved",
+        content: "Service provider bill was approved.",
+        logContext: "job-direct:InvoiceSection:handleApproveBill",
+      });
       setBillDirty(false);
       success("Bill approved", "Bill was approved by admin.");
     } catch (saveError) {
@@ -761,6 +826,17 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
       if (updatedRecord && typeof updatedRecord === "object") {
         storeActions.patchJobEntity(updatedRecord);
       }
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.INVOICE_SENT_TO_CUSTOMER,
+        quoteJobId: toText(jobId),
+        inquiryId: inquiryRecordId,
+        focusId: toText(jobId),
+        dedupeEntityId: `${toText(jobId)}:invoice-sent`,
+        title: "Invoice sent to customer",
+        content: "Invoice send flag was updated for customer delivery.",
+        logContext: "job-direct:InvoiceSection:handleSendToCustomer",
+      });
       success("Sent", "Invoice send flag was updated for customer delivery.");
     } catch (sendError) {
       console.error("[JobDirect] Failed sending invoice", sendError);

@@ -3,6 +3,10 @@ import { Card } from "../../../../shared/components/ui/Card.jsx";
 import { InputField } from "../../../../shared/components/ui/InputField.jsx";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
 import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../../shared/announcements/announcementEmitter.js";
+import {
   ColorMappedSelectInput,
   SearchDropdownInput,
   SelectInput,
@@ -1013,6 +1017,8 @@ export function InquiryInformationSection({
     <PropertyTabSection
       plugin={plugin}
       preloadedLookupData={preloadedLookupData}
+      quoteJobId={toText(linkedJobId)}
+      inquiryId={toText(inquiryId)}
       currentPropertyId={effectivePropertyId}
       onOpenContactDetailsModal={onOpenContactDetailsModal}
       accountType={accountType}
@@ -1054,6 +1060,17 @@ export function InquiryInformationSection({
             setPropertySearchQuery(
               normalized.property_name || normalized.unique_id || normalized.id || ""
             );
+            await emitAnnouncement({
+              plugin,
+              eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_CREATED,
+              quoteJobId: toText(linkedJobId),
+              inquiryId: toText(inquiryId),
+              focusId: nextId || normalizePropertyId(savedProperty?.id || draftProperty?.id),
+              dedupeEntityId: nextId || normalizePropertyId(savedProperty?.id || draftProperty?.id),
+              title: "Property created",
+              content: "A new property was created and linked.",
+              logContext: "inquiry-direct:InquiryInformationSection:onAddProperty",
+            });
             success("Property saved", "Property details were saved.");
           },
         })
@@ -1098,6 +1115,17 @@ export function InquiryInformationSection({
             setPropertySearchQuery(
               normalized.property_name || normalized.unique_id || normalized.id || ""
             );
+            await emitAnnouncement({
+              plugin,
+              eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_UPDATED,
+              quoteJobId: toText(linkedJobId),
+              inquiryId: toText(inquiryId),
+              focusId: nextId || editableId,
+              dedupeEntityId: nextId || editableId,
+              title: "Property updated",
+              content: "Property details were updated.",
+              logContext: "inquiry-direct:InquiryInformationSection:onEditRelatedProperty",
+            });
             success("Property updated", "Property details were updated.");
           },
         });

@@ -17,6 +17,10 @@ import {
   JOB_TYPE_OPTIONS,
   PRIORITY_OPTIONS,
 } from "../constants/options.js";
+import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../shared/announcements/announcementEmitter.js";
 
 function normalizeId(value) {
   const text = String(value || "").trim();
@@ -292,6 +296,7 @@ export function JobDirectLayout({
       "property_id",
       toText(activeJobData?.property_id || activeJobData?.Property_ID)
     );
+    const previousPropertyId = toText(activeJobData?.property_id || activeJobData?.Property_ID);
     const inquiryRecordId = getFieldValue(
       "inquiry_record_id",
       toText(activeJobData?.inquiry_record_id || activeJobData?.Inquiry_Record_ID)
@@ -356,6 +361,20 @@ export function JobDirectLayout({
         plugin,
         uniqueId,
         payload,
+      });
+    }
+    if (propertyId && propertyId !== previousPropertyId) {
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_LINKED,
+        quoteJobId: toText(jobId),
+        inquiryId: inquiryRecordId,
+        serviceProviderId: primaryServiceProviderId,
+        focusId: propertyId,
+        dedupeEntityId: `${toText(jobId) || inquiryRecordId}:${propertyId}`,
+        title: "Property linked",
+        content: "A property was linked to this job.",
+        logContext: "job-direct:JobDirectLayout:handleSaveJob",
       });
     }
     commitOverviewBaseline(nextDraftFields);

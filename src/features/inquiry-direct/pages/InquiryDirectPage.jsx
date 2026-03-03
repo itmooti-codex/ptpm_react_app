@@ -5,6 +5,10 @@ import { JobDirectStoreProvider } from "../../job-direct/hooks/useJobDirectStore
 import { useVitalStatsPlugin } from "../../job-direct/hooks/useVitalStatsPlugin.js";
 import { getFriendlyServiceMessage } from "../../../shared/utils/userFacingErrors.js";
 import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
+import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../shared/announcements/announcementEmitter.js";
 import { SECTION_LABELS } from "../../job-direct/constants/navigation.js";
 import { InquiryInformationSection } from "../components/sections/InquiryInformationSection.jsx";
 import { useInquiryUid } from "../hooks/useInquiryUid.js";
@@ -500,20 +504,64 @@ export function InquiryDirectPage() {
 
     const payload = buildDealPayloadFromDraft(inquiryDraft);
     const existingId = toText(resolvedInquiry?.id);
+    const nextPropertyId = toText(payload?.property_id);
+    const previousPropertyId = toText(
+      resolvedInquiry?.raw?.property_id || resolvedInquiry?.raw?.Property_ID
+    );
+    const linkedQuoteJobId = toText(
+      resolvedInquiry?.raw?.quote_record_id ||
+        resolvedInquiry?.raw?.Quote_Record_ID ||
+        resolvedInquiry?.raw?.inquiry_for_job_id ||
+        resolvedInquiry?.raw?.Inquiry_for_Job_ID
+    );
+    const serviceProviderId = toText(payload?.service_provider_id);
     if (existingId) {
       await updateInquiryFieldsById({
         plugin,
         inquiryId: existingId,
         payload,
       });
+      if (nextPropertyId && nextPropertyId !== previousPropertyId) {
+        await emitAnnouncement({
+          plugin,
+          eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_LINKED,
+          quoteJobId: linkedQuoteJobId,
+          inquiryId: existingId,
+          serviceProviderId,
+          focusId: nextPropertyId,
+          dedupeEntityId: `${existingId}:${nextPropertyId}`,
+          title: "Property linked",
+          content: "A property was linked to this inquiry.",
+          logContext: "inquiry-direct:handleSaveInquiry:update",
+        });
+      }
       return;
     }
 
     const created = await createInquiryRecord({ plugin, payload });
     setResolvedInquiry(created);
     setInitialValues(mapRecordToDraft(created.raw || {}));
+    if (nextPropertyId) {
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_LINKED,
+        quoteJobId: toText(
+          created?.raw?.quote_record_id ||
+            created?.raw?.Quote_Record_ID ||
+            created?.raw?.inquiry_for_job_id ||
+            created?.raw?.Inquiry_for_Job_ID
+        ),
+        inquiryId: toText(created?.id),
+        serviceProviderId,
+        focusId: nextPropertyId,
+        dedupeEntityId: `${toText(created?.id)}:${nextPropertyId}`,
+        title: "Property linked",
+        content: "A property was linked to this inquiry.",
+        logContext: "inquiry-direct:handleSaveInquiry:create",
+      });
+    }
     navigate(`/inquiry-direct/${encodeURIComponent(created.unique_id)}`, { replace: true });
-  }, [plugin, inquiryDraft, resolvedInquiry?.id, navigate]);
+  }, [plugin, inquiryDraft, resolvedInquiry, navigate]);
 
   const handleSubmitServiceProvider = useCallback(async () => {
     if (!plugin?.switchTo) {
@@ -523,12 +571,24 @@ export function InquiryDirectPage() {
     if (!inquiryId) {
       throw new Error("Inquiry record is missing.");
     }
+    const providerId = toText(inquiryDraft?.service_provider_id);
     await updateInquiryFieldsById({
       plugin,
       inquiryId,
       payload: {
-        service_provider_id: normalizeId(inquiryDraft?.service_provider_id),
+        service_provider_id: normalizeId(providerId),
       },
+    });
+    await emitAnnouncement({
+      plugin,
+      eventKey: ANNOUNCEMENT_EVENT_KEYS.INQUIRY_ALLOCATED,
+      inquiryId,
+      serviceProviderId: providerId,
+      focusId: inquiryId,
+      dedupeEntityId: `${inquiryId}:${providerId}`,
+      title: "Inquiry allocated",
+      content: "A service provider was allocated to this inquiry.",
+      logContext: "inquiry-direct:handleSubmitServiceProvider",
     });
   }, [plugin, resolvedInquiry?.id, inquiryDraft?.service_provider_id]);
 

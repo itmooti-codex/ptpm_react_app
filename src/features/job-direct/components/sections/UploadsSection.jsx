@@ -4,6 +4,10 @@ import { Card } from "../../../../shared/components/ui/Card.jsx";
 import { Modal } from "../../../../shared/components/ui/Modal.jsx";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
 import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../../shared/announcements/announcementEmitter.js";
+import {
   useJobDirectSelector,
   useJobDirectStoreActions,
 } from "../../hooks/useJobDirectStore.jsx";
@@ -80,6 +84,7 @@ export function UploadsSection({
   inquiryId = "",
   inquiryUid = "",
   linkedJobId = "",
+  highlightUploadId = "",
 }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
@@ -96,9 +101,22 @@ export function UploadsSection({
   const jobId = useMemo(() => normalizeJobId(jobData), [jobData]);
   const normalizedInquiryId = useMemo(() => normalizeRecordId(inquiryId), [inquiryId]);
   const normalizedLinkedJobId = useMemo(() => normalizeRecordId(linkedJobId), [linkedJobId]);
+  const inquiryIdFromPayload = useMemo(
+    () =>
+      normalizeRecordId(
+        additionalCreatePayload?.inquiry_id ||
+          additionalCreatePayload?.Inquiry_ID ||
+          additionalCreatePayload?.inquiry_record_id ||
+          additionalCreatePayload?.Inquiry_Record_ID
+      ),
+    [additionalCreatePayload]
+  );
   const mode = String(uploadsMode || "job").trim().toLowerCase() === "inquiry" ? "inquiry" : "job";
   const isInquiryMode = mode === "inquiry";
   const targetRecordId = isInquiryMode ? normalizedInquiryId : jobId;
+  const normalizedHighlightUploadId = normalizeRecordId(highlightUploadId);
+  const announcementInquiryId = isInquiryMode ? normalizedInquiryId : inquiryIdFromPayload;
+  const announcementJobId = isInquiryMode ? normalizedLinkedJobId : jobId;
   const {
     hasMore: hasMorePendingUploads,
     remainingCount: remainingPendingUploadsCount,
@@ -303,6 +321,27 @@ export function UploadsSection({
         "jobUploads",
         dedupeUploadRecords([...created, ...(uploads || [])])
       );
+      const createdUploadIds = created
+        .map((record) => normalizeRecordId(record?.id || record?.ID))
+        .filter(Boolean);
+      emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.UPLOAD_ADDED,
+        quoteJobId: announcementJobId,
+        inquiryId: announcementInquiryId,
+        focusId: createdUploadIds.length === 1 ? createdUploadIds[0] : "",
+        focusIds: createdUploadIds,
+        dedupeEntityId:
+          createdUploadIds.join(",") || `${announcementJobId}:${announcementInquiryId}:upload_batch`,
+        title: created.length > 1 ? "New uploads added" : "New upload added",
+        content:
+          created.length > 1
+            ? `${created.length} files were uploaded.`
+            : "A new file was uploaded.",
+        logContext: "job-direct:UploadsSection:savePendingUploads",
+      }).catch((announcementError) => {
+        console.warn("[JobDirect] Upload announcement emit failed", announcementError);
+      });
     }
 
     setPendingUploads(failed);
@@ -513,10 +552,15 @@ export function UploadsSection({
                     visibleExistingUploads.map((record, index) => {
                       const uploadId = String(record?.id || "").trim();
                       const uploadUrl = String(record?.url || "").trim();
+                      const isHighlighted =
+                        Boolean(normalizedHighlightUploadId) &&
+                        normalizeRecordId(uploadId) === normalizedHighlightUploadId;
                       return (
                         <tr
                           key={`${uploadId || uploadUrl || "upload"}-${index}`}
-                          className="border-b border-slate-100 last:border-b-0"
+                          className={`border-b border-slate-100 last:border-b-0 ${
+                            isHighlighted ? "bg-amber-50" : ""
+                          }`}
                         >
                           <td className="px-2 py-3">{record?.type || "File"}</td>
                           <td className="px-2 py-3 break-all">{record?.name || "Upload"}</td>

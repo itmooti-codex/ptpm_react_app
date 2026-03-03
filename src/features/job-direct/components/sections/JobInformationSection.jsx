@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../../../shared/components/ui/Button.jsx";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
 import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../../shared/announcements/announcementEmitter.js";
+import {
   JOB_STATUS_OPTIONS,
   JOB_TYPE_OPTIONS,
   PRIORITY_OPTIONS,
@@ -151,6 +155,7 @@ export function JobInformationSection({
 
   const selectedAccountId =
     selection.accountType === "Company" ? selection.companyId : selection.clientId;
+  const activeJobId = normalizePropertyId(activeJobData?.id || activeJobData?.ID);
   const {
     activeRelatedProperty,
     effectivePropertyId,
@@ -239,6 +244,8 @@ export function JobInformationSection({
       <PropertyTabSection
         plugin={plugin}
         preloadedLookupData={preloadedLookupData}
+        quoteJobId={activeJobId}
+        inquiryId={normalizeInquiryId(linkedInquiryRecordId)}
         currentPropertyId={effectivePropertyId}
         onOpenContactDetailsModal={onOpenContactDetailsModal}
         accountType={selection.accountType}
@@ -280,6 +287,17 @@ export function JobInformationSection({
               setPropertySearchQuery(
                 normalized.property_name || normalized.unique_id || normalized.id || ""
               );
+              await emitAnnouncement({
+                plugin,
+                eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_CREATED,
+                quoteJobId: activeJobId,
+                inquiryId: normalizeInquiryId(linkedInquiryRecordId),
+                focusId: nextId || normalizePropertyId(savedProperty?.id || draftProperty?.id),
+                dedupeEntityId: nextId || normalizePropertyId(savedProperty?.id || draftProperty?.id),
+                title: "Property created",
+                content: "A new property was created and linked.",
+                logContext: "job-direct:JobInformationSection:onAddProperty",
+              });
               success("Property saved", "Property details were saved.");
             },
           })
@@ -324,6 +342,17 @@ export function JobInformationSection({
               setPropertySearchQuery(
                 normalized.property_name || normalized.unique_id || normalized.id || ""
               );
+              await emitAnnouncement({
+                plugin,
+                eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_UPDATED,
+                quoteJobId: activeJobId,
+                inquiryId: normalizeInquiryId(linkedInquiryRecordId),
+                focusId: nextId || editableId,
+                dedupeEntityId: nextId || editableId,
+                title: "Property updated",
+                content: "Property details were updated.",
+                logContext: "job-direct:JobInformationSection:onEditRelatedProperty",
+              });
               success("Property updated", "Property details were updated.");
             },
           });

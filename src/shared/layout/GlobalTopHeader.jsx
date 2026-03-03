@@ -61,7 +61,6 @@ export function GlobalTopHeader() {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [onlyUnread, setOnlyUnread] = useState(false);
-  const [activeTypeTab, setActiveTypeTab] = useState("General");
   const notifRef = useRef(null);
   const profileRef = useRef(null);
   const {
@@ -72,7 +71,7 @@ export function GlobalTopHeader() {
     markingById,
     isMarkingAll,
     markAllAsRead,
-    markOneAsRead,
+    openNotification,
   } = useAnnouncements();
 
   useEffect(() => {
@@ -98,14 +97,10 @@ export function GlobalTopHeader() {
 
   const visibleNotifications = useMemo(() => {
     return notifications.filter((item) => {
-      const typeMatches =
-        activeTypeTab === "General"
-          ? true
-          : String(item.type || "").toLowerCase() === "action required";
       const readMatches = onlyUnread ? !item.read : true;
-      return typeMatches && readMatches;
+      return readMatches;
     });
-  }, [notifications, activeTypeTab, onlyUnread]);
+  }, [notifications, onlyUnread]);
 
   const latestVisibleNotifications = useMemo(
     () => visibleNotifications.slice(0, 10),
@@ -114,7 +109,7 @@ export function GlobalTopHeader() {
 
   const handleClickNotification = async (item) => {
     if (!item?.id) return;
-    await markOneAsRead(item);
+    await openNotification(item);
   };
 
   const profileMenuItems = [
@@ -170,27 +165,7 @@ export function GlobalTopHeader() {
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
-                  <div className="inline-flex rounded border border-slate-200 bg-slate-50 p-0.5">
-                    {["General", "Action Required"].map((tab) => {
-                      const active = activeTypeTab === tab;
-                      return (
-                        <button
-                          key={tab}
-                          type="button"
-                          onClick={() => setActiveTypeTab(tab)}
-                          className={`rounded px-2 py-1 text-xs font-medium ${
-                            active
-                              ? "bg-white text-slate-800 shadow-sm"
-                              : "text-slate-600 hover:text-slate-700"
-                          }`}
-                        >
-                          {tab}
-                        </button>
-                      );
-                    })}
-                  </div>
-
+                <div className="flex items-center justify-end border-b border-slate-100 px-4 py-2">
                   <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-slate-600">
                     <input
                       type="checkbox"

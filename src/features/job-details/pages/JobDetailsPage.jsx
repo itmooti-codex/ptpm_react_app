@@ -16,6 +16,7 @@ import { AddActivitiesSection } from "../../job-direct/components/sections/AddAc
 import { AddMaterialsSection } from "../../job-direct/components/sections/AddMaterialsSection.jsx";
 import { InvoiceSection } from "../../job-direct/components/sections/InvoiceSection.jsx";
 import { UploadsSection } from "../../job-direct/components/sections/UploadsSection.jsx";
+import { AppointmentTabSection } from "../../job-direct/components/sections/job-information/AppointmentTabSection.jsx";
 import { SearchDropdownInput } from "../../job-direct/components/sections/job-information/JobInfoFormFields.jsx";
 import {
   EditActionIcon as EditIcon,
@@ -67,10 +68,16 @@ import {
   updateInquiryFieldsById,
   updateJobFieldsById,
 } from "../sdk/jobDetailsSdk.js";
+import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../shared/announcements/announcementEmitter.js";
+import { parseAnnouncementLocationSearch } from "../../../shared/announcements/announcementNavigation.js";
 
 const PAGE_TABS = [
   "Overview",
   "Uploads",
+  "Appointments",
   "Tasks",
   "Activities",
   "Materials",
@@ -1012,6 +1019,7 @@ export function JobDetailsPage() {
   const sourceTab = toText(location?.state?.sourceTab || "");
 
   const [activeTab, setActiveTab] = useState("Overview");
+  const [announcementFocus, setAnnouncementFocus] = useState({ kind: "", id: "" });
   const [context, setContext] = useState({
     found: false,
     primaryType: "",
@@ -1159,6 +1167,7 @@ export function JobDetailsPage() {
   useEffect(() => {
     setLinkedPropertyIdOverride("");
     setHasInitialContextResolved(false);
+    setAnnouncementFocus({ kind: "", id: "" });
     setCollapsedInquirySections({
       overview: true,
       primaryContact: true,
@@ -1180,6 +1189,30 @@ export function JobDetailsPage() {
       workflow: true,
     });
   }, [uid]);
+
+  useEffect(() => {
+    const parsed = parseAnnouncementLocationSearch(location?.search || "");
+    const parsedTab = toText(parsed?.tab);
+    if (parsedTab && PAGE_TABS.includes(parsedTab)) {
+      setActiveTab(parsedTab);
+    }
+    const focusKind = toText(parsed?.focusKind).toLowerCase();
+    const focusId = toText(parsed?.focusId);
+    if (focusKind && focusId) {
+      setAnnouncementFocus({ kind: focusKind, id: focusId });
+    }
+    if (parsed?.openMemo) {
+      setIsMemoChatOpen(true);
+    }
+  }, [location?.search]);
+
+  useEffect(() => {
+    if (!announcementFocus?.id) return;
+    const timeoutId = setTimeout(() => {
+      setAnnouncementFocus({ kind: "", id: "" });
+    }, 12000);
+    return () => clearTimeout(timeoutId);
+  }, [announcementFocus]);
 
   useEffect(() => {
     if (isLoadingContext) return;
@@ -1374,6 +1407,22 @@ export function JobDetailsPage() {
   );
   const isQuoteAccepted = quoteStatusNormalized === "accepted";
   const hasLinkedJob = Boolean(currentJobId);
+  const focusedKind = toText(announcementFocus?.kind).toLowerCase();
+  const focusedId = toText(announcementFocus?.id);
+
+  const isFocusedEntity = useCallback(
+    (kind, id) => {
+      const normalizedKind = toText(kind).toLowerCase();
+      const normalizedId = toText(id);
+      return Boolean(
+        normalizedKind &&
+          normalizedId &&
+          normalizedKind === focusedKind &&
+          normalizedId === focusedId
+      );
+    },
+    [focusedKind, focusedId]
+  );
 
   const handleOpenPrintJobSheet = useCallback(() => {
     if (!currentJobUniqueId) {
@@ -1597,6 +1646,27 @@ export function JobDetailsPage() {
             ) ||
               toText(payload?.property_name || payload?.Property_Name || payload?.address_1 || payload?.Address_1)
           );
+
+          await emitAnnouncement({
+            plugin,
+            eventKey:
+              propertyModalMode === "edit"
+                ? ANNOUNCEMENT_EVENT_KEYS.PROPERTY_UPDATED
+                : ANNOUNCEMENT_EVENT_KEYS.PROPERTY_CREATED,
+            quoteJobId: currentJobId,
+            inquiryId,
+            focusId: toText(savedPropertyId),
+            dedupeEntityId: toText(savedPropertyId),
+            title:
+              propertyModalMode === "edit"
+                ? "Property details updated"
+                : "New property created",
+            content:
+              propertyModalMode === "edit"
+                ? "Property information was updated."
+                : "A new property was created and linked.",
+            logContext: "job-details:handleAddPropertySave",
+          });
         }
         await reloadContext();
       } catch (saveError) {
@@ -1610,6 +1680,7 @@ export function JobDetailsPage() {
       resolvedPropertyId,
       inquiryId,
       currentJobId,
+      propertyModalMode,
       success,
       reloadContext,
       showError,
@@ -1649,6 +1720,17 @@ export function JobDetailsPage() {
             payload: { property_id: propertyId },
           });
         }
+        await emitAnnouncement({
+          plugin,
+          eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_LINKED,
+          quoteJobId: currentJobId,
+          inquiryId,
+          focusId: propertyId,
+          dedupeEntityId: propertyId,
+          title: "Property linked",
+          content: "A property was linked to this record.",
+          logContext: "job-details:handleSelectPropertyFromSearch",
+        });
         success("Property linked", "Selected property is now linked.");
         await reloadContext();
       } catch (linkError) {
@@ -1678,6 +1760,17 @@ export function JobDetailsPage() {
         inquiryId,
         serviceProviderId: selectedProviderId,
       });
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.INQUIRY_ALLOCATED,
+        inquiryId: toText(inquiryId),
+        serviceProviderId: selectedProviderId,
+        focusId: toText(inquiryId),
+        dedupeEntityId: `${toText(inquiryId)}:${toText(selectedProviderId)}`,
+        title: "New inquiry allocation",
+        content: "A new inquiry was allocated to you.",
+        logContext: "job-details:handleAllocateProvider",
+      });
       success("Provider allocated", "Service provider allocation updated.");
       await reloadContext();
     } catch (allocationError) {
@@ -1703,6 +1796,19 @@ export function JobDetailsPage() {
         plugin,
         inquiry,
         serviceProviderId: allocatedProviderId,
+      });
+      const createdJobId = toText(createdJob?.id || createdJob?.ID);
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.QUOTE_CREATED,
+        quoteJobId: createdJobId || currentJobId,
+        inquiryId,
+        serviceProviderId: allocatedProviderId,
+        focusId: createdJobId || currentJobId,
+        dedupeEntityId: createdJobId || currentJobId || inquiryId,
+        title: "Quote created",
+        content: "A quote has been created from this inquiry.",
+        logContext: "job-details:handleCreateJob",
       });
       success(
         "Quote created",
@@ -2165,7 +2271,7 @@ export function JobDetailsPage() {
         memoFilePayload = JSON.stringify(uploaded?.fileObject || {});
       }
 
-      await createMemoPostForDetails({
+      const createdPost = await createMemoPostForDetails({
         plugin,
         payload: {
           post_copy: text,
@@ -2175,6 +2281,20 @@ export function JobDetailsPage() {
           created_at: Math.floor(Date.now() / 1000),
           file: memoFilePayload || "",
         },
+      });
+      const createdPostId = toText(createdPost?.id || createdPost?.ID);
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.POST_CREATED,
+        quoteJobId: currentJobId,
+        inquiryId,
+        postId: createdPostId,
+        focusId: createdPostId,
+        dedupeEntityId: createdPostId || `${currentJobId}:${inquiryId}:${text}`,
+        title: "New memo post",
+        content: text || "A new memo post was added.",
+        openMemo: true,
+        logContext: "job-details:handleSendMemo",
       });
 
       setMemoText("");
@@ -2209,7 +2329,7 @@ export function JobDetailsPage() {
 
       setSendingReplyPostId(normalizedPostId);
       try {
-        await createMemoCommentForDetails({
+        const createdComment = await createMemoCommentForDetails({
           plugin,
           payload: {
             forum_post_id: normalizedPostId,
@@ -2217,6 +2337,21 @@ export function JobDetailsPage() {
             comment_status: "Published",
             created_at: Math.floor(Date.now() / 1000),
           },
+        });
+        const createdCommentId = toText(createdComment?.id || createdComment?.ID);
+        await emitAnnouncement({
+          plugin,
+          eventKey: ANNOUNCEMENT_EVENT_KEYS.COMMENT_CREATED,
+          quoteJobId: currentJobId,
+          inquiryId,
+          postId: normalizedPostId,
+          commentId: createdCommentId,
+          focusId: createdCommentId || normalizedPostId,
+          dedupeEntityId: createdCommentId || `${normalizedPostId}:${text}`,
+          title: "New memo comment",
+          content: text,
+          openMemo: true,
+          logContext: "job-details:handleSendMemoReply",
         });
         setMemoReplyDrafts((previous) => ({
           ...(previous || {}),
@@ -2231,7 +2366,16 @@ export function JobDetailsPage() {
         setSendingReplyPostId("");
       }
     },
-    [memoReplyDrafts, sendingReplyPostId, plugin, refreshMemos, success, showError]
+    [
+      memoReplyDrafts,
+      sendingReplyPostId,
+      plugin,
+      refreshMemos,
+      success,
+      showError,
+      currentJobId,
+      inquiryId,
+    ]
   );
 
   const confirmDeleteMemoItem = useCallback(async () => {
@@ -2370,6 +2514,17 @@ export function JobDetailsPage() {
           ...jobEmailPayload,
         },
       });
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.QUOTE_SENT,
+        quoteJobId: currentJobId,
+        inquiryId,
+        focusId: currentJobId,
+        dedupeEntityId: `${currentJobId}:sent`,
+        title: "Quote sent",
+        content: "Quote status was updated to Sent.",
+        logContext: "job-details:handleSendQuote",
+      });
       success("Quote sent", "Quote status updated to Sent.");
       await reloadContext();
     } catch (mutationError) {
@@ -2386,6 +2541,7 @@ export function JobDetailsPage() {
     isCompanyAccount,
     selectedAccountsContactId,
     selectedJobEmailContactId,
+    inquiryId,
     showError,
     success,
   ]);
@@ -2412,6 +2568,17 @@ export function JobDetailsPage() {
           date_quoted_accepted: nowUnixSeconds(),
         },
       });
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.QUOTE_ACCEPTED,
+        quoteJobId: currentJobId,
+        inquiryId,
+        focusId: currentJobId,
+        dedupeEntityId: `${currentJobId}:accepted`,
+        title: "Quote accepted",
+        content: "Quote status was updated to Accepted.",
+        logContext: "job-details:handleAcceptQuote",
+      });
       success("Quote accepted", "Quote status updated to Accepted.");
       await reloadContext();
     } catch (mutationError) {
@@ -2420,7 +2587,16 @@ export function JobDetailsPage() {
     } finally {
       setQuoteActionState({ processing: false, key: "" });
     }
-  }, [currentJobId, plugin, quoteActionState.processing, quoteStatusNormalized, reloadContext, showError, success]);
+  }, [
+    currentJobId,
+    plugin,
+    quoteActionState.processing,
+    quoteStatusNormalized,
+    reloadContext,
+    showError,
+    success,
+    inquiryId,
+  ]);
 
   const handleSavePopupComments = useCallback(async () => {
     if (isSavingPopupComment) return;
@@ -2657,14 +2833,15 @@ export function JobDetailsPage() {
         throw new Error("SDK plugin is not ready.");
       }
       const editId = toText(meta?.id);
+      let savedAffiliation = null;
       if (editId) {
-        await updateAffiliationRecord({
+        savedAffiliation = await updateAffiliationRecord({
           plugin,
           id: editId,
           payload,
         });
       } else {
-        await createAffiliationRecord({
+        savedAffiliation = await createAffiliationRecord({
           plugin,
           payload,
         });
@@ -2678,8 +2855,25 @@ export function JobDetailsPage() {
         editId ? "Property contact updated" : "Property contact added",
         editId ? "Property contact details were updated." : "New property contact was added."
       );
+      const savedAffiliationId = toText(savedAffiliation?.id || savedAffiliation?.ID || editId);
+      await emitAnnouncement({
+        plugin,
+        eventKey: editId
+          ? ANNOUNCEMENT_EVENT_KEYS.PROPERTY_AFFILIATION_UPDATED
+          : ANNOUNCEMENT_EVENT_KEYS.PROPERTY_AFFILIATION_ADDED,
+        quoteJobId: currentJobId,
+        inquiryId,
+        focusId: savedAffiliationId,
+        dedupeEntityId:
+          savedAffiliationId || `${toText(currentJobId)}:${toText(inquiryId)}:${toText(resolvedPropertyId)}`,
+        title: editId ? "Property contact updated" : "Property contact added",
+        content: editId
+          ? "Property contact details were updated."
+          : "A new property contact was linked.",
+        logContext: "job-details:saveAffiliation",
+      });
     },
-    [plugin, resolvedPropertyId, success]
+    [plugin, resolvedPropertyId, success, currentJobId, inquiryId]
   );
 
   const handleAddAffiliationContact = useCallback(() => {
@@ -2797,6 +2991,17 @@ export function JobDetailsPage() {
           (item) => toText(item?.id) !== targetId
         )
       );
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_AFFILIATION_DELETED,
+        quoteJobId: currentJobId,
+        inquiryId,
+        focusId: targetId,
+        dedupeEntityId: `${targetId}:deleted`,
+        title: "Property contact removed",
+        content: "A property contact link was removed.",
+        logContext: "job-details:confirmDeleteAffiliation",
+      });
       setDeleteAffiliationTarget(null);
       success("Property contact deleted", "Property contact was removed.");
     } catch (deleteError) {
@@ -2805,7 +3010,7 @@ export function JobDetailsPage() {
     } finally {
       setIsDeletingAffiliation(false);
     }
-  }, [deleteAffiliationTarget, isDeletingAffiliation, plugin, showError, success]);
+  }, [deleteAffiliationTarget, isDeletingAffiliation, plugin, showError, success, currentJobId, inquiryId]);
 
   const queuePendingUploads = useCallback((files = []) => {
     const nextFiles = Array.from(files || []);
@@ -3799,7 +4004,14 @@ export function JobDetailsPage() {
                                   </thead>
                                   <tbody>
                                     {affiliations.map((affiliation) => (
-                                      <tr key={toText(affiliation?.id)} className="border-b border-slate-100 last:border-b-0">
+                                      <tr
+                                        key={toText(affiliation?.id)}
+                                        className={`border-b border-slate-100 last:border-b-0 ${
+                                          isFocusedEntity("affiliation", toText(affiliation?.id))
+                                            ? "bg-amber-50"
+                                            : ""
+                                        }`}
+                                      >
                                         <td className="px-2 py-3">
                                           <span
                                             className="inline-flex items-center"
@@ -4134,22 +4346,44 @@ export function JobDetailsPage() {
               ) : null}
 
               {activeTab === "Uploads" ? (
-                <div className="rounded border border-slate-200 bg-white p-4">
-                  {!currentJobId ? (
+                <div
+                  className={`rounded border border-slate-200 bg-white p-4 ${
+                    focusedKind === "upload" ? "ring-2 ring-amber-300" : ""
+                  }`}
+                >
+                  {!currentJobId && !inquiryId ? (
                     <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                      Uploads are available only after quote/job is created.
+                      Uploads are available when inquiry or quote/job is linked.
                     </div>
                   ) : (
                     <UploadsSection
                       plugin={plugin}
-                      jobData={{ id: currentJobId, ID: currentJobId }}
-                      additionalCreatePayload={
-                        inquiryId
-                          ? {
-                              inquiry_id: inquiryId,
-                            }
-                          : null
-                      }
+                      uploadsMode={currentJobId ? "job" : "inquiry"}
+                      jobData={currentJobId ? { id: currentJobId, ID: currentJobId } : { id: "", ID: "" }}
+                      inquiryId={inquiryId}
+                      inquiryUid={currentInquiryUniqueId}
+                      linkedJobId={currentJobId}
+                      highlightUploadId={focusedKind === "upload" ? focusedId : ""}
+                      additionalCreatePayload={inquiryId ? { inquiry_id: inquiryId } : null}
+                    />
+                  )}
+                </div>
+              ) : null}
+
+              {activeTab === "Appointments" ? (
+                <div className="rounded border border-slate-200 bg-white p-4">
+                  {!currentJobId && !inquiryId ? (
+                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                      Appointments are available when inquiry or quote/job is linked.
+                    </div>
+                  ) : (
+                    <AppointmentTabSection
+                      plugin={plugin}
+                      jobData={jobDirectBootstrapJobData || { id: currentJobId, ID: currentJobId }}
+                      preloadedLookupData={jobDirectLookupData}
+                      inquiryRecordId={inquiryId}
+                      inquiryUid={currentInquiryUniqueId}
+                      highlightAppointmentId={focusedKind === "appointment" ? focusedId : ""}
                     />
                   )}
                 </div>
@@ -4189,7 +4423,14 @@ export function JobDetailsPage() {
                         </thead>
                         <tbody>
                           {taskRows.map((task) => (
-                            <tr key={toText(task?.id || task?.ID)} className="border-b border-slate-100 last:border-b-0">
+                            <tr
+                              key={toText(task?.id || task?.ID)}
+                              className={`border-b border-slate-100 last:border-b-0 ${
+                                isFocusedEntity("task", toText(task?.id || task?.ID))
+                                  ? "bg-amber-50"
+                                  : ""
+                              }`}
+                            >
                               <td className="px-3 py-2">{toText(task?.subject || task?.Subject) || "-"}</td>
                               <td className="px-3 py-2">{toText(task?.status || task?.Status) || "-"}</td>
                               <td className="px-3 py-2">{formatDate(task?.date_due || task?.Date_Due)}</td>
@@ -4230,13 +4471,18 @@ export function JobDetailsPage() {
                     <AddActivitiesSection
                       plugin={plugin}
                       jobData={{ id: currentJobId, ID: currentJobId }}
+                      highlightActivityId={focusedKind === "activity" ? focusedId : ""}
                     />
                   )}
                 </div>
               ) : null}
 
               {activeTab === "Materials" ? (
-                <div className="rounded border border-slate-200 bg-white p-4">
+                <div
+                  className={`rounded border border-slate-200 bg-white p-4 ${
+                    focusedKind === "material" ? "ring-2 ring-amber-300" : ""
+                  }`}
+                >
                   {!currentJobId ? (
                     <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
                       Materials are available only after quote/job is created.
@@ -4260,7 +4506,13 @@ export function JobDetailsPage() {
               ) : null}
 
               {activeTab === "Invoice & Payment" ? (
-                <div className="rounded border border-slate-200 bg-white p-4">
+                <div
+                  className={`rounded border border-slate-200 bg-white p-4 ${
+                    ["invoice", "bill", "payment", "invoice_send"].includes(focusedKind)
+                      ? "ring-2 ring-amber-300"
+                      : ""
+                  }`}
+                >
                   {!currentJobId ? (
                     <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
                       Invoice and payment are available only after quote/job is created.
@@ -4357,9 +4609,11 @@ export function JobDetailsPage() {
                     <div
                       key={memoId}
                       className={`rounded-lg border px-2.5 py-2 ${
-                        memoIsMine
-                          ? "border-blue-200 bg-blue-50"
-                          : "border-slate-200 bg-white"
+                        isFocusedEntity("post", memoId)
+                          ? "border-amber-300 bg-amber-50"
+                          : memoIsMine
+                            ? "border-blue-200 bg-blue-50"
+                            : "border-slate-200 bg-white"
                       }`}
                     >
                       <div className="mb-1 flex items-center justify-between gap-2">
@@ -4416,7 +4670,14 @@ export function JobDetailsPage() {
                               Boolean(currentUserId) &&
                               toText(reply?.author_id || replyAuthor?.id) === currentUserId;
                             return (
-                              <div key={replyId} className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+                              <div
+                                key={replyId}
+                                className={`rounded border px-2 py-1.5 ${
+                                  isFocusedEntity("comment", replyId)
+                                    ? "border-amber-300 bg-amber-50"
+                                    : "border-slate-200 bg-slate-50"
+                                }`}
+                              >
                                 <div className="mb-0.5 flex items-center justify-between gap-2">
                                   <span className="truncate text-[10px] font-semibold text-slate-700">
                                     {replyIsMine ? "You" : getAuthorName(replyAuthor)}

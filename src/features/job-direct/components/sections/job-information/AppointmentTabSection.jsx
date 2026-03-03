@@ -4,6 +4,10 @@ import { Card } from "../../../../../shared/components/ui/Card.jsx";
 import { Modal } from "../../../../../shared/components/ui/Modal.jsx";
 import { useToast } from "../../../../../shared/providers/ToastProvider.jsx";
 import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../../../shared/announcements/announcementEmitter.js";
+import {
   APPOINTMENT_DURATION_HOURS_OPTIONS,
   APPOINTMENT_DURATION_MINUTES_OPTIONS,
   APPOINTMENT_EVENT_COLOR_OPTIONS,
@@ -384,6 +388,7 @@ export function AppointmentTabSection({
   onCountChange,
   inquiryRecordId = "",
   inquiryUid = "",
+  highlightAppointmentId = "",
 }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
@@ -419,6 +424,10 @@ export function AppointmentTabSection({
     if (/^\d+$/.test(text)) return Number.parseInt(text, 10);
     return text;
   }, []);
+  const normalizedHighlightAppointmentId = useMemo(() => {
+    const value = normalizeIdValue(highlightAppointmentId);
+    return value == null ? "" : String(value).trim();
+  }, [highlightAppointmentId, normalizeIdValue]);
 
   const jobId = useMemo(
     () => normalizeIdValue(jobData?.id || jobData?.ID || ""),
@@ -638,6 +647,19 @@ export function AppointmentTabSection({
     try {
       const createdRecord = await createAppointmentRecord({ plugin, payload });
       storeActions.upsertEntityRecord("appointments", createdRecord, { idField: "id" });
+      const createdAppointmentId = String(createdRecord?.id || createdRecord?.ID || "").trim();
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.APPOINTMENT_SCHEDULED,
+        quoteJobId: String(jobId || "").trim(),
+        inquiryId: String(dealId || "").trim(),
+        serviceProviderId: String(form.host_id || "").trim(),
+        focusId: createdAppointmentId,
+        dedupeEntityId: createdAppointmentId || `${jobId}:${dealId}:${form.title}`,
+        title: "Appointment scheduled",
+        content: String(form.title || "").trim() || "A new appointment was scheduled.",
+        logContext: "job-direct:AppointmentTabSection:handleCreateAppointment",
+      });
       success("Appointment created", "Appointment was added successfully.");
       resetForm();
     } catch (createError) {
@@ -661,6 +683,17 @@ export function AppointmentTabSection({
         },
       });
       storeActions.upsertEntityRecord("appointments", updatedRecord, { idField: "id" });
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.APPOINTMENT_COMPLETED,
+        quoteJobId: String(jobId || "").trim(),
+        inquiryId: String(dealId || "").trim(),
+        focusId: appointmentId,
+        dedupeEntityId: `${appointmentId}:completed`,
+        title: "Appointment completed",
+        content: String(record?.title || "").trim() || "An appointment was marked as completed.",
+        logContext: "job-direct:AppointmentTabSection:handleMarkComplete",
+      });
       success("Appointment updated", "Appointment marked as completed.");
     } catch (updateError) {
       console.error("[JobDirect] Failed updating appointment", updateError);
@@ -916,9 +949,17 @@ export function AppointmentTabSection({
                           String(item.id) === String(record?.primary_guest_contact_id || "").trim()
                       )?.label ||
                       "-";
+                    const isHighlighted =
+                      Boolean(normalizedHighlightAppointmentId) &&
+                      recordId === normalizedHighlightAppointmentId;
 
                     return (
-                      <tr key={recordId} className="border-b border-slate-100 last:border-b-0">
+                      <tr
+                        key={recordId}
+                        className={`border-b border-slate-100 last:border-b-0 ${
+                          isHighlighted ? "bg-amber-50" : ""
+                        }`}
+                      >
                         <td className="px-2 py-3">
                           <span
                             className="inline-flex w-full items-center justify-center whitespace-nowrap rounded-full px-2 py-1 text-[11px] font-medium"

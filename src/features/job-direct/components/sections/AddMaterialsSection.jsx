@@ -10,6 +10,10 @@ import { useJobDirectSelector, useJobDirectStoreActions } from "../../hooks/useJ
 import { useServiceProviderLookupData } from "../../hooks/useServiceProviderLookupData.js";
 import { showMutationErrorToast } from "../../utils/mutationFeedback.js";
 import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../../shared/announcements/announcementEmitter.js";
+import {
   DocumentActionIcon,
   EditActionIcon,
   EyeActionIcon,
@@ -361,6 +365,7 @@ function ServiceProviderSearch({
 
 export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
   const jobId = toText(jobData?.id || jobData?.ID);
+  const inquiryId = toText(jobData?.inquiry_record_id || jobData?.Inquiry_Record_ID);
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
   const materials = useJobDirectSelector(selectMaterials);
@@ -567,6 +572,18 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
           const createdMaterial = await createMaterialRecord({ plugin, payload });
           if (createdMaterial) {
             storeActions.upsertEntityRecord("materials", createdMaterial, { idField: "id" });
+            const materialId = toText(createdMaterial?.id || createdMaterial?.ID);
+            await emitAnnouncement({
+              plugin,
+              eventKey: ANNOUNCEMENT_EVENT_KEYS.MATERIAL_ADDED,
+              quoteJobId: jobId,
+              inquiryId,
+              focusId: materialId,
+              dedupeEntityId: materialId || `${jobId}:${nextValues.material_name}`,
+              title: "New material added",
+              content: nextValues.material_name || "A new material item was added.",
+              logContext: "job-direct:AddMaterialsSection:handleSubmit",
+            });
           }
           success("Material added", "New material created successfully.");
         }
@@ -586,6 +603,7 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
     [
       plugin,
       jobId,
+      inquiryId,
       form,
       editBaseline,
       pendingFile,

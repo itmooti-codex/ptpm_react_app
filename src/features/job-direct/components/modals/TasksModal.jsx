@@ -6,6 +6,10 @@ import { Modal } from "../../../../shared/components/ui/Modal.jsx";
 import { TextareaField } from "../../../../shared/components/ui/TextareaField.jsx";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
 import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../../shared/announcements/announcementEmitter.js";
+import {
   JobDirectEmptyTableRow,
   JobDirectIconActionButton,
   JobDirectStatusBadge,
@@ -549,7 +553,19 @@ export function TasksModal({
           await updateTaskRecord({ plugin, id: form.id, payload: updatePayload });
           success("Task updated", "Task changes have been saved.");
         } else {
-          await createTaskRecord({ plugin, payload });
+          const createdTask = await createTaskRecord({ plugin, payload });
+          const createdTaskId = toString(createdTask?.id || createdTask?.ID);
+          await emitAnnouncement({
+            plugin,
+            eventKey: ANNOUNCEMENT_EVENT_KEYS.TASK_ADDED,
+            quoteJobId: resolvedJobId,
+            inquiryId: resolvedDealId,
+            focusId: createdTaskId,
+            dedupeEntityId: createdTaskId || `${resolvedJobId}:${resolvedDealId}:${subject}`,
+            title: "New task added",
+            content: subject,
+            logContext: "job-direct:TasksModal:handleSubmit",
+          });
           success("Task added", "New task created successfully.");
         }
         await loadTasks();
@@ -604,6 +620,17 @@ export function TasksModal({
         if (!updatedTask?.id) {
           throw new Error("Task update was not confirmed.");
         }
+        await emitAnnouncement({
+          plugin,
+          eventKey: ANNOUNCEMENT_EVENT_KEYS.TASK_COMPLETED,
+          quoteJobId: resolvedJobId,
+          inquiryId: resolvedDealId,
+          focusId: id,
+          dedupeEntityId: `${id}:completed`,
+          title: "Task completed",
+          content: toString(task?.subject) || "A task was marked as completed.",
+          logContext: "job-direct:TasksModal:handleMarkComplete",
+        });
         await loadTasks();
         success("Task completed", "Task status set to Completed.");
       } catch (completeError) {

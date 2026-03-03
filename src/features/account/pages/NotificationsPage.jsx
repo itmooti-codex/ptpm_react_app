@@ -10,7 +10,6 @@ function notificationTypeClass(type) {
 }
 
 export function NotificationsPage() {
-  const [activeTypeTab, setActiveTypeTab] = useState("General");
   const [onlyUnread, setOnlyUnread] = useState(false);
   const {
     notifications,
@@ -20,19 +19,15 @@ export function NotificationsPage() {
     markingById,
     isMarkingAll,
     markAllAsRead,
-    markOneAsRead,
+    openNotification,
   } = useAnnouncements();
 
   const visibleNotifications = useMemo(() => {
     return notifications.filter((item) => {
-      const typeMatches =
-        activeTypeTab === "General"
-          ? true
-          : String(item.type || "").toLowerCase() === "action required";
       const readMatches = onlyUnread ? !item.read : true;
-      return typeMatches && readMatches;
+      return readMatches;
     });
-  }, [notifications, activeTypeTab, onlyUnread]);
+  }, [notifications, onlyUnread]);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-slate-100 font-['Inter']">
@@ -51,33 +46,11 @@ export function NotificationsPage() {
           <div className="mb-4 rounded-xl border border-[#d7e2f1] bg-gradient-to-r from-[#003882] to-[#0b4d9a] p-5 text-white shadow-sm">
             <div className="text-xs uppercase tracking-[0.2em] text-white/70">Notifications</div>
             <h1 className="mt-1 text-2xl font-semibold">All Announcements</h1>
-            <p className="mt-1 text-sm text-white/85">
-              Stay updated with general updates and action-required items.
-            </p>
+            <p className="mt-1 text-sm text-white/85">Stay updated with recent announcements.</p>
           </div>
 
           <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-              <div className="inline-flex rounded border border-slate-200 bg-slate-50 p-0.5">
-                {["General", "Action Required"].map((tab) => {
-                  const active = activeTypeTab === tab;
-                  return (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => setActiveTypeTab(tab)}
-                      className={`rounded px-2 py-1 text-xs font-medium ${
-                        active
-                          ? "bg-white text-slate-800 shadow-sm"
-                          : "text-slate-600 hover:text-slate-700"
-                      }`}
-                    >
-                      {tab}
-                    </button>
-                  );
-                })}
-              </div>
-
               <div className="flex items-center gap-3">
                 <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-slate-600">
                   <input
@@ -119,7 +92,7 @@ export function NotificationsPage() {
                     <li key={item.id}>
                       <button
                         type="button"
-                        onClick={() => markOneAsRead(item)}
+                        onClick={() => openNotification(item)}
                         disabled={Boolean(markingById[item.id])}
                         className={`w-full rounded border px-3 py-2 text-left ${
                           item.read

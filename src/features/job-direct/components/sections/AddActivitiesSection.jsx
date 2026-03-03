@@ -10,6 +10,10 @@ import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
 import { useJobDirectSelector, useJobDirectStoreActions } from "../../hooks/useJobDirectStore.jsx";
 import { showMutationErrorToast } from "../../utils/mutationFeedback.js";
 import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../../shared/announcements/announcementEmitter.js";
+import {
   EditActionIcon,
   EyeActionIcon,
   TrashActionIcon,
@@ -50,6 +54,12 @@ function toId(value) {
   if (!normalized) return "";
   if (/^\d+$/.test(normalized)) return Number.parseInt(normalized, 10);
   return normalized;
+}
+
+function normalizeActivityId(value) {
+  const normalized = toText(value);
+  if (!normalized) return "";
+  return /^\d+$/.test(normalized) ? String(Number.parseInt(normalized, 10)) : normalized;
 }
 
 function formatDateForInput(value) {
@@ -251,8 +261,9 @@ function CheckIndicator({ active }) {
   );
 }
 
-export function AddActivitiesSection({ plugin, jobData }) {
+export function AddActivitiesSection({ plugin, jobData, highlightActivityId = "" }) {
   const jobId = toText(jobData?.id || jobData?.ID);
+  const inquiryId = toText(jobData?.inquiry_record_id || jobData?.Inquiry_Record_ID);
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
   const activities = useJobDirectSelector(selectActivities);
@@ -262,6 +273,10 @@ export function AddActivitiesSection({ plugin, jobData }) {
   const [viewActivity, setViewActivity] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [form, setForm] = useState(defaultActivityForm);
+  const normalizedHighlightActivityId = useMemo(
+    () => normalizeActivityId(highlightActivityId),
+    [highlightActivityId]
+  );
   const {
     hasMore: hasMoreActivities,
     remainingCount: remainingActivitiesCount,
@@ -443,6 +458,20 @@ export function AddActivitiesSection({ plugin, jobData }) {
         }
         if (savedActivity) {
           storeActions.upsertEntityRecord("activities", savedActivity, { idField: "id" });
+          if (!isEditing) {
+            const activityId = toText(savedActivity?.id || savedActivity?.ID);
+            await emitAnnouncement({
+              plugin,
+              eventKey: ANNOUNCEMENT_EVENT_KEYS.ACTIVITY_ADDED,
+              quoteJobId: jobId,
+              inquiryId,
+              focusId: activityId,
+              dedupeEntityId: activityId || `${jobId}:${toText(form.task)}`,
+              title: "New activity added",
+              content: toText(form.task) || "A new activity was added.",
+              logContext: "job-direct:AddActivitiesSection:handleSubmit",
+            });
+          }
         }
         resetForm();
       } catch (submitError) {
@@ -456,7 +485,7 @@ export function AddActivitiesSection({ plugin, jobData }) {
         setIsSubmitting(false);
       }
     },
-    [plugin, jobId, form, isEditing, storeActions, success, error, resetForm]
+    [plugin, jobId, inquiryId, form, isEditing, storeActions, success, error, resetForm]
   );
 
   const handleDelete = useCallback(async () => {
@@ -650,13 +679,22 @@ export function AddActivitiesSection({ plugin, jobData }) {
                 {visibleActivities.length ? (
                   visibleActivities.map((activity) => {
                     const activityId = toText(activity?.id || activity?.ID);
+                    const normalizedActivityId = normalizeActivityId(activityId);
                     const status = toText(
                       activity?.activity_status || activity?.Activity_Status || activity?.status
                     );
                     const style = resolveStatusStyle(status, ACTIVITY_STATUS_OPTIONS);
                     const isBusy = Boolean(activityId) && activeActionId === activityId;
+                    const isHighlighted =
+                      Boolean(normalizedHighlightActivityId) &&
+                      normalizedActivityId === normalizedHighlightActivityId;
                     return (
-                      <tr key={activityId || `${activity.task}-${activity.option}`} className="border-b border-slate-100">
+                      <tr
+                        key={activityId || `${activity.task}-${activity.option}`}
+                        className={`border-b border-slate-100 ${
+                          isHighlighted ? "bg-amber-50" : ""
+                        }`}
+                      >
                         <td className="px-2 py-3 align-middle text-slate-700">
                           {toText(activity?.task) || "-"}
                         </td>

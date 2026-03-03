@@ -3,6 +3,10 @@ import { Button } from "../../../../../shared/components/ui/Button.jsx";
 import { Card } from "../../../../../shared/components/ui/Card.jsx";
 import { Modal } from "../../../../../shared/components/ui/Modal.jsx";
 import { useToast } from "../../../../../shared/providers/ToastProvider.jsx";
+import {
+  ANNOUNCEMENT_EVENT_KEYS,
+} from "../../../../../shared/announcements/announcementTypes.js";
+import { emitAnnouncement } from "../../../../../shared/announcements/announcementEmitter.js";
 import { useContactEntityLookupData } from "../../../hooks/useContactEntityLookupData.js";
 import {
   useJobDirectSelector,
@@ -52,6 +56,8 @@ import {
 export function PropertyTabSection({
   plugin,
   preloadedLookupData,
+  quoteJobId = "",
+  inquiryId = "",
   currentPropertyId,
   onOpenContactDetailsModal,
   accountType,
@@ -101,6 +107,8 @@ export function PropertyTabSection({
   const resolvedPropertyId = normalizePropertyId(
     currentPropertyId || selectedPropertyId || activeRelatedProperty?.id
   );
+  const announcementJobId = normalizePropertyId(quoteJobId);
+  const announcementInquiryId = normalizePropertyId(inquiryId);
   const affiliations = useJobDirectSelector(
     useCallback(
       (state) => selectPropertyAffiliationsByPropertyKey(state, resolvedPropertyId),
@@ -420,6 +428,23 @@ export function PropertyTabSection({
         ? "Property contact details were updated."
         : "Property contact was linked to this property."
     );
+    const savedAffiliationId = normalizePropertyId(savedRecord?.id || savedRecord?.ID || existingId);
+    await emitAnnouncement({
+      plugin,
+      eventKey: existingId
+        ? ANNOUNCEMENT_EVENT_KEYS.PROPERTY_AFFILIATION_UPDATED
+        : ANNOUNCEMENT_EVENT_KEYS.PROPERTY_AFFILIATION_ADDED,
+      quoteJobId: announcementJobId,
+      inquiryId: announcementInquiryId,
+      focusId: savedAffiliationId,
+      dedupeEntityId:
+        savedAffiliationId || `${announcementJobId}:${announcementInquiryId}:${resolvedPropertyId}`,
+      title: existingId ? "Property contact updated" : "Property contact added",
+      content: existingId
+        ? "Property contact details were updated."
+        : "Property contact was linked to this property.",
+      logContext: "job-direct:PropertyTabSection:saveAffiliation",
+    });
   };
 
   const confirmDeleteAffiliation = async () => {
@@ -434,6 +459,17 @@ export function PropertyTabSection({
           (item) => String(item?.id || "").trim() !== String(deleteTarget.id).trim()
         )
       );
+      await emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_AFFILIATION_DELETED,
+        quoteJobId: announcementJobId,
+        inquiryId: announcementInquiryId,
+        focusId: normalizePropertyId(deleteTarget?.id),
+        dedupeEntityId: `${normalizePropertyId(deleteTarget?.id)}:deleted`,
+        title: "Property contact removed",
+        content: "A property contact link was removed.",
+        logContext: "job-direct:PropertyTabSection:confirmDeleteAffiliation",
+      });
       success("Property contact deleted", "Property contact link was removed.");
       setDeleteTarget(null);
     } catch (deleteError) {
@@ -552,6 +588,27 @@ export function PropertyTabSection({
         resolvedPropertyId,
         dedupeUploadRecords([...created, ...(propertyUploads || [])])
       );
+      const createdUploadIds = created
+        .map((record) => normalizePropertyId(record?.id || record?.ID))
+        .filter(Boolean);
+      emitAnnouncement({
+        plugin,
+        eventKey: ANNOUNCEMENT_EVENT_KEYS.UPLOAD_ADDED,
+        quoteJobId: announcementJobId,
+        inquiryId: announcementInquiryId,
+        focusId: createdUploadIds.length === 1 ? createdUploadIds[0] : "",
+        focusIds: createdUploadIds,
+        dedupeEntityId:
+          createdUploadIds.join(",") || `${announcementJobId}:${announcementInquiryId}:property_upload_batch`,
+        title: created.length > 1 ? "Property uploads added" : "Property upload added",
+        content:
+          created.length > 1
+            ? `${created.length} files were uploaded to the property.`
+            : "A file was uploaded to the property.",
+        logContext: "job-direct:PropertyTabSection:savePendingPropertyUploads",
+      }).catch((announcementError) => {
+        console.warn("[JobDirect] Property upload announcement emit failed", announcementError);
+      });
     }
 
     setPendingPropertyUploads(failed);

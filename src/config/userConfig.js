@@ -1,7 +1,7 @@
 export const APP_USER = {
-  id: "u-1",
-  firstName: "Andrew",
-  lastName: "Test",
+  id: "363",
+  firstName: "Dipesh",
+  lastName: "Adhikari",
   profileImage: "",
 };
 
