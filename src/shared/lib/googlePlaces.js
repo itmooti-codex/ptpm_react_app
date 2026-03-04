@@ -1,7 +1,8 @@
 const GOOGLE_PLACES_SRC_BASE = "https://maps.googleapis.com/maps/api/js";
 const DEFAULT_GOOGLE_MAPS_API_KEY =
-  import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||
-  "AIzaSyDAB5BuHgOkYcnAcTJk6jLEkS7hSHtqNwo";
+  typeof import.meta.env.VITE_GOOGLE_MAPS_API_KEY === "string"
+    ? import.meta.env.VITE_GOOGLE_MAPS_API_KEY.trim()
+    : "";
 
 let googlePlacesScriptPromise = null;
 const GOOGLE_READY_TIMEOUT_MS = 12000;

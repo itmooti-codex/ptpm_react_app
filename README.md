@@ -7,8 +7,11 @@ This React app is the new base for the PTPM project. In this phase, the app focu
 ```bash
 cd ptpm_react_app
 npm install
+cp .env.example .env.local
 npm run dev
 ```
+
+Required environment variables are listed in `.env.example`.
 
 ## Current scope
 

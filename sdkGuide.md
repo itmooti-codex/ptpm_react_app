@@ -124,8 +124,8 @@ Like this:
 
 ```javascript
 initVitalStats({
-  slug: 'awc',
-  apiKey: '<api key>',
+  slug: import.meta.env.VITE_VITALSTATS_SLUG,
+  apiKey: import.meta.env.VITE_VITALSTATS_API_KEY,
   isDefault: true,
 }).subscribe(({ plugin }) => {
   /*
