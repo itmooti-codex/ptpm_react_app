@@ -106,7 +106,7 @@ export const APPOINTMENT_STATUS_OPTIONS = [
 ];
 
 export const APPOINTMENT_TYPE_OPTIONS = [
-  { value: "select none", label: "select none" },
+  { value: "select none", label: "Select None" },
   { value: "Inquiry", label: "Inquiry" },
   { value: "Job", label: "Job" },
 ];

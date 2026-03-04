@@ -3,6 +3,7 @@ import {
   fetchServiceProvidersForSearch,
   subscribeServiceProvidersForSearch,
 } from "../sdk/jobDirectSdk.js";
+import { buildLookupDisplayLabel } from "../../../shared/utils/lookupLabel.js";
 import {
   useJobDirectSelector,
   useJobDirectStoreActions,
@@ -88,12 +89,12 @@ function normalizeServiceProvider(provider = {}) {
     email,
     sms_number: smsNumber,
     phone: smsNumber,
-    label:
-      [firstName, lastName].filter(Boolean).join(" ").trim() ||
-      email ||
-      smsNumber ||
-      uniqueId ||
-      (id ? `Provider #${id}` : ""),
+    label: buildLookupDisplayLabel(
+      [firstName, lastName].filter(Boolean).join(" ").trim(),
+      email,
+      smsNumber,
+      uniqueId || (id ? `Provider #${id}` : "")
+    ),
   };
 }
 

@@ -5,6 +5,7 @@ export const TAB_IDS = {
   PAYMENT: "payment",
   ACTIVE_JOBS: "active-jobs",
   URGENT_CALLS: "urgent-calls",
+  OPEN_TASKS: "open-tasks",
 };
 
 export const TAB_LABELS = {
@@ -14,6 +15,7 @@ export const TAB_LABELS = {
   [TAB_IDS.PAYMENT]: "Payments",
   [TAB_IDS.ACTIVE_JOBS]: "Active Jobs",
   [TAB_IDS.URGENT_CALLS]: "Urgent Calls",
+  [TAB_IDS.OPEN_TASKS]: "Open Tasks",
 };
 
 export const TAB_LIST = [
@@ -22,6 +24,7 @@ export const TAB_LIST = [
   TAB_IDS.JOBS,
   TAB_IDS.PAYMENT,
   TAB_IDS.ACTIVE_JOBS,
+  TAB_IDS.OPEN_TASKS,
   TAB_IDS.URGENT_CALLS,
 ];
 
@@ -59,7 +62,22 @@ export const TAB_STATUS_OPTIONS = {
     "Written Off",
   ],
   [TAB_IDS.ACTIVE_JOBS]: ["In Progress"],
-  [TAB_IDS.URGENT_CALLS]: [],
+  [TAB_IDS.URGENT_CALLS]: [
+    "On Hold",
+    "Booked",
+    "Call Back",
+    "Scheduled",
+    "Reschedule",
+    "Accepted",
+  ],
+  [TAB_IDS.OPEN_TASKS]: [
+    "On Hold",
+    "Booked",
+    "Call Back",
+    "Scheduled",
+    "Reschedule",
+    "Accepted",
+  ],
 };
 
 export const ACCOUNT_TYPE_OPTIONS = ["Individual", "Entity"];
@@ -73,4 +91,6 @@ export const CALENDAR_TABS = new Set([
   TAB_IDS.JOBS,
   TAB_IDS.PAYMENT,
   TAB_IDS.ACTIVE_JOBS,
+  TAB_IDS.URGENT_CALLS,
+  TAB_IDS.OPEN_TASKS,
 ]);

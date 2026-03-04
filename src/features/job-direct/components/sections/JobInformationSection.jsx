@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../../../shared/components/ui/Button.jsx";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
 import {
   ANNOUNCEMENT_EVENT_KEYS,
 } from "../../../../shared/announcements/announcementTypes.js";
 import { emitAnnouncement } from "../../../../shared/announcements/announcementEmitter.js";
+import { buildLookupDisplayLabel } from "../../../../shared/utils/lookupLabel.js";
 import {
   JOB_STATUS_OPTIONS,
   JOB_TYPE_OPTIONS,
@@ -66,6 +67,7 @@ export function JobInformationSection({
     clientId: "",
     companyId: "",
   });
+  const [appointmentDraft, setAppointmentDraft] = useState(null);
   const [appointmentCount, setAppointmentCount] = useState(0);
   const [linkedInquiryRecordId, setLinkedInquiryRecordId] = useState(
     normalizeInquiryId(getJobRelatedInquiry(activeJobData)?.id)
@@ -177,6 +179,65 @@ export function JobInformationSection({
     selectedAccountId,
   });
 
+  const selectedPropertyLabel = useMemo(() => {
+    const selected = (propertySearchItems || []).find(
+      (item) => normalizePropertyId(item?.id) === normalizePropertyId(effectivePropertyId)
+    );
+    return String(selected?.label || "").trim();
+  }, [effectivePropertyId, propertySearchItems]);
+
+  const selectedIndividual = useMemo(
+    () => getJobIndividualSelection(activeJobData),
+    [activeJobData]
+  );
+  const selectedEntity = useMemo(
+    () => getJobEntitySelection(activeJobData),
+    [activeJobData]
+  );
+  const selectedProvider = useMemo(
+    () => getJobPrimaryServiceProviderDetails(activeJobData),
+    [activeJobData]
+  );
+  const appointmentPrefillContext = useMemo(() => {
+    const isCompanyAccount = selection.accountType === "Company";
+    const contactGuestId = String(selection.clientId || selectedIndividual.id || "").trim();
+    const companyPrimaryId = String(selectedEntity.primaryId || "").trim();
+    const companyPrimaryLabel = buildLookupDisplayLabel(
+      selectedEntity.name,
+      selectedEntity.primaryEmail,
+      selectedEntity.primaryMobile,
+      companyPrimaryId ? `Contact #${companyPrimaryId}` : ""
+    );
+
+    return {
+      accountType: isCompanyAccount ? "Company" : "Contact",
+      locationId: String(effectivePropertyId || "").trim(),
+      locationLabel: selectedPropertyLabel,
+      hostId: String(selectedServiceProviderId || "").trim(),
+      hostLabel:
+        String(selectedProvider?.label || "").trim() ||
+        String(selectedProvider?.id || "").trim(),
+      guestId: isCompanyAccount ? companyPrimaryId || contactGuestId : contactGuestId,
+      guestLabel: isCompanyAccount
+        ? companyPrimaryLabel || selectedIndividual.label
+        : selectedIndividual.label,
+    };
+  }, [
+    effectivePropertyId,
+    selectedEntity.name,
+    selectedEntity.primaryEmail,
+    selectedEntity.primaryId,
+    selectedEntity.primaryMobile,
+    selectedIndividual.id,
+    selectedIndividual.label,
+    selectedPropertyLabel,
+    selectedProvider?.id,
+    selectedProvider?.label,
+    selectedServiceProviderId,
+    selection.accountType,
+    selection.clientId,
+  ]);
+
   useEffect(() => {
     if (typeof onOverviewDraftChange !== "function") return;
     onOverviewDraftChange({
@@ -285,7 +346,11 @@ export function JobInformationSection({
                 return [normalized, ...prev];
               });
               setPropertySearchQuery(
-                normalized.property_name || normalized.unique_id || normalized.id || ""
+                normalized.property_name ||
+                  normalized.address_1 ||
+                  normalized.address ||
+                  normalized.unique_id ||
+                  ""
               );
               await emitAnnouncement({
                 plugin,
@@ -340,7 +405,11 @@ export function JobInformationSection({
                 )
               );
               setPropertySearchQuery(
-                normalized.property_name || normalized.unique_id || normalized.id || ""
+                normalized.property_name ||
+                  normalized.address_1 ||
+                  normalized.address ||
+                  normalized.unique_id ||
+                  ""
               );
               await emitAnnouncement({
                 plugin,
@@ -381,6 +450,10 @@ export function JobInformationSection({
         preloadedLookupData={preloadedLookupData}
         onCountChange={setAppointmentCount}
         inquiryRecordId={linkedInquiryRecordId}
+        draft={appointmentDraft}
+        onDraftChange={setAppointmentDraft}
+        onResetDraft={() => setAppointmentDraft(null)}
+        prefillContext={appointmentPrefillContext}
       />
     ),
   };

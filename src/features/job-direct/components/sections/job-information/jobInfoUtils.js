@@ -1,3 +1,5 @@
+import { buildLookupDisplayLabel } from "../../../../../shared/utils/lookupLabel.js";
+
 const INQUIRY_LINK_BASE = String(import.meta.env.VITE_INQUIRY_LINK_BASE || "").trim();
 
 export function normalizeText(value) {
@@ -52,7 +54,8 @@ export function getJobIndividualSelection(jobData) {
     getFirstFilledValue(jobData, ["Client_Individual_SMS_Number"]) ||
     jobData?.Client_Individual?.sms_number ||
     "";
-  const label = [first, last].filter(Boolean).join(" ").trim() || email || sms || "";
+  const fullName = [first, last].filter(Boolean).join(" ").trim();
+  const label = buildLookupDisplayLabel(fullName, email, sms, id);
   return { id, label };
 }
 
@@ -71,7 +74,17 @@ export function getJobEntitySelection(jobData) {
       jobData?.Client_Entity?.Primary_Person?.id ||
       ""
   );
-  return { id, name, primaryId };
+  const primaryEmail = String(
+    getFirstFilledValue(jobData, ["Contact_Contact_Email", "Client_Entity_Primary_Person_Email"]) ||
+      jobData?.Client_Entity?.Primary_Person?.email ||
+      ""
+  ).trim();
+  const primaryMobile = String(
+    getFirstFilledValue(jobData, ["Contact_Contact_SMS_Number", "Client_Entity_Primary_Person_SMS_Number"]) ||
+      jobData?.Client_Entity?.Primary_Person?.sms_number ||
+      ""
+  ).trim();
+  return { id, name, primaryId, primaryEmail, primaryMobile };
 }
 
 export function getJobRelatedInquiry(jobData) {
@@ -259,9 +272,19 @@ export function getJobPrimaryServiceProviderDetails(jobData) {
       jobData?.Primary_Service_Provider?.Contact_Information?.email ||
       ""
   ).trim();
+  const smsNumber = String(
+    getFirstFilledValue(jobData, ["Primary_Service_Provider_Contact_SMS_Number"]) ||
+      jobData?.Primary_Service_Provider?.Contact_Information?.sms_number ||
+      ""
+  ).trim();
 
-  const label = [firstName, lastName].filter(Boolean).join(" ").trim() || email || "";
-  return { id, first_name: firstName, last_name: lastName, email, label };
+  const label = buildLookupDisplayLabel(
+    [firstName, lastName].filter(Boolean).join(" ").trim(),
+    email,
+    smsNumber,
+    id
+  );
+  return { id, first_name: firstName, last_name: lastName, email, sms_number: smsNumber, label };
 }
 
 export function resolveOptionDefault(options = [], rawValue = "") {

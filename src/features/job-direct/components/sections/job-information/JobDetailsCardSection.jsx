@@ -22,6 +22,21 @@ import {
   resolveOptionDefault,
 } from "./jobInfoUtils.js";
 
+function formatLookupDisplayLabel(
+  primaryText = "",
+  emailText = "",
+  mobileText = "",
+  fallbackText = ""
+) {
+  const primary = String(primaryText || "").trim();
+  const email = String(emailText || "").trim();
+  const mobile = String(mobileText || "").trim();
+  const fallback = String(fallbackText || "").trim();
+  const nameWithEmail = primary && email ? `${primary} <${email}>` : primary || email || "";
+  if (nameWithEmail && mobile) return `${nameWithEmail} | ${mobile}`;
+  return nameWithEmail || mobile || fallback;
+}
+
 export function JobDetailsCardSection({
   showPropertySearch = false,
   jobData,
@@ -53,7 +68,12 @@ export function JobDetailsCardSection({
     () =>
       contacts.map((item) => ({
         id: item.id,
-        label: item.label || item.id,
+        label: formatLookupDisplayLabel(
+          [item.first_name, item.last_name].filter(Boolean).join(" ").trim(),
+          item.email,
+          item.sms_number,
+          item.id
+        ),
         meta: item.email || item.sms_number || "",
       })),
     [contacts]
@@ -63,7 +83,12 @@ export function JobDetailsCardSection({
     () =>
       companies.map((item) => ({
         id: item.id,
-        label: item.name || item.id,
+        label: formatLookupDisplayLabel(
+          item.name,
+          item.primary?.email,
+          item.primary?.sms_number,
+          item.id
+        ),
         meta: item.account_type || "",
         primary: item.primary,
       })),
@@ -76,22 +101,21 @@ export function JobDetailsCardSection({
     const initialType = resolveContactTypeFromJob(jobData);
     setContactType(initialType);
 
-    if (initialType === "entity") {
-      const entitySelection = getJobEntitySelection(jobData);
-      setSelectedEntityId(entitySelection.id);
-      setSelectedEntityContactId(entitySelection.primaryId);
-      setEntityQuery(entitySelection.name);
-      setSelectedClientId("");
-      setClientQuery("");
-      return;
-    }
+    const entitySelection = getJobEntitySelection(jobData);
+    setSelectedEntityId(entitySelection.id);
+    setSelectedEntityContactId(entitySelection.primaryId);
+    setEntityQuery(
+      formatLookupDisplayLabel(
+        entitySelection.name,
+        entitySelection.primaryEmail,
+        entitySelection.primaryMobile,
+        entitySelection.id
+      )
+    );
 
     const individualSelection = getJobIndividualSelection(jobData);
     setSelectedClientId(individualSelection.id);
     setClientQuery(individualSelection.label);
-    setSelectedEntityId("");
-    setSelectedEntityContactId("");
-    setEntityQuery("");
 
     setPriorityValue(
       resolveOptionDefault(
@@ -116,8 +140,8 @@ export function JobDetailsCardSection({
   useEffect(() => {
     onClientSelectionChange?.({
       accountType: isEntity ? "Company" : "Contact",
-      clientId: isEntity ? "" : selectedClientId,
-      companyId: isEntity ? selectedEntityId : "",
+      clientId: selectedClientId,
+      companyId: selectedEntityId,
     });
   }, [isEntity, selectedClientId, selectedEntityId, onClientSelectionChange]);
 
@@ -131,14 +155,6 @@ export function JobDetailsCardSection({
 
   const handleContactType = (nextType) => {
     setContactType(nextType);
-    if (nextType === "entity") {
-      setSelectedClientId("");
-      setClientQuery("");
-      return;
-    }
-    setSelectedEntityId("");
-    setSelectedEntityContactId("");
-    setEntityQuery("");
   };
 
   const openAddModal = (mode) => {
@@ -171,7 +187,14 @@ export function JobDetailsCardSection({
           setContactType("entity");
           setSelectedEntityId(company.id || "");
           setSelectedEntityContactId(company.primary?.id || "");
-          setEntityQuery(company.name || "");
+          setEntityQuery(
+            formatLookupDisplayLabel(
+              company.name,
+              company.primary?.email,
+              company.primary?.sms_number,
+              company.id || ""
+            )
+          );
           success("Entity created", "New entity and primary contact were saved.");
           return;
         }
@@ -183,7 +206,14 @@ export function JobDetailsCardSection({
         const contact = addContact(createdContact);
         setContactType("individual");
         setSelectedClientId(contact.id || "");
-        setClientQuery(contact.label || "");
+        setClientQuery(
+          formatLookupDisplayLabel(
+            [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim(),
+            contact.email,
+            contact.sms_number,
+            contact.id || ""
+          )
+        );
         success("Contact created", "New contact was saved.");
       },
     });
@@ -239,8 +269,6 @@ export function JobDetailsCardSection({
           onSelect={(item) => {
             setSelectedClientId(item.id || "");
             setClientQuery(item.label || "");
-            setSelectedEntityId("");
-            setSelectedEntityContactId("");
           }}
           onAdd={() => openAddModal("individual")}
           addButtonLabel="Add New Contact"
@@ -262,7 +290,6 @@ export function JobDetailsCardSection({
             setSelectedEntityId(item.id || "");
             setSelectedEntityContactId(item.primary?.id || "");
             setEntityQuery(item.label || "");
-            setSelectedClientId("");
           }}
           onAdd={() => openAddModal("entity")}
           addButtonLabel="Add New Entity"

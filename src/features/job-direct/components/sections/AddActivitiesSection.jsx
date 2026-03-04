@@ -124,6 +124,29 @@ function formatCurrency(value) {
   });
 }
 
+function parseTaskNumber(value) {
+  const text = toText(value).toLowerCase();
+  const match = text.match(/job\s*(\d+)/);
+  if (!match) return null;
+  const number = Number.parseInt(match[1], 10);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseOptionNumber(value) {
+  const text = toText(value).toLowerCase();
+  const match = text.match(/option\s*(\d+)/);
+  if (!match) return null;
+  const number = Number.parseInt(match[1], 10);
+  return Number.isFinite(number) ? number : null;
+}
+
+function buildComboKey(task, option) {
+  const taskNumber = parseTaskNumber(task);
+  const optionNumber = parseOptionNumber(option);
+  if (!taskNumber || !optionNumber) return "";
+  return `${taskNumber}:${optionNumber}`;
+}
+
 function normalizeServiceRecord(record = {}) {
   const id = toText(record?.id || record?.ID || record?.service_id || record?.Service_ID);
   const name = toText(
@@ -172,8 +195,8 @@ function normalizeServiceRecord(record = {}) {
 function defaultActivityForm() {
   return {
     id: "",
-    task: "",
-    option: "",
+    task: "Job 1",
+    option: "Option 1",
     primaryServiceId: "",
     optionServiceId: "",
     service_id: "",
@@ -332,6 +355,101 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
     [services]
   );
 
+  const existingCombinationSet = useMemo(() => {
+    const combinations = new Set();
+    (activities || []).forEach((activity) => {
+      const task = toText(activity?.task || activity?.Task);
+      const option = toText(activity?.option || activity?.Option);
+      const key = buildComboKey(task, option);
+      if (key) combinations.add(key);
+    });
+    return combinations;
+  }, [activities]);
+
+  const nextValidCombinations = useMemo(() => {
+    const maxTaskCount = ACTIVITY_TASK_OPTIONS.length;
+    const maxOptionCount = ACTIVITY_OPTION_OPTIONS.length;
+    const optionsByTask = new Map();
+
+    (activities || []).forEach((activity) => {
+      const task = toText(activity?.task || activity?.Task);
+      const option = toText(activity?.option || activity?.Option);
+      const taskNumber = parseTaskNumber(task);
+      const optionNumber = parseOptionNumber(option);
+      if (!taskNumber || !optionNumber) return;
+      const usedOptions = optionsByTask.get(taskNumber) || new Set();
+      usedOptions.add(optionNumber);
+      optionsByTask.set(taskNumber, usedOptions);
+    });
+
+    if (!optionsByTask.size) {
+      return [{ task: "Job 1", option: "Option 1" }];
+    }
+
+    const combinations = [];
+    const sortedTaskNumbers = Array.from(optionsByTask.keys()).sort((a, b) => a - b);
+    sortedTaskNumbers.forEach((taskNumber) => {
+      const usedOptions = optionsByTask.get(taskNumber) || new Set();
+      let nextOption = 1;
+      while (nextOption <= maxOptionCount && usedOptions.has(nextOption)) {
+        nextOption += 1;
+      }
+      if (nextOption <= maxOptionCount) {
+        combinations.push({
+          task: `Job ${taskNumber}`,
+          option: `Option ${nextOption}`,
+        });
+      }
+    });
+
+    const highestTaskNumber = sortedTaskNumbers[sortedTaskNumbers.length - 1] || 0;
+    const nextTaskNumber = highestTaskNumber + 1;
+    if (nextTaskNumber <= maxTaskCount) {
+      combinations.push({
+        task: `Job ${nextTaskNumber}`,
+        option: "Option 1",
+      });
+    }
+
+    const deduped = [];
+    const seen = new Set();
+    combinations.forEach((combination) => {
+      const key = buildComboKey(combination.task, combination.option);
+      if (!key || seen.has(key) || existingCombinationSet.has(key)) return;
+      seen.add(key);
+      deduped.push(combination);
+    });
+    return deduped.length ? deduped : [{ task: "Job 1", option: "Option 1" }];
+  }, [activities, existingCombinationSet]);
+
+  const nextOptionsByTask = useMemo(() => {
+    const map = new Map();
+    nextValidCombinations.forEach((combination) => {
+      const task = toText(combination.task);
+      const option = toText(combination.option);
+      if (!task || !option) return;
+      const set = map.get(task) || new Set();
+      set.add(option);
+      map.set(task, set);
+    });
+    return map;
+  }, [nextValidCombinations]);
+
+  const nextValidCombinationSet = useMemo(
+    () =>
+      new Set(
+        nextValidCombinations
+          .map((combination) => buildComboKey(combination.task, combination.option))
+          .filter(Boolean)
+      ),
+    [nextValidCombinations]
+  );
+
+  const allowedTaskValues = useMemo(
+    () => new Set(nextValidCombinations.map((item) => toText(item.task)).filter(Boolean)),
+    [nextValidCombinations]
+  );
+
   const secondaryOptions = useMemo(
     () =>
       services.filter(
@@ -342,9 +460,141 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
 
   const isEditing = Boolean(form.id);
 
+  const taskOptions = useMemo(() => {
+    if (isEditing) return ACTIVITY_TASK_OPTIONS;
+    const filtered = ACTIVITY_TASK_OPTIONS.filter((item) =>
+      allowedTaskValues.has(toText(item.value))
+    );
+    return filtered.length ? filtered : ACTIVITY_TASK_OPTIONS;
+  }, [allowedTaskValues, isEditing]);
+
+  const optionOptions = useMemo(() => {
+    if (isEditing) return ACTIVITY_OPTION_OPTIONS;
+    const validForTask = nextOptionsByTask.get(toText(form.task));
+    if (!validForTask || !validForTask.size) {
+      return ACTIVITY_OPTION_OPTIONS;
+    }
+    const filtered = ACTIVITY_OPTION_OPTIONS.filter((item) =>
+      validForTask.has(toText(item.value))
+    );
+    return filtered.length ? filtered : ACTIVITY_OPTION_OPTIONS;
+  }, [form.task, isEditing, nextOptionsByTask]);
+
+  const primaryServiceByTask = useMemo(() => {
+    const map = new Map();
+    (activities || []).forEach((activity) => {
+      const task = toText(activity?.task || activity?.Task);
+      if (!task || map.has(task)) return;
+      const rawServiceId = toText(activity?.service_id || activity?.Service_ID);
+      if (!rawServiceId) return;
+      const matched = serviceById.get(rawServiceId) || null;
+      const primaryServiceId =
+        matched?.type === "option" && matched?.parentId
+          ? toText(matched.parentId)
+          : rawServiceId;
+      if (primaryServiceId) {
+        map.set(task, primaryServiceId);
+      }
+    });
+    return map;
+  }, [activities, serviceById]);
+
+  const applyPrimaryServiceSelection = useCallback(
+    (previous, primaryServiceId) => {
+      const normalizedPrimaryId = toText(primaryServiceId);
+      const primaryService = serviceById.get(normalizedPrimaryId) || null;
+      const optionCandidates = services.filter(
+        (item) => item.type === "option" && item.parentId === normalizedPrimaryId
+      );
+
+      if (!normalizedPrimaryId) {
+        return {
+          ...previous,
+          primaryServiceId: "",
+          optionServiceId: "",
+          service_id: "",
+          activity_price: "",
+          warranty: "",
+          activity_text: "",
+        };
+      }
+
+      if (optionCandidates.length) {
+        const preferredOption =
+          optionCandidates.find((item) => toText(item.id) === toText(previous.optionServiceId)) ||
+          optionCandidates[0];
+        return {
+          ...previous,
+          primaryServiceId: normalizedPrimaryId,
+          optionServiceId: preferredOption.id,
+          service_id: preferredOption.id,
+          activity_price: toText(preferredOption.price),
+          warranty: toText(preferredOption.warranty),
+          activity_text: toText(preferredOption.description),
+        };
+      }
+
+      return {
+        ...previous,
+        primaryServiceId: normalizedPrimaryId,
+        optionServiceId: "",
+        service_id: primaryService?.id || normalizedPrimaryId,
+        activity_price: toText(primaryService?.price),
+        warranty: toText(primaryService?.warranty),
+        activity_text: toText(primaryService?.description),
+      };
+    },
+    [serviceById, services]
+  );
+
+  useEffect(() => {
+    if (isEditing) return;
+    if (!nextValidCombinations.length) return;
+
+    const fallback = nextValidCombinations[0];
+    setForm((previous) => {
+      const currentTask = toText(previous.task);
+      const currentOption = toText(previous.option);
+      const nextTask = allowedTaskValues.has(currentTask)
+        ? currentTask
+        : toText(fallback.task);
+      const validOptions = nextOptionsByTask.get(nextTask) || new Set();
+      const nextOption = validOptions.has(currentOption)
+        ? currentOption
+        : toText(Array.from(validOptions)[0] || fallback.option);
+      if (nextTask === currentTask && nextOption === currentOption) return previous;
+      return {
+        ...previous,
+        task: nextTask,
+        option: nextOption,
+      };
+    });
+  }, [allowedTaskValues, isEditing, nextOptionsByTask, nextValidCombinations]);
+
+  useEffect(() => {
+    if (isEditing) return;
+    const optionNumber = parseOptionNumber(form.option);
+    if (!optionNumber || optionNumber <= 1) return;
+    const inheritedPrimaryServiceId = primaryServiceByTask.get(toText(form.task));
+    if (!inheritedPrimaryServiceId || toText(form.primaryServiceId)) return;
+    setForm((previous) => applyPrimaryServiceSelection(previous, inheritedPrimaryServiceId));
+  }, [
+    applyPrimaryServiceSelection,
+    form.option,
+    form.primaryServiceId,
+    form.task,
+    isEditing,
+    primaryServiceByTask,
+  ]);
+
   const resetForm = useCallback(() => {
-    setForm(defaultActivityForm());
-  }, []);
+    const fallback = nextValidCombinations[0] || { task: "Job 1", option: "Option 1" };
+    setForm({
+      ...defaultActivityForm(),
+      task: toText(fallback.task) || "Job 1",
+      option: toText(fallback.option) || "Option 1",
+    });
+  }, [nextValidCombinations]);
 
   const loadServices = useCallback(async () => {
     if (!plugin) {
@@ -375,49 +625,9 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
   const handlePrimaryServiceChange = useCallback(
     (event) => {
       const primaryServiceId = toText(event.target.value);
-      const primaryService = serviceById.get(primaryServiceId) || null;
-      const optionCandidates = services.filter(
-        (item) => item.type === "option" && item.parentId === primaryServiceId
-      );
-
-      if (!primaryServiceId) {
-        setForm((prev) => ({
-          ...prev,
-          primaryServiceId: "",
-          optionServiceId: "",
-          service_id: "",
-          activity_price: "",
-          warranty: "",
-          activity_text: "",
-        }));
-        return;
-      }
-
-      if (optionCandidates.length) {
-        const firstOption = optionCandidates[0];
-        setForm((prev) => ({
-          ...prev,
-          primaryServiceId,
-          optionServiceId: firstOption.id,
-          service_id: firstOption.id,
-          activity_price: toText(firstOption.price),
-          warranty: toText(firstOption.warranty),
-          activity_text: toText(firstOption.description),
-        }));
-        return;
-      }
-
-      setForm((prev) => ({
-        ...prev,
-        primaryServiceId,
-        optionServiceId: "",
-        service_id: primaryService?.id || "",
-        activity_price: toText(primaryService?.price),
-        warranty: toText(primaryService?.warranty),
-        activity_text: toText(primaryService?.description),
-      }));
+      setForm((previous) => applyPrimaryServiceSelection(previous, primaryServiceId));
     },
-    [serviceById, services]
+    [applyPrimaryServiceSelection]
   );
 
   const handleOptionServiceChange = useCallback(
@@ -455,11 +665,39 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
         return;
       }
 
+      const normalizedTask = toText(form.task);
+      const normalizedOption = toText(form.option);
+      if (!normalizedTask || !normalizedOption) {
+        error("Missing fields", "Task and option are required.");
+        return;
+      }
+
+      const combinationKey = buildComboKey(normalizedTask, normalizedOption);
+      if (!isEditing && combinationKey && existingCombinationSet.has(combinationKey)) {
+        error(
+          "Duplicate not allowed",
+          `${normalizedTask} / ${normalizedOption} already exists.`
+        );
+        return;
+      }
+      if (
+        !isEditing &&
+        combinationKey &&
+        nextValidCombinationSet.size &&
+        !nextValidCombinationSet.has(combinationKey)
+      ) {
+        error(
+          "Invalid sequence",
+          "Choose one of the next available Job/Option combinations."
+        );
+        return;
+      }
+
       const selectedServiceId = toText(form.optionServiceId || form.primaryServiceId || form.service_id);
       const payload = {
         job_id: toId(jobId),
-        task: toText(form.task),
-        option: toText(form.option),
+        task: normalizedTask,
+        option: normalizedOption,
         quantity: toText(form.quantity) || "1",
         service_id: selectedServiceId ? toId(selectedServiceId) : "",
         warranty: toText(form.warranty),
@@ -516,7 +754,19 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
         setIsSubmitting(false);
       }
     },
-    [plugin, jobId, inquiryId, form, isEditing, storeActions, success, error, resetForm]
+    [
+      plugin,
+      jobId,
+      inquiryId,
+      form,
+      isEditing,
+      storeActions,
+      success,
+      error,
+      resetForm,
+      existingCombinationSet,
+      nextValidCombinationSet,
+    ]
   );
 
   const handleDelete = useCallback(async () => {
@@ -557,14 +807,14 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
                 data-field="task"
                 value={form.task}
                 onChange={(event) => setForm((prev) => ({ ...prev, task: event.target.value }))}
-                options={ACTIVITY_TASK_OPTIONS}
+                options={taskOptions}
               />
               <SelectField
                 label="Options"
                 data-field="option"
                 value={form.option}
                 onChange={(event) => setForm((prev) => ({ ...prev, option: event.target.value }))}
-                options={ACTIVITY_OPTION_OPTIONS}
+                options={optionOptions}
               />
               <SelectField
                 label="Primary Service"

@@ -15,6 +15,7 @@ export function ServiceProviderTabSection({
   initialProviders = [],
   onSubmitServiceProvider = null,
   onProviderSelectionChange = null,
+  recordLabel = "job",
 }) {
   const { success, error } = useToast();
   const storeJobData = useJobDirectSelector(selectJobEntity);
@@ -30,6 +31,15 @@ export function ServiceProviderTabSection({
   const persistedProviderId = persistedProvider.id;
   const [selectedProviderId, setSelectedProviderId] = useState(persistedProviderId);
   const [searchValue, setSearchValue] = useState("");
+  const normalizedRecordLabel = String(recordLabel || "job").trim().toLowerCase() === "inquiry"
+    ? "inquiry"
+    : "job";
+  const headingText = normalizedRecordLabel === "inquiry"
+    ? "Allocate Service Provider"
+    : "Assign Service Provider";
+  const submitText = normalizedRecordLabel === "inquiry"
+    ? "Submit Allocation"
+    : "Submit information";
 
   useEffect(() => {
     setSelectedProviderId(persistedProviderId);
@@ -77,12 +87,22 @@ export function ServiceProviderTabSection({
     setIsSubmitting(true);
     try {
       await onSubmitServiceProvider();
-      success("Service provider updated", "Primary service provider was saved on this job.");
+      success(
+        normalizedRecordLabel === "inquiry"
+          ? "Inquiry allocation updated"
+          : "Service provider updated",
+        normalizedRecordLabel === "inquiry"
+          ? "Service provider allocation was saved on this inquiry."
+          : "Primary service provider was saved on this job."
+      );
     } catch (submitError) {
       showMutationErrorToast(error, {
         title: "Save failed",
         error: submitError,
-        fallbackMessage: "Unable to update service provider right now.",
+        fallbackMessage:
+          normalizedRecordLabel === "inquiry"
+            ? "Unable to update inquiry allocation right now."
+            : "Unable to update service provider right now.",
       });
     } finally {
       setIsSubmitting(false);
@@ -96,7 +116,7 @@ export function ServiceProviderTabSection({
     >
       <div className="w-full space-y-4">
         <Card className="space-y-4">
-          <div className="text-base font-bold leading-4 text-neutral-700">Assign Service Provider</div>
+          <div className="text-base font-bold leading-4 text-neutral-700">{headingText}</div>
 
           <SearchDropdownInput
             label="Service Provider"
@@ -121,7 +141,7 @@ export function ServiceProviderTabSection({
           onClick={handleSubmitProvider}
           disabled={isSubmitting}
         >
-          {isSubmitting ? "Submitting..." : "Submit information"}
+          {isSubmitting ? "Submitting..." : submitText}
         </Button>
       </div>
     </div>

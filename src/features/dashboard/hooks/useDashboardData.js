@@ -12,6 +12,8 @@ import {
   buildJobsQuery,
   buildPaymentsQuery,
   buildActiveJobsQuery,
+  buildUrgentCallsQuery,
+  buildOpenTasksQuery,
 } from "../sdk/dashboardSdk.js";
 
 const TAB_QUERY_BUILDERS = {
@@ -20,6 +22,8 @@ const TAB_QUERY_BUILDERS = {
   [TAB_IDS.JOBS]: buildJobsQuery,
   [TAB_IDS.PAYMENT]: buildPaymentsQuery,
   [TAB_IDS.ACTIVE_JOBS]: buildActiveJobsQuery,
+  [TAB_IDS.URGENT_CALLS]: buildUrgentCallsQuery,
+  [TAB_IDS.OPEN_TASKS]: buildOpenTasksQuery,
 };
 
 export function useDashboardData({

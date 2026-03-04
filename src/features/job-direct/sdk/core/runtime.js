@@ -166,6 +166,12 @@ function normalizeJobRecord(rawJob) {
     serviceProviderContact?.email,
     serviceProviderContact?.Email
   );
+  const contactSmsNumber = getFirstNonEmptyText(
+    rawJob?.Primary_Service_Provider_Contact_SMS_Number,
+    rawJob?.Contact_SMS_Number1,
+    serviceProviderContact?.sms_number,
+    serviceProviderContact?.SMS_Number
+  );
 
   const next = {
     ...rawJob,
@@ -185,6 +191,10 @@ function normalizeJobRecord(rawJob) {
       rawJob?.Primary_Service_Provider_Contact_Email,
       contactEmail
     ),
+    Primary_Service_Provider_Contact_SMS_Number: getFirstNonEmptyText(
+      rawJob?.Primary_Service_Provider_Contact_SMS_Number,
+      contactSmsNumber
+    ),
   };
 
   if (!next.primary_service_provider_id && providerId) {
@@ -195,11 +205,12 @@ function normalizeJobRecord(rawJob) {
     next.Primary_Service_Provider = {
       id: providerId,
       Contact_Information:
-        contactFirstName || contactLastName || contactEmail
+        contactFirstName || contactLastName || contactEmail || contactSmsNumber
           ? {
               first_name: contactFirstName,
               last_name: contactLastName,
               email: contactEmail,
+              sms_number: contactSmsNumber,
             }
           : null,
     };
@@ -371,7 +382,7 @@ function buildJobByFieldQuery(jobModel, field, value) {
         .deSelectAll()
         .select(["id", "unique_id", "status", "job_rate_percentage"])
         .include("Contact_Information", (contactQuery) =>
-          contactQuery.deSelectAll().select(["first_name", "last_name", "email"])
+          contactQuery.deSelectAll().select(["first_name", "last_name", "email", "sms_number"])
         )
     )
     .include("Property", (q) =>
@@ -3600,6 +3611,24 @@ function normalizeDealRecord(rawDeal = {}) {
   };
 }
 
+function normalizeLinkedJobRecord(rawJob = {}) {
+  return {
+    unique_id: String(
+      rawJob?.unique_id ||
+        rawJob?.Unique_ID ||
+        rawJob?.Jobs_Unique_ID ||
+        rawJob?.Jobs_As_Client_Individual_Unique_ID ||
+        ""
+    ).trim(),
+    property_name: String(
+      rawJob?.property_name ||
+        rawJob?.Property_Name ||
+        rawJob?.Property_Property_Name ||
+        ""
+    ).trim(),
+  };
+}
+
 function normalizeDealDetailRecord(rawDeal = {}) {
   return {
     id: String(rawDeal?.id || rawDeal?.ID || rawDeal?.DealsID || "").trim(),
@@ -3835,6 +3864,60 @@ function dedupeDeals(deals = []) {
   });
 }
 
+function normalizeJobsFromFlatFields(record = {}, accountType = "Contact") {
+  const isCompany = String(accountType || "").trim().toLowerCase() === "company";
+  const uniqueIds = isCompany
+    ? record?.Jobs_Unique_ID
+    : record?.Jobs_As_Client_Individual_Unique_ID;
+  const propertyNames = record?.Property_Property_Name;
+
+  if (Array.isArray(uniqueIds) || Array.isArray(propertyNames)) {
+    const maxLength = Math.max(uniqueIds?.length || 0, propertyNames?.length || 0);
+    const jobs = [];
+    for (let index = 0; index < maxLength; index += 1) {
+      jobs.push(
+        normalizeLinkedJobRecord({
+          unique_id: uniqueIds?.[index],
+          property_name: propertyNames?.[index],
+        })
+      );
+    }
+    return jobs.filter((job) => job.unique_id || job.property_name);
+  }
+
+  const single = normalizeLinkedJobRecord(record);
+  if (!single.unique_id && !single.property_name) return [];
+  return [single];
+}
+
+function extractLinkedJobsFromAccountRecord(record, accountType = "Contact") {
+  if (!record || typeof record !== "object") return [];
+
+  if (Array.isArray(record?.Jobs)) {
+    return record.Jobs.map((item) => normalizeLinkedJobRecord(item)).filter(
+      (job) => job.unique_id || job.property_name
+    );
+  }
+
+  if (Array.isArray(record?.Jobs_As_Client_Individual)) {
+    return record.Jobs_As_Client_Individual.map((item) => normalizeLinkedJobRecord(item)).filter(
+      (job) => job.unique_id || job.property_name
+    );
+  }
+
+  return normalizeJobsFromFlatFields(record, accountType);
+}
+
+function dedupeLinkedJobs(jobs = []) {
+  const seen = new Set();
+  return jobs.filter((job) => {
+    const key = String(job.unique_id || "").trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function normalizePropertiesFromFlatFields(record = {}) {
   const ids = record?.PropertiesID || record?.Property_ID;
   const uniqueIds = record?.Properties_Unique_ID || record?.Property_Unique_ID;
@@ -3882,6 +3965,9 @@ function dedupeProperties(properties = []) {
   });
 }
 
+const LINKED_ACCOUNT_INCLUDE_TIMEOUT_MS = 7000;
+const LINKED_ACCOUNT_CUSTOM_FALLBACK_TIMEOUT_MS = 4500;
+
 async function fetchDealsByAccountId({ plugin, accountType, accountId } = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
   if (!resolvedPlugin?.switchTo) return [];
@@ -3889,6 +3975,37 @@ async function fetchDealsByAccountId({ plugin, accountType, accountId } = {}) {
   const modelName = accountType === "Company" ? "PeterpmCompany" : "PeterpmContact";
   const resolvedId = normalizeIdentifier(accountId);
   if (!resolvedId) return [];
+
+  try {
+    const query = resolvedPlugin
+      .switchTo(modelName)
+      .query()
+      .where("id", resolvedId)
+      .deSelectAll()
+      .select(["id"])
+      .include("Deals", (dealQuery) =>
+        dealQuery.deSelectAll().select(["id", "unique_id", "deal_name"])
+      );
+
+    query.getOrInitQueryCalc?.();
+    const response = await fetchDirectWithTimeout(
+      query,
+      null,
+      LINKED_ACCOUNT_INCLUDE_TIMEOUT_MS
+    );
+    const accountRecords = extractRecords(response);
+    const dealsFromAllRows = accountRecords.flatMap((record) =>
+      extractDealsFromAccountRecord(record)
+    );
+    return dedupeDeals(dealsFromAllRows);
+  } catch (includeError) {
+    if (!isTimeoutError(includeError)) {
+      console.warn(
+        "[JobDirect] Include-based linked deals query failed, trying calc fallback",
+        includeError
+      );
+    }
+  }
 
   try {
     const customDealQuery =
@@ -3916,19 +4033,33 @@ async function fetchDealsByAccountId({ plugin, accountType, accountId } = {}) {
       .switchTo(modelName)
       .query()
       .fromGraphql(customDealQuery);
-    const customResponse = await fetchDirectWithTimeout(customQuery, {
-      variables: { id: resolvedId },
-    }, 20000);
+    const customResponse = await fetchDirectWithTimeout(
+      customQuery,
+      { variables: { id: resolvedId } },
+      LINKED_ACCOUNT_CUSTOM_FALLBACK_TIMEOUT_MS
+    );
     const customRecords = extractRecords(customResponse);
     const customDeals = dedupeDeals(
       customRecords.flatMap((record) => extractDealsFromAccountRecord(record))
     );
-    if (customDeals.length) return customDeals;
-  } catch (error) {
-    if (!isTimeoutError(error)) {
-      console.warn("[JobDirect] Custom deal query failed, using include fallback", error);
-    }
+    return customDeals;
+  } catch (customError) {
+    console.error("[JobDirect] Failed to fetch linked deals", {
+      accountType,
+      accountId,
+      customError,
+    });
+    return [];
   }
+}
+
+async function fetchJobsByAccountId({ plugin, accountType, accountId } = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) return [];
+
+  const modelName = accountType === "Company" ? "PeterpmCompany" : "PeterpmContact";
+  const resolvedId = normalizeIdentifier(accountId);
+  if (!resolvedId) return [];
 
   try {
     const query = resolvedPlugin
@@ -3937,19 +4068,81 @@ async function fetchDealsByAccountId({ plugin, accountType, accountId } = {}) {
       .where("id", resolvedId)
       .deSelectAll()
       .select(["id"])
-      .include("Deals", (dealQuery) =>
-        dealQuery.deSelectAll().select(["id", "unique_id", "deal_name"])
+      .include(
+        accountType === "Company" ? "Jobs" : "Jobs_As_Client_Individual",
+        (jobQuery) =>
+          jobQuery
+            .deSelectAll()
+            .select(["unique_id"])
+            .include("Property", (propertyQuery) =>
+              propertyQuery.deSelectAll().select(["property_name"])
+            )
       );
 
     query.getOrInitQueryCalc?.();
-    const response = await fetchDirectWithTimeout(query);
-    const accountRecords = extractRecords(response);
-    const dealsFromAllRows = accountRecords.flatMap((record) =>
-      extractDealsFromAccountRecord(record)
+    const response = await fetchDirectWithTimeout(
+      query,
+      null,
+      LINKED_ACCOUNT_INCLUDE_TIMEOUT_MS
     );
-    return dedupeDeals(dealsFromAllRows);
-  } catch (error) {
-    console.error("[JobDirect] Failed to fetch linked deals", { accountType, accountId, error });
+    const accountRecords = extractRecords(response);
+    const jobs = dedupeLinkedJobs(
+      accountRecords.flatMap((record) =>
+        extractLinkedJobsFromAccountRecord(record, accountType)
+      )
+    );
+    return jobs;
+  } catch (includeError) {
+    if (!isTimeoutError(includeError)) {
+      console.warn(
+        "[JobDirect] Include-based linked jobs query failed, trying calc fallback",
+        includeError
+      );
+    }
+  }
+
+  try {
+    const customJobsQuery =
+      accountType === "Company"
+        ? `
+          query calcCompanies($id: PeterpmCompanyID!) {
+            calcCompanies(query: [{ where: { id: $id } }]) {
+              Jobs_Unique_ID: field(arg: ["Jobs", "unique_id"])
+              Property_Property_Name: field(arg: ["Jobs", "Property", "property_name"])
+            }
+          }
+        `
+        : `
+          query calcContacts($id: PeterpmContactID!) {
+            calcContacts(query: [{ where: { id: $id } }]) {
+              Jobs_As_Client_Individual_Unique_ID: field(arg: ["Jobs_As_Client_Individual", "unique_id"])
+              Property_Property_Name: field(arg: ["Jobs_As_Client_Individual", "Property", "property_name"])
+            }
+          }
+        `;
+
+    const customQuery = resolvedPlugin
+      .switchTo(modelName)
+      .query()
+      .fromGraphql(customJobsQuery);
+    const customResponse = await fetchDirectWithTimeout(
+      customQuery,
+      { variables: { id: resolvedId } },
+      LINKED_ACCOUNT_CUSTOM_FALLBACK_TIMEOUT_MS
+    );
+    const customRecords = extractRecords(customResponse);
+    const customJobs = dedupeLinkedJobs(
+      customRecords.flatMap((record) =>
+        extractLinkedJobsFromAccountRecord(record, accountType)
+      )
+    );
+    return customJobs;
+  } catch (customError) {
+    console.error("[JobDirect] Failed to fetch linked jobs", {
+      accountType,
+      accountId,
+      customError,
+    });
     return [];
   }
 }
@@ -4365,6 +4558,16 @@ export async function fetchLinkedDealsByAccount({ plugin, accountType, accountId
   });
 }
 
+export async function fetchLinkedJobsByAccount({ plugin, accountType, accountId } = {}) {
+  const normalizedType = String(accountType || "").trim().toLowerCase();
+  const resolvedType = normalizedType === "company" || normalizedType === "entity" ? "Company" : "Contact";
+  return fetchJobsByAccountId({
+    plugin,
+    accountType: resolvedType,
+    accountId,
+  });
+}
+
 export async function fetchLinkedPropertiesByAccount({ plugin, accountType, accountId } = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
   if (!resolvedPlugin?.switchTo) return [];
@@ -4374,6 +4577,62 @@ export async function fetchLinkedPropertiesByAccount({ plugin, accountType, acco
   const modelName = resolvedType === "Company" ? "PeterpmCompany" : "PeterpmContact";
   const normalizedId = normalizeIdentifier(accountId);
   if (!normalizedId) return [];
+
+  try {
+    const query = resolvedPlugin
+      .switchTo(modelName)
+      .query()
+      .where("id", normalizedId)
+      .deSelectAll()
+      .select(["id"])
+      .include("Properties", (propertyQuery) =>
+        propertyQuery.deSelectAll().select([
+          "id",
+          "unique_id",
+          "property_name",
+          "lot_number",
+          "unit_number",
+          "address_1",
+          "address_2",
+          "address",
+          "city",
+          "suburb_town",
+          "postal_code",
+          "zip_code",
+          "state",
+          "country",
+          "property_type",
+          "building_type",
+          "building_type_other",
+          "foundation_type",
+          "bedrooms",
+          "manhole",
+          "stories",
+          "building_age",
+          "building_features",
+              "building_features_options_as_text",
+        ])
+      );
+
+    query.getOrInitQueryCalc?.();
+    const response = await fetchDirectWithTimeout(
+      query,
+      null,
+      LINKED_ACCOUNT_INCLUDE_TIMEOUT_MS
+    );
+    const accountRecords = extractRecords(response);
+    const propertiesFromAllRows = accountRecords.flatMap((record) =>
+      extractPropertiesFromAccountRecord(record)
+    );
+    return dedupeProperties(propertiesFromAllRows);
+  } catch (includeError) {
+    if (!isTimeoutError(includeError)) {
+      console.warn(
+        "[JobDirect] Include-based linked properties query failed, trying custom fallback",
+        includeError
+      );
+    }
+  }
 
   try {
     const customPropertyQuery =
@@ -4447,68 +4706,21 @@ export async function fetchLinkedPropertiesByAccount({ plugin, accountType, acco
       .switchTo(modelName)
       .query()
       .fromGraphql(customPropertyQuery);
-    const customResponse = await fetchDirectWithTimeout(customQuery, {
-      variables: { id: normalizedId },
-    }, 20000);
+    const customResponse = await fetchDirectWithTimeout(
+      customQuery,
+      { variables: { id: normalizedId } },
+      LINKED_ACCOUNT_CUSTOM_FALLBACK_TIMEOUT_MS
+    );
     const customRecords = extractRecords(customResponse);
     const customProperties = dedupeProperties(
       customRecords.flatMap((record) => extractPropertiesFromAccountRecord(record))
     );
-    if (customProperties.length) return customProperties;
-  } catch (error) {
-    if (!isTimeoutError(error)) {
-      console.warn("[JobDirect] Custom property query failed, using include fallback", error);
-    }
-  }
-
-  try {
-    const query = resolvedPlugin
-      .switchTo(modelName)
-      .query()
-      .where("id", normalizedId)
-      .deSelectAll()
-      .select(["id"])
-      .include("Properties", (propertyQuery) =>
-        propertyQuery.deSelectAll().select([
-          "id",
-          "unique_id",
-          "property_name",
-          "lot_number",
-          "unit_number",
-          "address_1",
-          "address_2",
-          "address",
-          "city",
-          "suburb_town",
-          "postal_code",
-          "zip_code",
-          "state",
-          "country",
-          "property_type",
-          "building_type",
-          "building_type_other",
-          "foundation_type",
-          "bedrooms",
-          "manhole",
-          "stories",
-          "building_age",
-          "building_features",
-          "building_features_options_as_text",
-        ])
-      );
-
-    query.getOrInitQueryCalc?.();
-    const response = await fetchDirectWithTimeout(query);
-    const accountRecords = extractRecords(response);
-    const propertiesFromAllRows = accountRecords.flatMap((record) =>
-      extractPropertiesFromAccountRecord(record)
-    );
-    return dedupeProperties(propertiesFromAllRows);
-  } catch (error) {
+    return customProperties;
+  } catch (customError) {
     console.error("[JobDirect] Failed to fetch linked properties", {
       accountType: resolvedType,
       accountId: normalizedId,
-      error,
+      customError,
     });
     return [];
   }

@@ -12,6 +12,31 @@ import {
   normalizePropertyId,
 } from "./jobInfoUtils.js";
 
+function toText(value) {
+  return String(value ?? "").trim();
+}
+
+function resolvePropertySearchLabel(property = {}) {
+  const propertyName = toText(
+    property?.property_name ||
+      property?.Property_Name ||
+      property?.Property_Property_Name ||
+      property?.name ||
+      property?.Name
+  );
+  if (propertyName) return propertyName;
+
+  const address = toText(
+    property?.address_1 ||
+      property?.Address_1 ||
+      property?.address ||
+      property?.Address
+  );
+  if (address) return address;
+
+  return toText(property?.unique_id || property?.Unique_ID);
+}
+
 export function useLinkedPropertiesData({
   plugin,
   activeJobData,
@@ -246,7 +271,7 @@ export function useLinkedPropertiesData({
     () =>
       (lookupProperties || []).map((item) => ({
         id: normalizePropertyId(item.id),
-        label: item.property_name || item.unique_id || item.id,
+        label: resolvePropertySearchLabel(item) || "Property",
         meta: [item.unique_id, item.address, item.suburb_town, item.state, item.postal_code]
           .filter(Boolean)
           .join(" | "),
@@ -265,22 +290,19 @@ export function useLinkedPropertiesData({
     const selectedProperty = selectedFromLookup || selectedFromLinked || activeRelatedProperty;
 
     if (!selectedProperty) return;
-    setPropertySearchQuery(
-      selectedProperty.property_name || selectedProperty.unique_id || selectedProperty.id || ""
-    );
+    setPropertySearchQuery(resolvePropertySearchLabel(selectedProperty) || "");
   }, [selectedPropertyId, lookupProperties, linkedProperties, activeRelatedProperty]);
 
   useEffect(() => {
     if (!persistedRelatedProperty) return;
-    const nextLabel =
-      persistedRelatedProperty.property_name ||
-      persistedRelatedProperty.unique_id ||
-      persistedRelatedProperty.id ||
-      "";
+    const nextLabel = resolvePropertySearchLabel(persistedRelatedProperty);
     if (!nextLabel) return;
     setPropertySearchQuery(nextLabel);
   }, [
     persistedRelatedProperty?.id,
+    persistedRelatedProperty?.address,
+    persistedRelatedProperty?.address_1,
+    persistedRelatedProperty?.name,
     persistedRelatedProperty?.property_name,
     persistedRelatedProperty?.unique_id,
   ]);

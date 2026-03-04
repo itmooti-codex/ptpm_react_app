@@ -157,6 +157,13 @@ function downloadBlobFile(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function getLocalDateTag(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 const DASHBOARD_UI_PREFS_KEY = "ui-prefs";
 const DASHBOARD_TAB_COUNTS_KEY = "tab-counts";
 const DASHBOARD_CALENDAR_KEY_PREFIX = "calendar";
@@ -171,6 +178,7 @@ function defaultTabCounts() {
     [TAB_IDS.PAYMENT]: 0,
     [TAB_IDS.ACTIVE_JOBS]: 0,
     [TAB_IDS.URGENT_CALLS]: 0,
+    [TAB_IDS.OPEN_TASKS]: 0,
   };
 }
 
@@ -267,7 +275,7 @@ export function DashboardPage() {
   useEffect(() => {
     if (!plugin) return;
     let cancelled = false;
-    const tabsForCounts = TAB_LIST.filter((tabId) => tabId !== TAB_IDS.URGENT_CALLS);
+    const tabsForCounts = TAB_LIST;
     (async () => {
       for (const tabId of tabsForCounts) {
         try {
@@ -539,7 +547,7 @@ export function DashboardPage() {
     const headers = schema.map(([label]) => label);
     const dataRows = rows.map((row) => schema.map(([, getter]) => getter(row)));
     const blob = toCsvBlob(headers, dataRows);
-    const dateTag = new Date().toISOString().slice(0, 10);
+    const dateTag = getLocalDateTag();
     downloadBlobFile(blob, `ecoaccess-report-${activeTab}-${dateTag}.csv`);
   }, [activeTab, rows]);
 
@@ -547,7 +555,7 @@ export function DashboardPage() {
     const headers = ["ID", "Service Provider"];
     const dataRows = (serviceProviders || []).map((item) => [item.id || "", item.name || ""]);
     const blob = toCsvBlob(headers, dataRows);
-    const dateTag = new Date().toISOString().slice(0, 10);
+    const dateTag = getLocalDateTag();
     downloadBlobFile(blob, `service-provider-list-${dateTag}.csv`);
   }, [serviceProviders]);
 
@@ -621,7 +629,7 @@ export function DashboardPage() {
             batchSelectedIds={batchSelectedIds}
             onBatchSelectionChange={setBatchSelectedIds}
             onOpenTaskModal={handleOpenTaskModal}
-            onDeleteInquiry={activeTab === TAB_IDS.URGENT_CALLS ? undefined : handleOpenDeleteModal}
+            onDeleteInquiry={handleOpenDeleteModal}
             onViewInquiry={handleViewRecord}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen((prev) => !prev)}

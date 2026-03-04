@@ -39,7 +39,13 @@ function toIso(date) {
 function fromIso(value) {
   const text = String(value || "").trim();
   if (!text) return null;
-  const parsed = new Date(text);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  const parsed = new Date(year, month - 1, day, 0, 0, 0, 0);
   if (Number.isNaN(parsed.getTime())) return null;
   parsed.setHours(0, 0, 0, 0);
   return parsed;
@@ -190,6 +196,7 @@ export function DashboardCalendar({
   const [mode, setMode] = useState("day");
   const [anchorDate, setAnchorDate] = useState(() => cloneDate(new Date()));
   const [windowSize, setWindowSize] = useState(8);
+  const today = cloneDate(new Date());
 
   const selectedRangeKey = useMemo(() => {
     const from = fromIso(selectedDateFrom);
@@ -278,6 +285,7 @@ export function DashboardCalendar({
           {periods.map((period) => {
             const key = `${toIso(period.start)}-${toIso(period.end)}`;
             const isSelected = selectedRangeKey === key;
+            const containsToday = today >= period.start && today <= period.end;
             return (
               <button
                 key={period.key}
@@ -292,14 +300,23 @@ export function DashboardCalendar({
                 className={`flex min-w-[130px] flex-col items-start rounded border px-3 py-2 text-left ${
                   isSelected
                     ? "border-[#003882] bg-[#e6eef8]"
-                    : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                    : containsToday
+                      ? "border-sky-300 bg-sky-50 hover:bg-sky-100"
+                      : "border-slate-200 bg-slate-50 hover:bg-slate-100"
                 }`}
               >
                 <span className="text-xs font-semibold text-slate-800">{period.label}</span>
                 <span className="text-[11px] text-slate-500">{period.subLabel}</span>
-                <span className="mt-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-slate-200 px-1.5 text-[10px] font-semibold text-slate-700">
-                  {period.count}
-                </span>
+                <div className="mt-1 flex w-full items-center justify-between gap-2">
+                  <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-slate-200 px-1.5 text-[10px] font-semibold text-slate-700">
+                    {period.count}
+                  </span>
+                  {containsToday ? (
+                    <span className="inline-flex items-center rounded-full border border-sky-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-sky-700">
+                      Today
+                    </span>
+                  ) : null}
+                </div>
               </button>
             );
           })}
@@ -308,4 +325,3 @@ export function DashboardCalendar({
     </div>
   );
 }
-

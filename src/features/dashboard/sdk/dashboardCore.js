@@ -108,13 +108,26 @@ export async function fetchCalcCount(query) {
   }
 }
 
-// Converts Unix epoch seconds to "DD-MM-YYYY" (UTC, date only).
+function parseLocalIsoDate(iso) {
+  const text = String(iso || "").trim();
+  const parts = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!parts) return null;
+  const year = Number(parts[1]);
+  const month = Number(parts[2]);
+  const day = Number(parts[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+// Converts Unix epoch seconds to "DD-MM-YYYY" (local date only).
 export function formatUnixDate(ts) {
   if (!ts) return null;
   const date = new Date(Number(ts) * 1000);
-  const dd = String(date.getUTCDate()).padStart(2, "0");
-  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = date.getUTCFullYear();
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
   return `${dd}-${mm}-${yyyy}`;
 }
 
@@ -123,7 +136,7 @@ export function formatUnixDate(ts) {
 export function toEpochRange(dateFrom, dateTo) {
   function toEpoch(iso, endOfDay = false) {
     if (!iso) return null;
-    const d = new Date(iso);
+    const d = parseLocalIsoDate(iso);
     if (isNaN(d.getTime())) return null;
     if (endOfDay) {
       d.setHours(23, 59, 59, 999);

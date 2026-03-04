@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../../shared/components/ui/Button.jsx";
 import { Modal } from "../../../shared/components/ui/Modal.jsx";
 import { useToast } from "../../../shared/providers/ToastProvider.jsx";
 import { getFriendlyServiceMessage } from "../../../shared/utils/userFacingErrors.js";
+import { buildLookupDisplayLabel } from "../../../shared/utils/lookupLabel.js";
 import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
 import { APP_USER } from "../../../config/userConfig.js";
 import { JobDirectStoreProvider } from "../../job-direct/hooks/useJobDirectStore.jsx";
@@ -183,6 +184,54 @@ const EMAIL_OPTIONS_DATA = {
     ],
   },
 };
+
+class SectionErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  componentDidCatch(error) {
+    console.error("[JobDetails] Section render failed", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || null;
+    }
+    return this.props.children;
+  }
+}
+
+function resolveDetailsLayoutColumns(layoutMode) {
+  switch (layoutMode) {
+    case "focus-inquiry":
+      return "minmax(0,2.4fr) minmax(260px,0.9fr) minmax(260px,0.9fr)";
+    case "focus-property":
+      return "minmax(260px,0.9fr) minmax(0,2.4fr) minmax(260px,0.9fr)";
+    case "focus-job":
+      return "minmax(260px,0.9fr) minmax(260px,0.9fr) minmax(0,2.4fr)";
+    default:
+      return "minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)";
+  }
+}
+
+function resolveFocusedDetailsCard(layoutMode) {
+  if (layoutMode === "focus-inquiry") return "inquiry";
+  if (layoutMode === "focus-property") return "property";
+  if (layoutMode === "focus-job") return "job";
+  return "";
+}
 
 function toText(value) {
   return String(value ?? "").trim();
@@ -608,16 +657,24 @@ function toAffiliationOption(affiliation = {}) {
   const companyLabel = toText(
     affiliation?.company_as_accounts_contact_name || affiliation?.company_name
   );
-  const label =
-    contactName ||
-    companyLabel ||
-    toText(affiliation?.contact_email) ||
-    toText(affiliation?.role) ||
-    `Affiliation #${toText(affiliation?.id)}`;
+  const email = toText(
+    affiliation?.contact_email || affiliation?.company_as_accounts_contact_email
+  );
+  const mobile = toText(
+    affiliation?.contact_sms_number ||
+      affiliation?.company_as_accounts_contact_sms_number ||
+      affiliation?.contact_phone
+  );
+  const label = buildLookupDisplayLabel(
+    contactName || companyLabel,
+    email,
+    mobile,
+    toText(affiliation?.role) || `Affiliation #${toText(affiliation?.id)}`
+  );
   return {
     id: toText(affiliation?.id),
     label,
-    meta: [toText(affiliation?.role), toText(affiliation?.contact_email)]
+    meta: [toText(affiliation?.role), email, mobile]
       .filter(Boolean)
       .join(" | "),
     legacyIds: [
@@ -1113,11 +1170,13 @@ export function JobDetailsPage() {
   });
   const [isEmailJobUpdating, setIsEmailJobUpdating] = useState(false);
   const [openDropdown, setOpenDropdown] = useState("");
+  const [detailsLayoutMode, setDetailsLayoutMode] = useState("balanced");
   const [collapsedCards, setCollapsedCards] = useState({
     inquiry: true,
     property: true,
     job: true,
   });
+  const [shouldAutoSelectNewAffiliation, setShouldAutoSelectNewAffiliation] = useState(false);
   const [collapsedInquirySections, setCollapsedInquirySections] = useState({
     overview: true,
     primaryContact: true,
@@ -1169,6 +1228,7 @@ export function JobDetailsPage() {
     setLinkedPropertyIdOverride("");
     setHasInitialContextResolved(false);
     setAnnouncementFocus({ kind: "", id: "" });
+    setDetailsLayoutMode("balanced");
     setCollapsedInquirySections({
       overview: true,
       primaryContact: true,
@@ -1603,6 +1663,28 @@ export function JobDetailsPage() {
   const isBodyCorpAccount = isBodyCorpCompanyAccountType(companyAccountType);
   const showContactDetails = isContactAccount || (!isCompanyAccount && hasInquiryContactDetails);
   const showCompanyDetails = isCompanyAccount || (!isContactAccount && hasInquiryCompanyDetails);
+  const detailsLayoutColumns = useMemo(
+    () => resolveDetailsLayoutColumns(detailsLayoutMode),
+    [detailsLayoutMode]
+  );
+  const focusedDetailsCard = useMemo(
+    () => resolveFocusedDetailsCard(detailsLayoutMode),
+    [detailsLayoutMode]
+  );
+  const getDetailsCardClassName = useCallback(
+    (cardId) => {
+      const normalizedCardId = toText(cardId);
+      const hasFocus = Boolean(focusedDetailsCard);
+      const isFocused = hasFocus && focusedDetailsCard === normalizedCardId;
+      if (!hasFocus) {
+        return "transition-all duration-300 ease-out";
+      }
+      return `transition-all duration-300 ease-out ${
+        isFocused ? "shadow-[0_0_0_1px_rgba(2,132,199,0.22)]" : "opacity-90"
+      }`;
+    },
+    [focusedDetailsCard]
+  );
   const inquiryPrimaryContactId = toText(inquiryPrimaryContact?.id || inquiryPrimaryContact?.ID);
   const inquiryCompanyId = toText(inquiryCompany?.id || inquiryCompany?.ID);
   const contactPopupComment = toText(
@@ -1872,18 +1954,21 @@ export function JobDetailsPage() {
       serviceProviders.map((provider) => {
         const firstName = toText(provider.first_name || provider.First_Name);
         const lastName = toText(provider.last_name || provider.Last_Name);
-        const label =
-          fullName(firstName, lastName) ||
-          toText(provider.email || provider.Email) ||
-          toText(provider.sms_number || provider.SMS_Number) ||
+        const email = toText(provider.email || provider.Email);
+        const mobile = toText(provider.sms_number || provider.SMS_Number);
+        const label = buildLookupDisplayLabel(
+          fullName(firstName, lastName),
+          email,
+          mobile,
           toText(provider.unique_id || provider.Unique_ID) ||
-          `Provider #${toText(provider.id || provider.ID)}`;
+            `Provider #${toText(provider.id || provider.ID)}`
+        );
         return {
           id: toText(provider.id || provider.ID),
           label,
           meta: [
-            toText(provider.email || provider.Email),
-            toText(provider.sms_number || provider.SMS_Number),
+            email,
+            mobile,
             toText(provider.unique_id || provider.Unique_ID),
           ]
             .filter(Boolean)
@@ -1898,18 +1983,22 @@ export function JobDetailsPage() {
       contactsLookup.map((contact) => {
         const firstName = toText(contact.first_name || contact.First_Name);
         const lastName = toText(contact.last_name || contact.Last_Name);
-        const label =
-          fullName(firstName, lastName) ||
-          toText(contact.email || contact.Email) ||
-          toText(contact.sms_number || contact.SMS_Number) ||
-          toText(contact.id || contact.ID);
+        const email = toText(contact.email || contact.Email);
+        const mobile = toText(
+          contact.sms_number || contact.SMS_Number || contact.office_phone || contact.Office_Phone
+        );
+        const label = buildLookupDisplayLabel(
+          fullName(firstName, lastName),
+          email,
+          mobile,
+          toText(contact.id || contact.ID)
+        );
         return {
           id: toText(contact.id || contact.ID),
           label,
           meta: [
-            toText(contact.email || contact.Email),
-            toText(contact.sms_number || contact.SMS_Number),
-            toText(contact.office_phone || contact.Office_Phone),
+            email,
+            mobile,
           ]
             .filter(Boolean)
             .join(" | "),
@@ -1941,18 +2030,28 @@ export function JobDetailsPage() {
     () =>
       companiesLookup.map((company) => {
         const primaryPerson = company?.Primary_Person || {};
-        const label = toText(company.name || company.Name) || toText(company.id || company.ID);
+        const primaryName = fullName(
+          primaryPerson?.first_name || primaryPerson?.First_Name,
+          primaryPerson?.last_name || primaryPerson?.Last_Name
+        );
+        const primaryEmail = toText(primaryPerson?.email || primaryPerson?.Email);
+        const primaryMobile = toText(
+          primaryPerson?.sms_number || primaryPerson?.SMS_Number
+        );
+        const companyName = toText(company.name || company.Name);
+        const label = buildLookupDisplayLabel(
+          primaryName || companyName,
+          primaryEmail,
+          primaryMobile,
+          toText(company.id || company.ID)
+        );
         return {
           id: toText(company.id || company.ID),
           label,
           meta: [
             toText(company.account_type || company.Account_Type),
-            toText(company.phone || company.Phone),
-            fullName(
-              primaryPerson?.first_name || primaryPerson?.First_Name,
-              primaryPerson?.last_name || primaryPerson?.Last_Name
-            ),
-            toText(primaryPerson?.email || primaryPerson?.Email),
+            toText(company.phone || company.Phone) || primaryMobile,
+            primaryEmail,
           ]
             .filter(Boolean)
             .join(" | "),
@@ -1960,10 +2059,70 @@ export function JobDetailsPage() {
       }),
     [companiesLookup]
   );
-  const jobEmailItems = useMemo(
-    () => (isCompanyAccount ? companyItems : contactItems),
-    [companyItems, contactItems, isCompanyAccount]
-  );
+  const jobEmailFallbackLabel = useMemo(() => {
+    if (isCompanyAccount) {
+      const primaryName = fullName(
+        inquiryCompanyPrimaryPerson?.first_name || inquiryCompanyPrimaryPerson?.First_Name,
+        inquiryCompanyPrimaryPerson?.last_name || inquiryCompanyPrimaryPerson?.Last_Name
+      );
+      return buildLookupDisplayLabel(
+        primaryName || toText(inquiryCompany?.name || inquiryCompany?.Name),
+        inquiryCompanyPrimaryPerson?.email || inquiryCompanyPrimaryPerson?.Email,
+        inquiryCompanyPrimaryPerson?.sms_number || inquiryCompanyPrimaryPerson?.SMS_Number,
+        toText(selectedJobEmailContactId)
+      );
+    }
+    return buildLookupDisplayLabel(
+      fullName(
+        inquiryPrimaryContact?.first_name || inquiryPrimaryContact?.First_Name,
+        inquiryPrimaryContact?.last_name || inquiryPrimaryContact?.Last_Name
+      ),
+      inquiryPrimaryContact?.email || inquiryPrimaryContact?.Email,
+      inquiryPrimaryContact?.sms_number || inquiryPrimaryContact?.SMS_Number,
+      toText(selectedJobEmailContactId)
+    );
+  }, [
+    inquiryCompany?.Name,
+    inquiryCompany?.name,
+    inquiryCompanyPrimaryPerson?.Email,
+    inquiryCompanyPrimaryPerson?.First_Name,
+    inquiryCompanyPrimaryPerson?.Last_Name,
+    inquiryCompanyPrimaryPerson?.SMS_Number,
+    inquiryCompanyPrimaryPerson?.email,
+    inquiryCompanyPrimaryPerson?.first_name,
+    inquiryCompanyPrimaryPerson?.last_name,
+    inquiryCompanyPrimaryPerson?.sms_number,
+    inquiryPrimaryContact?.Email,
+    inquiryPrimaryContact?.First_Name,
+    inquiryPrimaryContact?.Last_Name,
+    inquiryPrimaryContact?.SMS_Number,
+    inquiryPrimaryContact?.email,
+    inquiryPrimaryContact?.first_name,
+    inquiryPrimaryContact?.last_name,
+    inquiryPrimaryContact?.sms_number,
+    isCompanyAccount,
+    selectedJobEmailContactId,
+  ]);
+  const jobEmailItems = useMemo(() => {
+    const baseItems = isCompanyAccount ? companyItems : contactItems;
+    const selectedId = toText(selectedJobEmailContactId);
+    if (!selectedId) return baseItems;
+    if (baseItems.some((item) => toText(item.id) === selectedId)) return baseItems;
+    return [
+      {
+        id: selectedId,
+        label: jobEmailFallbackLabel || selectedId,
+        meta: "Linked record",
+      },
+      ...baseItems,
+    ];
+  }, [
+    companyItems,
+    contactItems,
+    isCompanyAccount,
+    jobEmailFallbackLabel,
+    selectedJobEmailContactId,
+  ]);
   const propertySearchItems = useMemo(
     () =>
       propertiesLookup.map((property) => {
@@ -2002,8 +2161,13 @@ export function JobDetailsPage() {
     );
     if (selected?.label) return selected.label;
     if (jobEmailContactSearchValue) return jobEmailContactSearchValue;
-    return toText(selectedJobEmailContactId);
-  }, [jobEmailContactSearchValue, jobEmailItems, selectedJobEmailContactId]);
+    return jobEmailFallbackLabel || toText(selectedJobEmailContactId);
+  }, [
+    jobEmailContactSearchValue,
+    jobEmailFallbackLabel,
+    jobEmailItems,
+    selectedJobEmailContactId,
+  ]);
   const resolvedAccountsContactSelectionLabel = useMemo(() => {
     const selectedId = toText(selectedAccountsContactId);
     if (!selectedId) return "";
@@ -2835,19 +2999,25 @@ export function JobDetailsPage() {
     });
   }, [isCompanyAccount, openContactDetailsModal, plugin]);
 
-  const openAddAffiliationModal = useCallback(() => {
+  const openAddAffiliationModal = useCallback(({ autoSelect = false } = {}) => {
     if (!resolvedPropertyId) {
       showError("Add contact unavailable", "Please set a property first.");
       return;
     }
+    setShouldAutoSelectNewAffiliation(Boolean(autoSelect));
     setAffiliationModalState({
       open: true,
       initialData: null,
     });
   }, [resolvedPropertyId, showError]);
 
+  const handleAddAccountsContactAffiliation = useCallback(() => {
+    openAddAffiliationModal({ autoSelect: true });
+  }, [openAddAffiliationModal]);
+
   const openEditAffiliationModal = useCallback((affiliation) => {
     if (!affiliation) return;
+    setShouldAutoSelectNewAffiliation(false);
     setAffiliationModalState({
       open: true,
       initialData: affiliation,
@@ -2884,12 +3054,22 @@ export function JobDetailsPage() {
         plugin,
         propertyId: resolvedPropertyId,
       });
-      setAffiliations(Array.isArray(refreshed) ? refreshed : []);
+      const refreshedList = Array.isArray(refreshed) ? refreshed : [];
+      setAffiliations(refreshedList);
       success(
         editId ? "Property contact updated" : "Property contact added",
         editId ? "Property contact details were updated." : "New property contact was added."
       );
       const savedAffiliationId = toText(savedAffiliation?.id || savedAffiliation?.ID || editId);
+      if (!editId && shouldAutoSelectNewAffiliation && savedAffiliationId) {
+        const matchedAffiliation = refreshedList.find(
+          (item) => toText(item?.id || item?.ID) === savedAffiliationId
+        );
+        const option = toAffiliationOption(matchedAffiliation || { id: savedAffiliationId });
+        setSelectedAccountsContactId(savedAffiliationId);
+        setAccountsContactSearchValue(option.label || savedAffiliationId);
+        setShouldAutoSelectNewAffiliation(false);
+      }
       await emitAnnouncement({
         plugin,
         eventKey: editId
@@ -2907,7 +3087,14 @@ export function JobDetailsPage() {
         logContext: "job-details:saveAffiliation",
       });
     },
-    [plugin, resolvedPropertyId, success, currentJobId, inquiryId]
+    [
+      plugin,
+      resolvedPropertyId,
+      success,
+      currentJobId,
+      inquiryId,
+      shouldAutoSelectNewAffiliation,
+    ]
   );
 
   const handleAddAffiliationContact = useCallback(() => {
@@ -3530,8 +3717,38 @@ export function JobDetailsPage() {
               )}
             </div>
 
-            <section className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-start gap-4">
-              <article className="min-w-0 overflow-hidden rounded border bg-white" style={inquiryCardTheme.wrapperStyle}>
+            <div className="rounded border border-slate-200 bg-white px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {[
+                  { id: "balanced", label: "Balanced" },
+                  { id: "focus-inquiry", label: "Focus Inquiry" },
+                  { id: "focus-property", label: "Focus Property" },
+                  { id: "focus-job", label: "Focus Job" },
+                ].map((option) => {
+                  const isActive = detailsLayoutMode === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setDetailsLayoutMode(option.id)}
+                      className={`rounded border px-2.5 py-1 text-xs font-semibold transition ${
+                        isActive
+                          ? "border-sky-700 bg-sky-700 text-white"
+                          : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <section
+              className="grid grid-cols-1 items-start gap-4 transition-[grid-template-columns] duration-300 ease-out xl:grid-cols-[var(--details-layout-cols)]"
+              style={{ "--details-layout-cols": detailsLayoutColumns }}
+            >
+              <article className={`min-w-0 overflow-hidden rounded border bg-white ${getDetailsCardClassName("inquiry")}`} style={inquiryCardTheme.wrapperStyle}>
                 <button
                   type="button"
                   className={`flex w-full items-center justify-between px-4 py-3 text-left ${
@@ -3859,7 +4076,7 @@ export function JobDetailsPage() {
                 ) : null}
               </article>
 
-              <article className="min-w-0 overflow-hidden rounded border border-slate-200 bg-white">
+              <article className={`min-w-0 overflow-hidden rounded border border-slate-200 bg-white ${getDetailsCardClassName("property")}`}>
                 <button
                   type="button"
                   className={`flex w-full items-center justify-between bg-slate-100 px-4 py-3 text-left ${
@@ -3880,6 +4097,16 @@ export function JobDetailsPage() {
                   </span>
                 </button>
                 {!collapsedCards.property ? (
+                <SectionErrorBoundary
+                  resetKey={toText(resolvedPropertyId)}
+                  fallback={
+                    <div className="p-4">
+                      <div className="rounded border border-red-200 bg-red-50 px-3 py-4 text-sm text-red-700">
+                        Property details could not be rendered. Other sections are still available.
+                      </div>
+                    </div>
+                  }
+                >
                 <div className="space-y-3 p-4">
                     <div className="rounded border border-slate-200 bg-slate-50 p-3">
                       <SearchDropdownInput
@@ -4111,10 +4338,11 @@ export function JobDetailsPage() {
                       </>
                     )}
                 </div>
+                </SectionErrorBoundary>
                 ) : null}
               </article>
 
-              <article className="min-w-0 overflow-hidden rounded border bg-white" style={quoteCardTheme.wrapperStyle}>
+              <article className={`min-w-0 overflow-hidden rounded border bg-white ${getDetailsCardClassName("job")}`} style={quoteCardTheme.wrapperStyle}>
                 <button
                   type="button"
                   className={`flex w-full items-center justify-between px-4 py-3 text-left ${
@@ -4196,7 +4424,8 @@ export function JobDetailsPage() {
                                     setSelectedAccountsContactId(nextId);
                                     setAccountsContactSearchValue(item?.label || "");
                                   }}
-                                  hideAddAction
+                                  onAdd={handleAddAccountsContactAffiliation}
+                                  addButtonLabel="Add Property Contact"
                                   emptyText={
                                     isAffiliationsLoading
                                       ? "Loading property contacts..."

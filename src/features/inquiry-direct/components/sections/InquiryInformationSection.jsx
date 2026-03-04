@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card } from "../../../../shared/components/ui/Card.jsx";
 import { InputField } from "../../../../shared/components/ui/InputField.jsx";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
@@ -26,6 +27,13 @@ import {
   updatePropertyRecord,
 } from "../../../job-direct/sdk/jobDirectSdk.js";
 import { extractRecords } from "../../../job-direct/sdk/utils/sdkResponseUtils.js";
+import { buildLookupDisplayLabel } from "../../../../shared/utils/lookupLabel.js";
+import {
+  getInquiryFlowRule,
+  shouldShowOtherSourceField,
+} from "../../constants/inquiryFlowRules.js";
+import { useRelatedRecordsData } from "../../hooks/useRelatedRecordsData.js";
+import { isPestServiceFlow } from "../../utils/pestRules.js";
 
 const INQUIRY_TABS = [
   { id: "overview", label: "Overview" },
@@ -33,8 +41,13 @@ const INQUIRY_TABS = [
   { id: "pipeline", label: "Deal Pipeline" },
   { id: "notes", label: "Notes" },
   { id: "service-provider", label: "Service Provider" },
-  { id: "property", label: "Property" },
   { id: "appointments", label: "Appointment" },
+];
+
+const ENQUIRING_AS_OPTIONS = [
+  { id: "individual", label: "Individual" },
+  { id: "business", label: "Business Entity" },
+  { id: "government", label: "Government" },
 ];
 
 const INQUIRY_STATUS_OPTIONS = [
@@ -259,26 +272,82 @@ function TabNav({ activeTab, onTabChange, appointmentCount = 0 }) {
 }
 
 function buildContactItems(list = []) {
-  return (list || []).map((item) => ({
-    id: item.id,
-    label:
-      [item.first_name, item.last_name].filter(Boolean).join(" ").trim() ||
-      item.email ||
-      `Contact #${item.id}`,
-    meta: [item.email, item.sms_number, item.id].filter(Boolean).join(" | "),
-  }));
+  return (list || []).map((item) => {
+    const fullName = [item.first_name, item.last_name].filter(Boolean).join(" ").trim();
+    return {
+      id: item.id,
+      label: buildLookupDisplayLabel(
+        fullName,
+        item.email,
+        item.sms_number,
+        `Contact #${item.id}`
+      ),
+      meta: [item.email, item.sms_number, item.id].filter(Boolean).join(" | "),
+    };
+  });
 }
 
 function buildCompanyItems(list = []) {
   return (list || []).map((item) => ({
     id: item.id,
-    label: item.name || `Company #${item.id}`,
+    label: buildLookupDisplayLabel(
+      item.name,
+      item.primary?.email,
+      item.primary?.sms_number,
+      `Company #${item.id}`
+    ),
     meta: [item.account_type, item.primary?.email, item.id].filter(Boolean).join(" | "),
   }));
 }
 
 function toText(value) {
   return String(value || "").trim();
+}
+
+function formatPropertyPrefillDetails({ selectedProperty = null, activeProperty = null } = {}) {
+  const selectedLabel = toText(selectedProperty?.label);
+  const selectedMeta = toText(selectedProperty?.meta);
+  if (selectedLabel) {
+    const selectedUid = toText(selectedMeta.split("|")[0]);
+    if (selectedUid && !selectedLabel.toLowerCase().includes(selectedUid.toLowerCase())) {
+      return `${selectedLabel} | ${selectedUid}`;
+    }
+    return selectedLabel;
+  }
+  if (selectedMeta) {
+    const selectedUid = toText(selectedMeta.split("|")[0]);
+    if (selectedUid) return selectedUid;
+  }
+
+  const propertyName = toText(
+    activeProperty?.property_name ||
+      activeProperty?.Property_Name ||
+      activeProperty?.name ||
+      activeProperty?.Name
+  );
+  const propertyUid = toText(activeProperty?.unique_id || activeProperty?.Unique_ID);
+  const addressLine = toText(
+    activeProperty?.address_1 ||
+      activeProperty?.Address_1 ||
+      activeProperty?.address ||
+      activeProperty?.Address
+  );
+  const locality = toText(
+    activeProperty?.suburb_town ||
+      activeProperty?.Suburb_Town ||
+      activeProperty?.city ||
+      activeProperty?.City
+  );
+  const state = toText(activeProperty?.state || activeProperty?.State);
+  const postcode = toText(
+    activeProperty?.postal_code ||
+      activeProperty?.Postal_Code ||
+      activeProperty?.zip_code ||
+      activeProperty?.Zip_Code
+  );
+  const address = [addressLine, locality, state, postcode].filter(Boolean).join(", ");
+
+  return [propertyName, propertyUid, address].filter(Boolean).join(" | ");
 }
 
 function normalizeServiceInquiryId(value) {
@@ -481,9 +550,13 @@ export function InquiryInformationSection({
   inquiryUid = "",
   linkedJobId = "",
 }) {
+  const navigate = useNavigate();
   const [form, setForm] = useState(() => normalizeInitialForm(initialValues));
   const [contactSearch, setContactSearch] = useState("");
   const [companySearch, setCompanySearch] = useState("");
+  const [enquiringAs, setEnquiringAs] = useState("individual");
+  const [isPestAccordionOpen, setIsPestAccordionOpen] = useState(false);
+  const [appointmentDraft, setAppointmentDraft] = useState(null);
   const [appointmentCount, setAppointmentCount] = useState(0);
   const [serviceInquiryOptions, setServiceInquiryOptions] = useState([]);
   const [serviceInquiryLabelById, setServiceInquiryLabelById] = useState({});
@@ -514,46 +587,28 @@ export function InquiryInformationSection({
   }, [initialValues]);
 
   useEffect(() => {
-    const isCompanyMode = toText(form.account_type) === "Company";
-    if (isCompanyMode) {
-      if (contactSearch) setContactSearch("");
-      const companyId = toText(form.company_id);
-      if (!companyId) {
-        if (companySearch) setCompanySearch("");
-        return;
-      }
-      const matchedCompany = companyItems.find(
-        (item) => toText(item?.id) === companyId
-      );
-      const nextCompanyLabel = toText(matchedCompany?.label);
-      if (nextCompanyLabel && nextCompanyLabel !== companySearch) {
-        setCompanySearch(nextCompanyLabel);
-      }
+    const companyId = toText(form.company_id);
+    if (!companyId) {
+      setCompanySearch((previous) => (previous ? "" : previous));
       return;
     }
+    const matchedCompany = companyItems.find((item) => toText(item?.id) === companyId);
+    const nextLabel = toText(matchedCompany?.label);
+    if (!nextLabel) return;
+    setCompanySearch((previous) => (toText(previous) === nextLabel ? previous : nextLabel));
+  }, [form.company_id, companyItems]);
 
-    if (companySearch) setCompanySearch("");
+  useEffect(() => {
     const clientId = toText(form.client_id);
     if (!clientId) {
-      if (contactSearch) setContactSearch("");
+      setContactSearch((previous) => (previous ? "" : previous));
       return;
     }
-    const matchedContact = contactItems.find(
-      (item) => toText(item?.id) === clientId
-    );
-    const nextClientLabel = toText(matchedContact?.label);
-    if (nextClientLabel && nextClientLabel !== contactSearch) {
-      setContactSearch(nextClientLabel);
-    }
-  }, [
-    form.account_type,
-    form.client_id,
-    form.company_id,
-    contactItems,
-    companyItems,
-    contactSearch,
-    companySearch,
-  ]);
+    const matchedContact = contactItems.find((item) => toText(item?.id) === clientId);
+    const nextLabel = toText(matchedContact?.label);
+    if (!nextLabel) return;
+    setContactSearch((previous) => (toText(previous) === nextLabel ? previous : nextLabel));
+  }, [form.client_id, contactItems]);
 
   useEffect(() => {
     if (!plugin?.switchTo) {
@@ -689,6 +744,61 @@ export function InquiryInformationSection({
   const isCompany = toText(form.account_type) === "Company";
   const selectedAccountId = isCompany ? toText(form.company_id) : toText(form.client_id);
   const accountType = isCompany ? "Company" : "Contact";
+  const selectedContactRecord = useMemo(
+    () => contacts.find((item) => toText(item?.id) === toText(form.client_id)) || null,
+    [contacts, form.client_id]
+  );
+  const selectedCompanyRecord = useMemo(
+    () => companies.find((item) => toText(item?.id) === toText(form.company_id)) || null,
+    [companies, form.company_id]
+  );
+  const inquiryFlowRule = useMemo(() => getInquiryFlowRule(form.type), [form.type]);
+  const shouldShowOther = shouldShowOtherSourceField(form.how_did_you_hear);
+  const selectedServiceInquiryLabel = useMemo(() => {
+    const id = normalizeServiceInquiryId(form.service_inquiry_id);
+    if (!id) return "";
+    const optionLabel = resolvedServiceInquiryOptions.find(
+      (item) => toText(item?.value) === id
+    )?.label;
+    return toText(optionLabel || serviceInquiryLabelById[id]);
+  }, [form.service_inquiry_id, resolvedServiceInquiryOptions, serviceInquiryLabelById]);
+  const isPestServiceSelected = useMemo(
+    () => isPestServiceFlow(selectedServiceInquiryLabel),
+    [selectedServiceInquiryLabel]
+  );
+
+  const {
+    relatedDeals,
+    relatedJobs,
+    isLoading: isRelatedRecordsLoading,
+    error: relatedRecordsError,
+  } = useRelatedRecordsData({
+    plugin,
+    accountType,
+    accountId: selectedAccountId,
+  });
+
+  useEffect(() => {
+    if (isCompany) {
+      setEnquiringAs((previous) => (previous === "government" ? "government" : "business"));
+      return;
+    }
+    setEnquiringAs("individual");
+  }, [isCompany]);
+
+  useEffect(() => {
+    if (!shouldShowOther && toText(form.other)) {
+      setForm((previous) => ({ ...previous, other: "" }));
+    }
+  }, [shouldShowOther, form.other]);
+
+  useEffect(() => {
+    if (isPestServiceSelected) {
+      setIsPestAccordionOpen(true);
+    } else {
+      setIsPestAccordionOpen(false);
+    }
+  }, [isPestServiceSelected]);
 
   const linkedPropertySource = useMemo(
     () => ({
@@ -732,23 +842,39 @@ export function InquiryInformationSection({
     setForm((prev) => ({ ...prev, [field]: nextValue }));
   };
 
-  const handleContactType = (nextType) => {
-    if (nextType === "entity") {
+  const handleEnquiringAsChange = (nextValue) => {
+    const normalized = String(nextValue || "").trim().toLowerCase();
+    if (normalized === "government") {
+      setEnquiringAs("government");
       setForm((prev) => ({
         ...prev,
         account_type: "Company",
-        client_id: "",
       }));
-      setContactSearch("");
       return;
     }
+    if (normalized === "business") {
+      setEnquiringAs("business");
+      setForm((prev) => ({
+        ...prev,
+        account_type: "Company",
+      }));
+      return;
+    }
+    setEnquiringAs("individual");
     setForm((prev) => ({
       ...prev,
       account_type: "Contact",
-      company_id: "",
     }));
-    setCompanySearch("");
   };
+
+  const openRelatedRecord = useCallback(
+    (uniqueId) => {
+      const uid = toText(uniqueId);
+      if (!uid) return;
+      navigate(`/job-details/${encodeURIComponent(uid)}`);
+    },
+    [navigate]
+  );
 
   const openAddModal = (mode) => {
     onOpenContactDetailsModal?.({
@@ -781,10 +907,15 @@ export function InquiryInformationSection({
               ...prev,
               account_type: "Company",
               company_id: toText(company.id),
-              client_id: "",
             }));
-            setCompanySearch(toText(company.name));
-            setContactSearch("");
+            setCompanySearch(
+              buildLookupDisplayLabel(
+                company.name,
+                company.primary?.email,
+                company.primary?.sms_number,
+                toText(company.id)
+              )
+            );
             success("Entity created", "New entity and primary contact were saved.");
             return;
           } catch (createError) {
@@ -803,10 +934,15 @@ export function InquiryInformationSection({
             ...prev,
             account_type: "Contact",
             client_id: toText(contact.id),
-            company_id: "",
           }));
-          setContactSearch(toText(contact.label));
-          setCompanySearch("");
+          setContactSearch(
+            buildLookupDisplayLabel(
+              [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim(),
+              contact.email,
+              contact.sms_number,
+              toText(contact.id)
+            )
+          );
           success("Contact created", "New contact was saved.");
         } catch (createError) {
           error("Create failed", createError?.message || "Unable to create contact.");
@@ -842,141 +978,253 @@ export function InquiryInformationSection({
   );
 
   const renderOverviewTab = () => (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <Card className="space-y-4">
-        <div className="text-base font-bold text-neutral-700">Account & Inquiry</div>
-        <div className="grid grid-cols-1 gap-4">
-          <div className="flex gap-4" data-client-toggle>
-            <button
-              type="button"
-              data-contact-toggle="individual"
-              onClick={() => handleContactType("individual")}
-              className={`rounded-xl border px-2 py-1 text-xs ${
-                !isCompany
-                  ? "border-sky-900 bg-[#003882] text-white"
-                  : "border-slate-300 bg-white text-slate-500"
-              }`}
-            >
-              Individual
-            </button>
-            <button
-              type="button"
-              data-contact-toggle="entity"
-              onClick={() => handleContactType("entity")}
-              className={`rounded-xl border px-2 py-1 text-xs ${
-                isCompany
-                  ? "border-sky-900 bg-[#003882] text-white"
-                  : "border-slate-300 bg-white text-slate-500"
-              }`}
-            >
-              Entity
-            </button>
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card className="space-y-4">
+          <div className="text-base font-bold text-neutral-700">Account & Inquiry</div>
+          <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-2" data-client-toggle>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Inquiring As
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {ENQUIRING_AS_OPTIONS.map((option) => {
+                  const isActive = enquiringAs === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => handleEnquiringAsChange(option.id)}
+                      className={`rounded-xl border px-2 py-1 text-xs ${
+                        isActive
+                          ? "border-sky-900 bg-[#003882] text-white"
+                          : "border-slate-300 bg-white text-slate-500"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <input type="hidden" data-field="account_type" value={form.account_type} readOnly />
+            <input type="hidden" data-field="client_id" value={form.client_id} readOnly />
+            <input type="hidden" data-field="company_id" value={form.company_id} readOnly />
+
+            {isCompany ? (
+              <SearchDropdownInput
+                label="Company"
+                field="entity_name"
+                value={companySearch}
+                placeholder="Search company"
+                items={companyItems}
+                onValueChange={setCompanySearch}
+                onSelect={(item) => {
+                  const nextId = toText(item?.id);
+                  setForm((prev) => ({
+                    ...prev,
+                    account_type: "Company",
+                    company_id: nextId,
+                  }));
+                  setCompanySearch(item?.label || "");
+                }}
+                onAdd={() => openAddModal("entity")}
+                addButtonLabel="Add New Entity"
+                emptyText={
+                  isContactCompanyLoading ? "Loading companies..." : "No companies found."
+                }
+                rootData={{ "data-search-root": "contact-entity" }}
+              />
+            ) : (
+              <SearchDropdownInput
+                label="Client"
+                field="client"
+                value={contactSearch}
+                placeholder="Search contact"
+                items={contactItems}
+                onValueChange={setContactSearch}
+                onSelect={(item) => {
+                  const nextId = toText(item?.id);
+                  setForm((prev) => ({
+                    ...prev,
+                    account_type: "Contact",
+                    client_id: nextId,
+                  }));
+                  setContactSearch(item?.label || "");
+                }}
+                onAdd={() => openAddModal("individual")}
+                addButtonLabel="Add New Contact"
+                emptyText={
+                  isContactCompanyLoading ? "Loading contacts..." : "No contacts found."
+                }
+                rootData={{ "data-search-root": "contact-individual" }}
+              />
+            )}
+
+            {selectedAccountId ? (
+              <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3">
+                <div className="text-sm font-bold text-neutral-700">Related Records</div>
+                {isRelatedRecordsLoading && !relatedDeals.length && !relatedJobs.length ? (
+                  <div className="text-sm text-slate-500">Loading related inquiries and jobs...</div>
+                ) : (
+                  <div className="space-y-3">
+                    {relatedRecordsError ? (
+                      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        {relatedRecordsError}
+                      </div>
+                    ) : null}
+                    <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                      <div className="space-y-2 rounded border border-slate-200 bg-white p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                          Related Inquiries
+                        </div>
+                        {relatedDeals.length ? (
+                          relatedDeals.slice(0, 12).map((deal) => (
+                            <div
+                              key={toText(deal?.unique_id || deal?.id)}
+                              className="rounded border border-slate-200 bg-white px-3 py-2 text-sm"
+                            >
+                              <div className="font-medium text-slate-800">
+                                {toText(deal?.deal_name) || "Inquiry"}
+                              </div>
+                              <button
+                                type="button"
+                                className="mt-1 text-xs font-semibold text-sky-700 underline"
+                                onClick={() => openRelatedRecord(deal?.unique_id)}
+                              >
+                                {toText(deal?.unique_id) || "-"}
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-xs text-slate-500">
+                            {isRelatedRecordsLoading
+                              ? "Loading related inquiries..."
+                              : "No related inquiries found."}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2 rounded border border-slate-200 bg-white p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                          Related Jobs
+                        </div>
+                        {relatedJobs.length ? (
+                          relatedJobs.slice(0, 12).map((job) => (
+                            <div
+                              key={toText(job?.unique_id)}
+                              className="rounded border border-slate-200 bg-white px-3 py-2 text-sm"
+                            >
+                              <button
+                                type="button"
+                                className="font-semibold text-sky-700 underline"
+                                onClick={() => openRelatedRecord(job?.unique_id)}
+                              >
+                                {toText(job?.unique_id) || "-"}
+                              </button>
+                              <div className="mt-1 text-xs text-slate-600">
+                                {toText(job?.property_name) || "Property not set"}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-xs text-slate-500">
+                            {isRelatedRecordsLoading
+                              ? "Loading related jobs..."
+                              : "No related jobs found."}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
-          <input type="hidden" data-field="account_type" value={form.account_type} readOnly />
-          <input type="hidden" data-field="client_id" value={form.client_id} readOnly />
-          <input type="hidden" data-field="company_id" value={form.company_id} readOnly />
+        </Card>
 
-          {isCompany ? (
-            <SearchDropdownInput
-              label="Company"
-              field="entity_name"
-              value={companySearch}
-              placeholder="Search company"
-              items={companyItems}
-              onValueChange={setCompanySearch}
-              onSelect={(item) => {
-                const nextId = toText(item?.id);
-                setForm((prev) => ({
-                  ...prev,
-                  account_type: "Company",
-                  company_id: nextId,
-                  client_id: "",
-                }));
-                setCompanySearch(item?.label || "");
-                setContactSearch("");
-              }}
-              onAdd={() => openAddModal("entity")}
-              addButtonLabel="Add New Entity"
-              emptyText={
-                isContactCompanyLoading ? "Loading companies..." : "No companies found."
+        <Card className="space-y-4">
+          <div className="text-base font-bold text-neutral-700">Status & Source</div>
+          <div className="grid grid-cols-1 gap-4">
+            <ColorMappedSelectInput
+              label="Inquiry Status"
+              field="inquiry_status"
+              options={INQUIRY_STATUS_OPTIONS}
+              value={form.inquiry_status}
+              onChange={(nextValue) =>
+                setForm((prev) => ({ ...prev, inquiry_status: nextValue }))
               }
-              rootData={{ "data-search-root": "contact-entity" }}
             />
-          ) : (
-            <SearchDropdownInput
-              label="Client"
-              field="client"
-              value={contactSearch}
-              placeholder="Search contact"
-              items={contactItems}
-              onValueChange={setContactSearch}
-              onSelect={(item) => {
-                const nextId = toText(item?.id);
-                setForm((prev) => ({
-                  ...prev,
-                  account_type: "Contact",
-                  client_id: nextId,
-                  company_id: "",
-                }));
-                setContactSearch(item?.label || "");
-                setCompanySearch("");
-              }}
-              onAdd={() => openAddModal("individual")}
-              addButtonLabel="Add New Contact"
-              emptyText={
-                isContactCompanyLoading ? "Loading contacts..." : "No contacts found."
+            <SelectInput
+              label="Inquiry Source"
+              field="inquiry_source"
+              options={INQUIRY_SOURCE_OPTIONS}
+              value={form.inquiry_source}
+              onChange={(nextValue) =>
+                setForm((prev) => ({ ...prev, inquiry_source: nextValue }))
               }
-              rootData={{ "data-search-root": "contact-individual" }}
             />
-          )}
-        </div>
-      </Card>
+            <SelectInput
+              label="Type"
+              field="type"
+              options={INQUIRY_TYPE_OPTIONS}
+              value={form.type}
+              onChange={(nextValue) => setForm((prev) => ({ ...prev, type: nextValue }))}
+            />
+            {inquiryFlowRule.showServiceInquiry ? (
+              <SelectInput
+                label={isServicesLoading ? "Select Service (Loading...)" : "Select Service"}
+                field="service_inquiry_id"
+                options={resolvedServiceInquiryOptions}
+                value={form.service_inquiry_id}
+                onChange={(nextValue) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    service_inquiry_id: normalizeServiceInquiryId(nextValue),
+                  }))
+                }
+              />
+            ) : null}
+            {inquiryFlowRule.showHowCanWeHelp ? (
+              <TextAreaField
+                label="How Can We Help"
+                field="how_can_we_help"
+                value={form.how_can_we_help}
+                onChange={handleFieldChange("how_can_we_help")}
+                placeholder="Describe the inquiry details..."
+                rows={5}
+              />
+            ) : null}
+            {inquiryFlowRule.showHowDidYouHear ? (
+              <SelectInput
+                label="How Did You Hear About Us"
+                field="how_did_you_hear"
+                options={HOW_DID_YOU_HEAR_OPTIONS}
+                value={form.how_did_you_hear}
+                onChange={(nextValue) =>
+                  setForm((prev) => ({ ...prev, how_did_you_hear: nextValue }))
+                }
+              />
+            ) : null}
+            {inquiryFlowRule.showHowDidYouHear && shouldShowOther ? (
+              <InputField
+                label="Other"
+                field="other"
+                value={form.other}
+                onChange={handleFieldChange("other")}
+              />
+            ) : null}
+          </div>
+        </Card>
+      </div>
 
-      <Card className="space-y-4">
-        <div className="text-base font-bold text-neutral-700">Status & Source</div>
-        <div className="grid grid-cols-1 gap-4">
-          <ColorMappedSelectInput
-            label="Inquiry Status"
-            field="inquiry_status"
-            options={INQUIRY_STATUS_OPTIONS}
-            value={form.inquiry_status}
-            onChange={(nextValue) =>
-              setForm((prev) => ({ ...prev, inquiry_status: nextValue }))
-            }
-          />
-          <SelectInput
-            label="Inquiry Source"
-            field="inquiry_source"
-            options={INQUIRY_SOURCE_OPTIONS}
-            value={form.inquiry_source}
-            onChange={(nextValue) =>
-              setForm((prev) => ({ ...prev, inquiry_source: nextValue }))
-            }
-          />
-          <SelectInput
-            label="Type"
-            field="type"
-            options={INQUIRY_TYPE_OPTIONS}
-            value={form.type}
-            onChange={(nextValue) => setForm((prev) => ({ ...prev, type: nextValue }))}
-          />
-          <SelectInput
-            label="How Did You Hear"
-            field="how_did_you_hear"
-            options={HOW_DID_YOU_HEAR_OPTIONS}
-            value={form.how_did_you_hear}
-            onChange={(nextValue) =>
-              setForm((prev) => ({ ...prev, how_did_you_hear: nextValue }))
-            }
-          />
-          <InputField
-            label="Other"
-            field="other"
-            value={form.other}
-            onChange={handleFieldChange("other")}
-          />
+      {inquiryFlowRule.showPropertySearch ? (
+        <div className="space-y-2">
+          <div className="px-1 text-sm font-semibold text-slate-700">Property</div>
+          {renderPropertyTab()}
         </div>
-      </Card>
+      ) : null}
     </div>
   );
 
@@ -999,8 +1247,124 @@ export function InquiryInformationSection({
             : { ...previous, service_provider_id: normalized }
         );
       }}
+      recordLabel="inquiry"
     />
   );
+
+  const appointmentPrefillContext = useMemo(() => {
+    const locationId = toText(effectivePropertyId);
+    const selectedProperty = propertySearchItems.find(
+      (item) => normalizePropertyId(item?.id) === normalizePropertyId(locationId)
+    );
+    const inquiryUidLabel = toText(inquiryUid);
+    const inquiryTypeLabel = toText(form.type);
+    const serviceTypeLabel = toText(selectedServiceInquiryLabel);
+    const appointmentTitle = [inquiryUidLabel, inquiryTypeLabel, serviceTypeLabel]
+      .filter(Boolean)
+      .join(" | ");
+    const serviceDetails = serviceTypeLabel || toText(form.how_can_we_help);
+    const propertyDetails = formatPropertyPrefillDetails({
+      selectedProperty,
+      activeProperty: activeRelatedProperty,
+    });
+    const appointmentDescription = [
+      serviceDetails ? `Service:\n${serviceDetails}` : "",
+      propertyDetails ? `Property:\n${propertyDetails}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const serviceProviders = Array.isArray(preloadedLookupData?.serviceProviders)
+      ? preloadedLookupData.serviceProviders
+      : [];
+    const selectedProvider = serviceProviders.find(
+      (provider) => toText(provider?.id || provider?.ID) === toText(form.service_provider_id)
+    );
+    const providerFirstName =
+      selectedProvider?.first_name ||
+      selectedProvider?.Contact_Information?.first_name ||
+      selectedProvider?.Contact_Information?.First_Name ||
+      selectedProvider?.Contact_Information_First_Name;
+    const providerLastName =
+      selectedProvider?.last_name ||
+      selectedProvider?.Contact_Information?.last_name ||
+      selectedProvider?.Contact_Information?.Last_Name ||
+      selectedProvider?.Contact_Information_Last_Name;
+    const providerEmail =
+      selectedProvider?.email ||
+      selectedProvider?.contact_information_email ||
+      selectedProvider?.Contact_Information_Email ||
+      selectedProvider?.Contact_Information?.email ||
+      selectedProvider?.Contact_Information?.Email;
+    const providerMobile =
+      selectedProvider?.sms_number ||
+      selectedProvider?.contact_information_sms_number ||
+      selectedProvider?.Contact_Information_SMS_Number ||
+      selectedProvider?.Contact_Information?.sms_number ||
+      selectedProvider?.Contact_Information?.SMS_Number;
+    const providerLabel = buildLookupDisplayLabel(
+      [providerFirstName, providerLastName].filter(Boolean).join(" ").trim(),
+      providerEmail,
+      providerMobile,
+      toText(selectedProvider?.label) || toText(form.service_provider_id)
+    );
+
+    const companyPrimary = selectedCompanyRecord?.primary || {};
+    const companyPrimaryName = [companyPrimary.first_name, companyPrimary.last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const companyPrimaryId = toText(companyPrimary.id);
+    const companyPrimaryLabel = buildLookupDisplayLabel(
+      companyPrimaryName,
+      companyPrimary.email,
+      companyPrimary.sms_number,
+      companyPrimaryId ? `Contact #${companyPrimaryId}` : ""
+    );
+
+    const selectedContactLabel = buildLookupDisplayLabel(
+      [selectedContactRecord?.first_name, selectedContactRecord?.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim(),
+      selectedContactRecord?.email,
+      selectedContactRecord?.sms_number,
+      toText(form.client_id) ? `Contact #${toText(form.client_id)}` : ""
+    );
+
+    const guestId = isCompany ? companyPrimaryId || toText(form.client_id) : toText(form.client_id);
+    const guestLabel = isCompany
+      ? companyPrimaryLabel || selectedContactLabel
+      : selectedContactLabel;
+
+    return {
+      accountType,
+      locationId,
+      locationLabel: toText(selectedProperty?.label) || "",
+      hostId: toText(form.service_provider_id),
+      hostLabel: providerLabel,
+      guestId,
+      guestLabel,
+      title: appointmentTitle,
+      description: appointmentDescription,
+    };
+  }, [
+    accountType,
+    activeRelatedProperty,
+    companies,
+    effectivePropertyId,
+    form.client_id,
+    form.how_can_we_help,
+    form.service_provider_id,
+    form.type,
+    inquiryUid,
+    isCompany,
+    preloadedLookupData?.serviceProviders,
+    propertySearchItems,
+    selectedServiceInquiryLabel,
+    selectedCompanyRecord?.primary,
+    selectedContactRecord,
+  ]);
 
   const renderAppointmentsTab = () => (
     <AppointmentTabSection
@@ -1010,6 +1374,10 @@ export function InquiryInformationSection({
       onCountChange={setAppointmentCount}
       inquiryRecordId={toText(inquiryId)}
       inquiryUid={toText(inquiryUid)}
+      draft={appointmentDraft}
+      onDraftChange={setAppointmentDraft}
+      onResetDraft={() => setAppointmentDraft(null)}
+      prefillContext={appointmentPrefillContext}
     />
   );
 
@@ -1058,7 +1426,11 @@ export function InquiryInformationSection({
               return [normalized, ...prev];
             });
             setPropertySearchQuery(
-              normalized.property_name || normalized.unique_id || normalized.id || ""
+              normalized.property_name ||
+                normalized.address_1 ||
+                normalized.address ||
+                normalized.unique_id ||
+                ""
             );
             await emitAnnouncement({
               plugin,
@@ -1113,7 +1485,11 @@ export function InquiryInformationSection({
               )
             );
             setPropertySearchQuery(
-              normalized.property_name || normalized.unique_id || normalized.id || ""
+              normalized.property_name ||
+                normalized.address_1 ||
+                normalized.address ||
+                normalized.unique_id ||
+                ""
             );
             await emitAnnouncement({
               plugin,
@@ -1144,18 +1520,6 @@ export function InquiryInformationSection({
       <Card className="space-y-4">
         <div className="text-base font-bold text-neutral-700">Service Request</div>
         <div className="grid grid-cols-1 gap-4">
-          <SelectInput
-            label={isServicesLoading ? "Service Inquiry (Loading...)" : "Service Inquiry"}
-            field="service_inquiry_id"
-            options={resolvedServiceInquiryOptions}
-            value={form.service_inquiry_id}
-            onChange={(nextValue) =>
-              setForm((prev) => ({
-                ...prev,
-                service_inquiry_id: normalizeServiceInquiryId(nextValue),
-              }))
-            }
-          />
           <InputField
             label="Date Job Required By"
             type="date"
@@ -1178,16 +1542,22 @@ export function InquiryInformationSection({
         </div>
       </Card>
       <Card className="space-y-4">
-        <div className="text-base font-bold text-neutral-700">Request Description</div>
-        <div className="grid grid-cols-1 gap-4">
-          <TextAreaField
-            label="How Can We Help"
-            field="how_can_we_help"
-            value={form.how_can_we_help}
-            onChange={handleFieldChange("how_can_we_help")}
-            placeholder="Describe the inquiry details..."
-            rows={5}
-          />
+        <button
+          type="button"
+          className="flex w-full items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2 text-left"
+          onClick={() => setIsPestAccordionOpen((previous) => !previous)}
+          aria-expanded={isPestAccordionOpen}
+        >
+          <div className="text-base font-bold text-neutral-700">Pest Details</div>
+          <span className="text-xs font-semibold text-slate-600">
+            {isPestAccordionOpen ? "⌃" : "⌄"}
+          </span>
+        </button>
+        <div
+          className={`space-y-4 overflow-hidden transition-all duration-200 ${
+            isPestAccordionOpen ? "max-h-[900px] pt-1" : "max-h-0 pt-0"
+          }`}
+        >
           <ListSelectionField
             label="Noise Signs"
             field="noise_signs_options_as_text"
@@ -1250,7 +1620,9 @@ export function InquiryInformationSection({
             label="Weighted Value"
             field="weighted_value"
             value={form.weighted_value}
-            onChange={handleFieldChange("weighted_value")}
+            readOnly
+            disabled
+            inputClassName="cursor-not-allowed bg-slate-100 text-slate-500"
             placeholder="0.00"
           />
         </div>
@@ -1270,16 +1642,9 @@ export function InquiryInformationSection({
             type="date"
             field="actual_close_date"
             value={form.actual_close_date}
-            onChange={handleFieldChange("actual_close_date")}
-          />
-          <ColorMappedSelectInput
-            label="Recent Activity"
-            field="recent_activity"
-            options={RECENT_ACTIVITY_OPTIONS}
-            value={form.recent_activity}
-            onChange={(nextValue) =>
-              setForm((prev) => ({ ...prev, recent_activity: nextValue }))
-            }
+            readOnly
+            disabled
+            inputClassName="cursor-not-allowed bg-slate-100 text-slate-500"
           />
         </div>
       </Card>
@@ -1335,7 +1700,6 @@ export function InquiryInformationSection({
       {safeActiveTab === "overview" ? renderOverviewTab() : null}
       {safeActiveTab === "service-provider" ? renderServiceProviderTab() : null}
       {safeActiveTab === "appointments" ? renderAppointmentsTab() : null}
-      {safeActiveTab === "property" ? renderPropertyTab() : null}
       {safeActiveTab === "request" ? renderRequestTab() : null}
       {safeActiveTab === "pipeline" ? renderPipelineTab() : null}
       {safeActiveTab === "notes" ? renderNotesTab() : null}

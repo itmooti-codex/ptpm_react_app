@@ -212,6 +212,14 @@ function applyJobBaseConditions(q) {
   });
 }
 
+function applyUrgentCallsBaseConditions(q) {
+  return q.andWhere("Urgent_Calls", ">=", 1);
+}
+
+function applyOpenTasksBaseConditions(q) {
+  return q.andWhere("open_tasks", ">=", 1);
+}
+
 function applyPaymentBaseConditions(q) {
   return q
     .andWhere("job_status", "in", PAYMENT_TAB_JOB_STATUSES)
@@ -220,6 +228,28 @@ function applyPaymentBaseConditions(q) {
 
 function applyActiveJobBaseConditions(q) {
   return q.andWhere("job_status", "in", ACTIVE_JOB_STATUSES);
+}
+
+function applyJobsTabStatusFilter(q, f) {
+  if (!Array.isArray(f.statuses) || !f.statuses.length) return q;
+  const requested = f.statuses.map((item) => String(item || "").trim());
+  const jobStatuses = requested.filter((status) => JOB_TAB_JOB_STATUSES.includes(status));
+  const includeAccepted = requested.includes("Accepted");
+
+  if (!jobStatuses.length && !includeAccepted) return q;
+
+  return q.andWhere((sq) => {
+    if (jobStatuses.length) {
+      sq.where("job_status", "in", jobStatuses);
+    }
+    if (includeAccepted) {
+      if (jobStatuses.length) {
+        sq.orWhere("quote_status", "eq", "Accepted");
+      } else {
+        sq.where("quote_status", "eq", "Accepted");
+      }
+    }
+  });
 }
 
 // ─── Shared Job Includes ──────────────────────────────────────────────────────
@@ -403,6 +433,16 @@ function createActiveJobsBaseQuery(plugin) {
   return applyActiveJobBaseConditions(jobModel.query());
 }
 
+function createUrgentCallsBaseQuery(plugin) {
+  const { jobModel } = getModels(plugin);
+  return applyUrgentCallsBaseConditions(jobModel.query());
+}
+
+function createOpenTasksBaseQuery(plugin) {
+  const { jobModel } = getModels(plugin);
+  return applyOpenTasksBaseConditions(jobModel.query());
+}
+
 function resolveBaseFactoryByTab(tabId) {
   switch (tabId) {
     case TAB_IDS.INQUIRY:
@@ -415,6 +455,10 @@ function resolveBaseFactoryByTab(tabId) {
       return createPaymentsBaseQuery;
     case TAB_IDS.ACTIVE_JOBS:
       return createActiveJobsBaseQuery;
+    case TAB_IDS.URGENT_CALLS:
+      return createUrgentCallsBaseQuery;
+    case TAB_IDS.OPEN_TASKS:
+      return createOpenTasksBaseQuery;
     default:
       return null;
   }
@@ -492,15 +536,15 @@ async function fetchCountByPaging(baseFactory, plugin, { pageSize = 250, maxPage
 
 function buildCalendarRange({ lookbackDays = 180, lookaheadDays = 180 } = {}) {
   const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
 
   const startDate = new Date(today);
-  startDate.setUTCDate(startDate.getUTCDate() - Math.max(0, Number(lookbackDays) || 0));
+  startDate.setDate(startDate.getDate() - Math.max(0, Number(lookbackDays) || 0));
   const startEpoch = Math.floor(startDate.getTime() / 1000);
 
   const endDate = new Date(today);
-  endDate.setUTCDate(endDate.getUTCDate() + Math.max(0, Number(lookaheadDays) || 0));
-  endDate.setUTCHours(23, 59, 59, 999);
+  endDate.setDate(endDate.getDate() + Math.max(0, Number(lookaheadDays) || 0));
+  endDate.setHours(23, 59, 59, 999);
   const endEpoch = Math.floor(endDate.getTime() / 1000);
 
   return { startEpoch, endEpoch };
@@ -615,9 +659,20 @@ export function buildQuotesQuery(plugin, filters = {}, page = 1, pageSize = 25, 
 }
 
 export function buildJobsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
+  return buildJobsLikeQuery(
+    createJobsBaseQuery,
+    plugin,
+    filters,
+    page,
+    pageSize,
+    sortOrder
+  );
+}
+
+function buildJobsLikeQuery(baseFactory, plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
   const f = filters;
 
-  let q = createJobsBaseQuery(plugin)
+  let q = baseFactory(plugin)
     .deSelectAll()
     .select([
       "id",
@@ -632,28 +687,44 @@ export function buildJobsQuery(plugin, filters = {}, page = 1, pageSize = 25, so
       "created_at",
     ]);
   q = applyCommonJobFilters(q, f);
-  if (Array.isArray(f.statuses) && f.statuses.length) {
-    const requested = f.statuses.map((item) => String(item || "").trim());
-    const jobStatuses = requested.filter((status) => JOB_TAB_JOB_STATUSES.includes(status));
-    const includeAccepted = requested.includes("Accepted");
-    if (jobStatuses.length || includeAccepted) {
-      q = q.andWhere((sq) => {
-        if (jobStatuses.length) {
-          sq.where("job_status", "in", jobStatuses);
-        }
-        if (includeAccepted) {
-          if (jobStatuses.length) {
-            sq.orWhere("quote_status", "eq", "Accepted");
-          } else {
-            sq.where("quote_status", "eq", "Accepted");
-          }
-        }
-      });
-    }
-  }
+  q = applyJobsTabStatusFilter(q, f);
   q = applyJobIncludes(q);
   q = q.orderBy("created_at", sortOrder).limit(pageSize).offset(calcOffset(page, pageSize));
   return { query: q.noDestroy(), normalize: normalizeJob };
+}
+
+export function buildUrgentCallsQuery(
+  plugin,
+  filters = {},
+  page = 1,
+  pageSize = 25,
+  sortOrder = "desc"
+) {
+  return buildJobsLikeQuery(
+    createUrgentCallsBaseQuery,
+    plugin,
+    filters,
+    page,
+    pageSize,
+    sortOrder
+  );
+}
+
+export function buildOpenTasksQuery(
+  plugin,
+  filters = {},
+  page = 1,
+  pageSize = 25,
+  sortOrder = "desc"
+) {
+  return buildJobsLikeQuery(
+    createOpenTasksBaseQuery,
+    plugin,
+    filters,
+    page,
+    pageSize,
+    sortOrder
+  );
 }
 
 export function buildPaymentsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
@@ -705,22 +776,35 @@ export function buildActiveJobsQuery(plugin, filters = {}, page = 1, pageSize = 
 
 export async function fetchTabCounts({ plugin } = {}) {
   if (!plugin) {
-    return { inquiry: 0, quote: 0, jobs: 0, payment: 0, "active-jobs": 0, "urgent-calls": 0 };
+    return {
+      inquiry: 0,
+      quote: 0,
+      jobs: 0,
+      payment: 0,
+      "active-jobs": 0,
+      "urgent-calls": 0,
+      "open-tasks": 0,
+    };
   }
 
-  const [dealResult, quoteResult, jobsResult, paymentResult, activeResult] = await Promise.allSettled([
-    fetchCountByPaging(createDealsBaseQuery, plugin),
-    fetchCountByPaging(createQuotesBaseQuery, plugin),
-    fetchCountByPaging(createJobsBaseQuery, plugin),
-    fetchCountByPaging(createPaymentsBaseQuery, plugin),
-    fetchCountByPaging(createActiveJobsBaseQuery, plugin),
-  ]);
+  const [dealResult, quoteResult, jobsResult, paymentResult, activeResult, urgentResult, openTasksResult] =
+    await Promise.allSettled([
+      fetchCountByPaging(createDealsBaseQuery, plugin),
+      fetchCountByPaging(createQuotesBaseQuery, plugin),
+      fetchCountByPaging(createJobsBaseQuery, plugin),
+      fetchCountByPaging(createPaymentsBaseQuery, plugin),
+      fetchCountByPaging(createActiveJobsBaseQuery, plugin),
+      fetchCountByPaging(createUrgentCallsBaseQuery, plugin),
+      fetchCountByPaging(createOpenTasksBaseQuery, plugin),
+    ]);
 
   if (dealResult.status === "rejected") console.warn("[fetchTabCounts] inquiry count failed:", dealResult.reason);
   if (quoteResult.status === "rejected") console.warn("[fetchTabCounts] quote count failed:", quoteResult.reason);
   if (jobsResult.status === "rejected") console.warn("[fetchTabCounts] jobs count failed:", jobsResult.reason);
   if (paymentResult.status === "rejected") console.warn("[fetchTabCounts] payment count failed:", paymentResult.reason);
   if (activeResult.status === "rejected") console.warn("[fetchTabCounts] active-jobs count failed:", activeResult.reason);
+  if (urgentResult.status === "rejected") console.warn("[fetchTabCounts] urgent-calls count failed:", urgentResult.reason);
+  if (openTasksResult.status === "rejected") console.warn("[fetchTabCounts] open-tasks count failed:", openTasksResult.reason);
 
   return {
     inquiry: dealResult.status === "fulfilled" ? dealResult.value : 0,
@@ -728,7 +812,8 @@ export async function fetchTabCounts({ plugin } = {}) {
     jobs: jobsResult.status === "fulfilled" ? jobsResult.value : 0,
     payment: paymentResult.status === "fulfilled" ? paymentResult.value : 0,
     "active-jobs": activeResult.status === "fulfilled" ? activeResult.value : 0,
-    "urgent-calls": 0,
+    "urgent-calls": urgentResult.status === "fulfilled" ? urgentResult.value : 0,
+    "open-tasks": openTasksResult.status === "fulfilled" ? openTasksResult.value : 0,
   };
 }
 

@@ -6,4 +6,5 @@ export {
   createContactRecord,
   createCompanyRecord,
   fetchLinkedDealsByAccount,
+  fetchLinkedJobsByAccount,
 } from "../core/runtime.js";
