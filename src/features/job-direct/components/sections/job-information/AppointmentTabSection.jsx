@@ -101,6 +101,20 @@ function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function tokenizeQuery(value) {
+  return normalizeText(value)
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function matchesSearchQuery(searchText = "", query = "") {
+  const normalizedSearchText = normalizeText(searchText);
+  const queryTokens = tokenizeQuery(query);
+  if (!queryTokens.length) return true;
+  return queryTokens.every((token) => normalizedSearchText.includes(token));
+}
+
 function toText(value) {
   return String(value || "").trim();
 }
@@ -340,11 +354,27 @@ function SearchDropdownInput({
   const [isOpen, setIsOpen] = useState(false);
 
   const filteredItems = useMemo(() => {
-    const query = normalizeText(value);
-    if (!query) return items;
+    const query = String(value || "");
+    if (!tokenizeQuery(query).length) return items;
     return items.filter((item) => {
-      const searchText = [item.label, item.meta, item.id].map(normalizeText).join(" ");
-      return searchText.includes(query);
+      const searchText = [
+        item.label,
+        item.meta,
+        item.id,
+        item.first_name,
+        item.last_name,
+        item.firstName,
+        item.lastName,
+        item.full_name,
+        item.fullName,
+        item.name,
+        item.searchText,
+        Array.isArray(item.searchTokens) ? item.searchTokens.join(" ") : item.searchTokens,
+      ]
+        .map((part) => String(part || "").trim())
+        .filter(Boolean)
+        .join(" ");
+      return matchesSearchQuery(searchText, query);
     });
   }, [items, value]);
 

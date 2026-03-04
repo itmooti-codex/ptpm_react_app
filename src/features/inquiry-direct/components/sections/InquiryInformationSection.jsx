@@ -24,6 +24,7 @@ import {
   createContactRecord,
   createPropertyRecord,
   fetchServicesForActivities,
+  updateContactRecord,
   updatePropertyRecord,
 } from "../../../job-direct/sdk/jobDirectSdk.js";
 import { extractRecords } from "../../../job-direct/sdk/utils/sdkResponseUtils.js";
@@ -203,6 +204,7 @@ const EMPTY_FORM = {
   service_provider_id: "",
   client_notes: "",
   property_id: "",
+  inquiry_for_job_id: "",
   inquiry_status: "New Inquiry",
   inquiry_source: "",
   type: "",
@@ -239,6 +241,18 @@ function TextAreaField({
         className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
       />
     </label>
+  );
+}
+
+function ReadOnlyValueField({ label, value, emptyText = "-" }) {
+  const displayValue = toText(value) || emptyText;
+  return (
+    <div className="block">
+      <span className="type-label text-slate-600">{label}</span>
+      <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+        {displayValue}
+      </div>
+    </div>
   );
 }
 
@@ -395,6 +409,30 @@ function toPromiseLike(result) {
     });
   }
   return Promise.resolve(result);
+}
+
+function normalizeLinkedJobRecord(record = {}) {
+  return {
+    id: toText(
+      record?.id ||
+        record?.ID ||
+        record?.JobsID ||
+        record?.Jobs_As_Client_IndividualID
+    ),
+    unique_id: toText(
+      record?.unique_id ||
+        record?.Unique_ID ||
+        record?.Jobs_Unique_ID ||
+        record?.Jobs_As_Client_Individual_Unique_ID
+    ),
+    property_name: toText(
+      record?.property_name ||
+        record?.Property_Name ||
+        record?.Property?.property_name ||
+        record?.Property?.Property_Name ||
+        record?.Property_Property_Name
+    ),
+  };
 }
 
 function parseListSelectionValue(value, options = []) {
@@ -561,6 +599,8 @@ export function InquiryInformationSection({
   const [serviceInquiryOptions, setServiceInquiryOptions] = useState([]);
   const [serviceInquiryLabelById, setServiceInquiryLabelById] = useState({});
   const [isServicesLoading, setIsServicesLoading] = useState(false);
+  const [linkedJobRecord, setLinkedJobRecord] = useState(null);
+  const [linkedJobUniqueIdFromDeal, setLinkedJobUniqueIdFromDeal] = useState("");
   const { success, error } = useToast();
 
   const {
@@ -744,6 +784,7 @@ export function InquiryInformationSection({
   const isCompany = toText(form.account_type) === "Company";
   const selectedAccountId = isCompany ? toText(form.company_id) : toText(form.client_id);
   const accountType = isCompany ? "Company" : "Contact";
+  const resolvedInquiryJobId = toText(form.inquiry_for_job_id || linkedJobId);
   const selectedContactRecord = useMemo(
     () => contacts.find((item) => toText(item?.id) === toText(form.client_id)) || null,
     [contacts, form.client_id]
@@ -779,6 +820,147 @@ export function InquiryInformationSection({
   });
 
   useEffect(() => {
+    let isActive = true;
+    const normalizedInquiryId = toText(inquiryId);
+    if (!plugin?.switchTo || !normalizedInquiryId) {
+      setLinkedJobUniqueIdFromDeal("");
+      return undefined;
+    }
+
+    const loadLinkedJobUniqueId = async () => {
+      const query = plugin
+        .switchTo("PeterpmDeal")
+        .query()
+        .fromGraphql(`
+          query calcDeals($id: PeterpmDealID!) {
+            calcDeals(query: [{ where: { id: $id } }]) {
+              Inquiry_For_Job_Unique_ID: field(arg: ["Inquiry_for_Job", "unique_id"])
+            }
+          }
+        `);
+      const response = await toPromiseLike(
+        query.fetchDirect({
+          variables: {
+            id: /^\d+$/.test(normalizedInquiryId)
+              ? Number.parseInt(normalizedInquiryId, 10)
+              : normalizedInquiryId,
+          },
+        })
+      );
+      if (!isActive) return;
+      const record = extractRecords(response)?.[0] || null;
+      const rawUniqueId = record?.Inquiry_For_Job_Unique_ID;
+      const normalizedUniqueId = Array.isArray(rawUniqueId)
+        ? toText(rawUniqueId[0])
+        : toText(rawUniqueId);
+      setLinkedJobUniqueIdFromDeal(normalizedUniqueId);
+    };
+
+    loadLinkedJobUniqueId().catch(() => {
+      if (!isActive) return;
+      setLinkedJobUniqueIdFromDeal("");
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [plugin, inquiryId]);
+
+  useEffect(() => {
+    const linkedUniqueId = toText(linkedJobUniqueIdFromDeal);
+    if (!linkedUniqueId) return;
+    setForm((previous) => {
+      if (toText(previous.inquiry_for_job_id)) return previous;
+      return {
+        ...previous,
+        inquiry_for_job_id: linkedUniqueId,
+      };
+    });
+  }, [linkedJobUniqueIdFromDeal]);
+
+  useEffect(() => {
+    let isActive = true;
+    const linkedValue = toText(resolvedInquiryJobId || linkedJobUniqueIdFromDeal);
+
+    if (!plugin?.switchTo || !linkedValue) {
+      setLinkedJobRecord(null);
+      return undefined;
+    }
+
+    const matchedRelatedJob = (Array.isArray(relatedJobs) ? relatedJobs : []).find((job) => {
+      const jobId = toText(job?.id || job?.ID);
+      const jobUniqueId = toText(job?.unique_id || job?.Unique_ID);
+      return linkedValue === jobId || linkedValue === jobUniqueId;
+    });
+    if (matchedRelatedJob) {
+      const normalized = normalizeLinkedJobRecord(matchedRelatedJob);
+      setLinkedJobRecord((previous) => {
+        const previousId = toText(previous?.id || previous?.ID);
+        const previousUid = toText(previous?.unique_id || previous?.Unique_ID);
+        if (previousId === normalized.id && previousUid === normalized.unique_id) {
+          return previous;
+        }
+        return normalized;
+      });
+      return undefined;
+    }
+
+    const loadLinkedJob = async () => {
+      const whereField = /^\d+$/.test(linkedValue) ? "id" : "unique_id";
+      const whereValue =
+        whereField === "id" ? Number.parseInt(linkedValue, 10) : linkedValue;
+      const query = plugin
+        .switchTo("PeterpmJob")
+        .query()
+        .where(whereField, whereValue)
+        .deSelectAll()
+        .select(["id", "unique_id"])
+        .include("Property", (propertyQuery) =>
+          propertyQuery.deSelectAll().select(["property_name"])
+        )
+        .limit(1)
+        .noDestroy();
+      query.getOrInitQueryCalc?.();
+      const response = await toPromiseLike(query.fetchDirect());
+      const record = extractRecords(response)?.[0] || null;
+      if (!isActive) return;
+      const normalized = normalizeLinkedJobRecord(record || {});
+      if (!normalized.id && !normalized.unique_id) {
+        setLinkedJobRecord(null);
+        return;
+      }
+      setLinkedJobRecord(normalized);
+    };
+
+    loadLinkedJob().catch(() => {
+      if (!isActive) return;
+      setLinkedJobRecord(null);
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [plugin, relatedJobs, resolvedInquiryJobId, linkedJobUniqueIdFromDeal]);
+
+  const displayedRelatedJobs = useMemo(() => {
+    const jobs = Array.isArray(relatedJobs) ? [...relatedJobs] : [];
+    const linkedJobId = toText(linkedJobRecord?.id || linkedJobRecord?.ID);
+    const linkedJobUid = toText(
+      linkedJobRecord?.unique_id || linkedJobRecord?.Unique_ID
+    );
+    if (!linkedJobId && !linkedJobUid) return jobs;
+    const exists = jobs.some((job) => {
+      const jobId = toText(job?.id || job?.ID);
+      const jobUid = toText(job?.unique_id || job?.Unique_ID);
+      if (linkedJobId && jobId && linkedJobId === jobId) return true;
+      if (linkedJobUid && jobUid && linkedJobUid === jobUid) return true;
+      return false;
+    });
+    if (exists) return jobs;
+    return [linkedJobRecord, ...jobs];
+  }, [relatedJobs, linkedJobRecord]);
+
+  useEffect(() => {
     if (isCompany) {
       setEnquiringAs((previous) => (previous === "government" ? "government" : "business"));
       return;
@@ -802,12 +984,12 @@ export function InquiryInformationSection({
 
   const linkedPropertySource = useMemo(
     () => ({
-      id: toText(linkedJobId),
-      ID: toText(linkedJobId),
+      id: resolvedInquiryJobId,
+      ID: resolvedInquiryJobId,
       property_id: toText(form.property_id),
       Property_ID: toText(form.property_id),
     }),
-    [linkedJobId, form.property_id]
+    [resolvedInquiryJobId, form.property_id]
   );
 
   const {
@@ -871,7 +1053,7 @@ export function InquiryInformationSection({
     (uniqueId) => {
       const uid = toText(uniqueId);
       if (!uid) return;
-      navigate(`/job-details/${encodeURIComponent(uid)}`);
+      navigate(`/details/${encodeURIComponent(uid)}`);
     },
     [navigate]
   );
@@ -925,11 +1107,20 @@ export function InquiryInformationSection({
         }
 
         try {
-          const createdContact = await createContactRecord({
-            plugin,
-            payload: draftRecord,
-          });
-          const contact = addContact(createdContact);
+          const existingContactId = toText(
+            draftRecord?.id || draftRecord?.ID || draftRecord?.Contact_ID
+          );
+          const savedContact = existingContactId
+            ? await updateContactRecord({
+                plugin,
+                id: existingContactId,
+                payload: draftRecord,
+              })
+            : await createContactRecord({
+                plugin,
+                payload: draftRecord,
+              });
+          const contact = addContact(savedContact);
           setForm((prev) => ({
             ...prev,
             account_type: "Contact",
@@ -943,7 +1134,10 @@ export function InquiryInformationSection({
               toText(contact.id)
             )
           );
-          success("Contact created", "New contact was saved.");
+          success(
+            existingContactId ? "Contact updated" : "Contact created",
+            existingContactId ? "Existing contact was updated." : "New contact was saved."
+          );
         } catch (createError) {
           error("Create failed", createError?.message || "Unable to create contact.");
           throw createError;
@@ -1065,7 +1259,7 @@ export function InquiryInformationSection({
             {selectedAccountId ? (
               <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3">
                 <div className="text-sm font-bold text-neutral-700">Related Records</div>
-                {isRelatedRecordsLoading && !relatedDeals.length && !relatedJobs.length ? (
+                {isRelatedRecordsLoading && !relatedDeals.length && !displayedRelatedJobs.length ? (
                   <div className="text-sm text-slate-500">Loading related inquiries and jobs...</div>
                 ) : (
                   <div className="space-y-3">
@@ -1110,24 +1304,63 @@ export function InquiryInformationSection({
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                           Related Jobs
                         </div>
-                        {relatedJobs.length ? (
-                          relatedJobs.slice(0, 12).map((job) => (
-                            <div
-                              key={toText(job?.unique_id)}
-                              className="rounded border border-slate-200 bg-white px-3 py-2 text-sm"
-                            >
-                              <button
-                                type="button"
-                                className="font-semibold text-sky-700 underline"
-                                onClick={() => openRelatedRecord(job?.unique_id)}
+                        {displayedRelatedJobs.length ? (
+                          displayedRelatedJobs.slice(0, 12).map((job) => {
+                            const jobId = toText(job?.id || job?.ID);
+                            const jobUniqueId = toText(job?.unique_id || job?.Unique_ID);
+                            const jobSelectionValue = jobId || jobUniqueId;
+                            const isSelected =
+                              (Boolean(resolvedInquiryJobId) &&
+                                (resolvedInquiryJobId === jobId ||
+                                  resolvedInquiryJobId === jobUniqueId)) ||
+                              (Boolean(linkedJobUniqueIdFromDeal) &&
+                                linkedJobUniqueIdFromDeal === jobUniqueId);
+                            return (
+                              <div
+                                key={toText(job?.id || job?.ID || job?.unique_id)}
+                                className={`w-full rounded border px-3 py-2 text-left text-sm ${
+                                  isSelected
+                                    ? "border-sky-700 bg-sky-50"
+                                    : "border-slate-300 bg-white hover:border-slate-400"
+                                }`}
                               >
-                                {toText(job?.unique_id) || "-"}
-                              </button>
-                              <div className="mt-1 text-xs text-slate-600">
-                                {toText(job?.property_name) || "Property not set"}
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <button
+                                      type="button"
+                                      className="font-semibold text-sky-700 underline"
+                                      onClick={() => openRelatedRecord(job?.unique_id)}
+                                    >
+                                      {toText(job?.unique_id) || "-"}
+                                    </button>
+                                    <div className="mt-1 text-xs text-slate-600">
+                                      {toText(job?.property_name) || "Property not set"}
+                                    </div>
+                                  </div>
+                                  <input
+                                    type="radio"
+                                    name="inquiry-linked-job"
+                                    className="mt-0.5 h-4 w-4 accent-[#003882]"
+                                    value={jobSelectionValue}
+                                    checked={isSelected}
+                                    disabled={!jobSelectionValue}
+                                    onChange={() => {
+                                      if (!jobSelectionValue) return;
+                                      setForm((previous) =>
+                                        toText(previous.inquiry_for_job_id) === jobSelectionValue
+                                          ? previous
+                                          : {
+                                              ...previous,
+                                              inquiry_for_job_id: jobSelectionValue,
+                                            }
+                                      );
+                                    }}
+                                    aria-label={`Link inquiry to job ${toText(job?.unique_id) || ""}`}
+                                  />
+                                </div>
                               </div>
-                            </div>
-                          ))
+                            );
+                          })
                         ) : (
                           <div className="text-xs text-slate-500">
                             {isRelatedRecordsLoading
@@ -1232,8 +1465,8 @@ export function InquiryInformationSection({
     <ServiceProviderTabSection
       plugin={plugin}
       jobData={{
-        id: toText(linkedJobId),
-        ID: toText(linkedJobId),
+        id: resolvedInquiryJobId,
+        ID: resolvedInquiryJobId,
         primary_service_provider_id: toText(form.service_provider_id),
         Primary_Service_Provider_ID: toText(form.service_provider_id),
       }}
@@ -1369,7 +1602,7 @@ export function InquiryInformationSection({
   const renderAppointmentsTab = () => (
     <AppointmentTabSection
       plugin={plugin}
-      jobData={{ id: toText(linkedJobId), ID: toText(linkedJobId) }}
+      jobData={{ id: resolvedInquiryJobId, ID: resolvedInquiryJobId }}
       preloadedLookupData={preloadedLookupData}
       onCountChange={setAppointmentCount}
       inquiryRecordId={toText(inquiryId)}
@@ -1385,7 +1618,7 @@ export function InquiryInformationSection({
     <PropertyTabSection
       plugin={plugin}
       preloadedLookupData={preloadedLookupData}
-      quoteJobId={toText(linkedJobId)}
+      quoteJobId={resolvedInquiryJobId}
       inquiryId={toText(inquiryId)}
       currentPropertyId={effectivePropertyId}
       onOpenContactDetailsModal={onOpenContactDetailsModal}
@@ -1435,7 +1668,7 @@ export function InquiryInformationSection({
             await emitAnnouncement({
               plugin,
               eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_CREATED,
-              quoteJobId: toText(linkedJobId),
+              quoteJobId: resolvedInquiryJobId,
               inquiryId: toText(inquiryId),
               focusId: nextId || normalizePropertyId(savedProperty?.id || draftProperty?.id),
               dedupeEntityId: nextId || normalizePropertyId(savedProperty?.id || draftProperty?.id),
@@ -1494,7 +1727,7 @@ export function InquiryInformationSection({
             await emitAnnouncement({
               plugin,
               eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_UPDATED,
-              quoteJobId: toText(linkedJobId),
+              quoteJobId: resolvedInquiryJobId,
               inquiryId: toText(inquiryId),
               focusId: nextId || editableId,
               dedupeEntityId: nextId || editableId,
@@ -1616,14 +1849,9 @@ export function InquiryInformationSection({
             onChange={handleFieldChange("expected_win")}
             placeholder="0"
           />
-          <InputField
+          <ReadOnlyValueField
             label="Weighted Value"
-            field="weighted_value"
             value={form.weighted_value}
-            readOnly
-            disabled
-            inputClassName="cursor-not-allowed bg-slate-100 text-slate-500"
-            placeholder="0.00"
           />
         </div>
       </Card>
@@ -1637,14 +1865,9 @@ export function InquiryInformationSection({
             value={form.expected_close_date}
             onChange={handleFieldChange("expected_close_date")}
           />
-          <InputField
+          <ReadOnlyValueField
             label="Actual Close Date"
-            type="date"
-            field="actual_close_date"
             value={form.actual_close_date}
-            readOnly
-            disabled
-            inputClassName="cursor-not-allowed bg-slate-100 text-slate-500"
           />
         </div>
       </Card>
@@ -1685,6 +1908,7 @@ export function InquiryInformationSection({
   return (
     <section data-section="job-information" className="space-y-4">
       <input type="hidden" data-field="property_id" value={toText(effectivePropertyId)} readOnly />
+      <input type="hidden" data-field="inquiry_for_job_id" value={resolvedInquiryJobId} readOnly />
       <input
         type="hidden"
         data-field="service_provider_id"

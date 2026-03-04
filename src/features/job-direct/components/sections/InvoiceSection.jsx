@@ -276,6 +276,43 @@ function hasRenderableActivityRecord(record = {}) {
   );
 }
 
+function activityTaskGroupKey(record = {}) {
+  return normalizeStatus(record?.task || record?.Task);
+}
+
+function normalizeSelectedActivityIdsByTask(selectedIds = [], activities = []) {
+  const uniqueIds = Array.from(
+    new Set((selectedIds || []).map((value) => toText(value)).filter(Boolean))
+  );
+  if (!uniqueIds.length) return [];
+
+  const activityById = new Map();
+  (Array.isArray(activities) ? activities : []).forEach((record) => {
+    const id = toText(record?.id || record?.ID);
+    if (!id) return;
+    activityById.set(id, record);
+  });
+
+  const seenTaskGroups = new Set();
+  const normalized = [];
+  uniqueIds.forEach((id) => {
+    const record = activityById.get(id);
+    const groupKey = activityTaskGroupKey(record);
+    if (groupKey && seenTaskGroups.has(groupKey)) return;
+    if (groupKey) seenTaskGroups.add(groupKey);
+    normalized.push(id);
+  });
+  return normalized;
+}
+
+function areTextArraysEqual(a = [], b = []) {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (toText(a[index]) !== toText(b[index])) return false;
+  }
+  return true;
+}
+
 function buildAccountSummary(job = {}) {
   const accountType =
     normalizeStatus(job?.account_type || job?.Account_Type) === "company"
@@ -550,15 +587,27 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
   useEffect(() => {
     if (invoiceDirty) return;
     if (Array.isArray(storeActivities) && storeActivities.length) {
-      setSelectedActivityIds(defaultInvoiceActivityIds);
+      setSelectedActivityIds(
+        normalizeSelectedActivityIdsByTask(defaultInvoiceActivityIds, activeActivities)
+      );
       return;
     }
     const preselectedIds = activeActivities
       .filter((record) => isTrue(record?.invoice_to_client || record?.Invoice_to_Client))
       .map((record) => toText(record?.id || record?.ID))
       .filter(Boolean);
-    setSelectedActivityIds(preselectedIds);
+    setSelectedActivityIds(
+      normalizeSelectedActivityIdsByTask(preselectedIds, activeActivities)
+    );
   }, [activeActivities, defaultInvoiceActivityIds, invoiceDirty, storeActivities]);
+
+  useEffect(() => {
+    setSelectedActivityIds((previous) => {
+      const normalized = normalizeSelectedActivityIdsByTask(previous, activeActivities);
+      if (areTextArraysEqual(previous, normalized)) return previous;
+      return normalized;
+    });
+  }, [activeActivities]);
 
   useEffect(() => {
     if (typeof onExternalUnsavedChange !== "function") return;
@@ -605,13 +654,27 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
     const normalized = toText(activityId);
     if (!normalized) return;
     setSelectedActivityIds((previous) => {
-      const nextSet = new Set(previous.map((item) => toText(item)).filter(Boolean));
+      let nextIds = Array.from(
+        new Set(previous.map((item) => toText(item)).filter(Boolean))
+      );
       if (checked) {
-        nextSet.add(normalized);
+        const selectedRecord = activeActivities.find(
+          (record) => toText(record?.id || record?.ID) === normalized
+        );
+        const selectedGroup = activityTaskGroupKey(selectedRecord);
+        if (selectedGroup) {
+          nextIds = nextIds.filter((id) => {
+            const record = activeActivities.find(
+              (candidate) => toText(candidate?.id || candidate?.ID) === id
+            );
+            return activityTaskGroupKey(record) !== selectedGroup;
+          });
+        }
+        nextIds.push(normalized);
       } else {
-        nextSet.delete(normalized);
+        nextIds = nextIds.filter((id) => id !== normalized);
       }
-      return Array.from(nextSet);
+      return normalizeSelectedActivityIdsByTask(nextIds, activeActivities);
     });
     setInvoiceDirty(true);
   };

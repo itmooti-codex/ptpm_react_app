@@ -661,7 +661,7 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
         return;
       }
       if (!jobId) {
-        error("Missing job", "Job ID is required to save activities.");
+        error("Create failed", "Job does not exist.");
         return;
       }
 
@@ -936,7 +936,7 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
               <Button type="button" variant="ghost" onClick={resetForm} disabled={isSubmitting}>
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" disabled={isSubmitting || !jobId}>
+              <Button type="submit" variant="primary" disabled={isSubmitting}>
                 {isSubmitting ? "Saving..." : isEditing ? "Update" : "Add"}
               </Button>
             </JobDirectFormActionsRow>

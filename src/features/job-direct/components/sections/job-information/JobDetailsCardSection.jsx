@@ -7,7 +7,11 @@ import {
   PRIORITY_OPTIONS,
 } from "../../../constants/options.js";
 import { useContactEntityLookupData } from "../../../hooks/useContactEntityLookupData.js";
-import { createCompanyRecord, createContactRecord } from "../../../sdk/jobDirectSdk.js";
+import {
+  createCompanyRecord,
+  createContactRecord,
+  updateContactRecord,
+} from "../../../sdk/jobDirectSdk.js";
 import {
   ColorMappedSelectInput,
   SearchDropdownInput,
@@ -199,11 +203,20 @@ export function JobDetailsCardSection({
           return;
         }
 
-        const createdContact = await createContactRecord({
-          plugin,
-          payload: draftRecord,
-        });
-        const contact = addContact(createdContact);
+        const existingContactId = String(
+          draftRecord?.id || draftRecord?.ID || draftRecord?.Contact_ID || ""
+        ).trim();
+        const savedContact = existingContactId
+          ? await updateContactRecord({
+              plugin,
+              id: existingContactId,
+              payload: draftRecord,
+            })
+          : await createContactRecord({
+              plugin,
+              payload: draftRecord,
+            });
+        const contact = addContact(savedContact);
         setContactType("individual");
         setSelectedClientId(contact.id || "");
         setClientQuery(
@@ -214,7 +227,10 @@ export function JobDetailsCardSection({
             contact.id || ""
           )
         );
-        success("Contact created", "New contact was saved.");
+        success(
+          existingContactId ? "Contact updated" : "Contact created",
+          existingContactId ? "Existing contact was updated." : "New contact was saved."
+        );
       },
     });
   };

@@ -220,6 +220,23 @@ function nowEpochSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
+function resolvePublishDateTime(value) {
+  const text = toText(value);
+  if (!text) return nowEpochSeconds();
+  if (/^\d+$/.test(text)) {
+    const numeric = Number.parseInt(text, 10);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric > 9_999_999_999 ? Math.floor(numeric / 1000) : numeric;
+    }
+    return nowEpochSeconds();
+  }
+  const parsed = Date.parse(text);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.floor(parsed / 1000);
+  }
+  return nowEpochSeconds();
+}
+
 function cleanupDedupeCache(nowMs) {
   for (const [key, timestamp] of dedupeCache.entries()) {
     if (nowMs - timestamp >= DEDUPE_TTL_MS) {
@@ -453,7 +470,7 @@ export async function emitAnnouncement({
   const payload = {
     status: "Published",
     title: toText(title || config.title) || "Announcement",
-    publish_date_time: nowEpochSeconds(),
+    publish_date_time: resolvePublishDateTime(nowEpochSeconds()),
     type: toText(type || config.type) || ANNOUNCEMENT_TYPES.ACTIVITY,
     content: toText(content || config.content),
     quote_job_id: normalizeId(resolvedQuoteJobId) || null,

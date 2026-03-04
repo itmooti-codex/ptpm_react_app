@@ -464,6 +464,7 @@ export function JobDirectLayout({
       <ContactDetailsModal
         open={modals[MODAL_KEYS.contactDetails]}
         mode={contactDetailsContext.mode}
+        plugin={plugin}
         onSave={(record) => {
           if (typeof contactDetailsContext.onSave === "function") {
             return contactDetailsContext.onSave(record);
@@ -476,6 +477,7 @@ export function JobDirectLayout({
       <AddPropertyModal
         open={modals[MODAL_KEYS.addProperty]}
         initialData={addPropertyContext.initialData}
+        plugin={plugin}
         onSave={(record) => {
           if (typeof addPropertyContext.onSave === "function") {
             return addPropertyContext.onSave(record);

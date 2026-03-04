@@ -475,7 +475,7 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
         return;
       }
       if (!jobId) {
-        error("Missing job", "Job ID is required to save materials.");
+        error("Create failed", "Job does not exist.");
         return;
       }
       if (!toText(form.material_name)) {
@@ -796,7 +796,7 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
               <Button type="button" variant="ghost" onClick={resetForm} disabled={isSubmitting}>
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" disabled={isSubmitting || !jobId}>
+              <Button type="submit" variant="primary" disabled={isSubmitting}>
                 {isSubmitting
                   ? submitStage === "uploading"
                     ? "Uploading..."

@@ -19,7 +19,12 @@ import {
   isPersistedId,
   normalizeObjectList,
 } from "../../job-direct/sdk/utils/sdkResponseUtils.js";
-import { updateInquiryFieldsById } from "../../job-details/sdk/jobDetailsSdk.js";
+import {
+  fetchInquiryByUid,
+  fetchJobByUid,
+  fetchLinkedJobForInquiry,
+  updateInquiryFieldsById,
+} from "../../job-details/sdk/jobDetailsSdk.js";
 
 const INQUIRY_SECTION_ORDER = ["job-information", "uploads"];
 const INQUIRY_SECTION_LABELS = {
@@ -41,6 +46,7 @@ const EMPTY_DRAFT = {
   service_provider_id: "",
   client_notes: "",
   property_id: "",
+  inquiry_for_job_id: "",
   inquiry_status: "New Inquiry",
   inquiry_source: "",
   type: "",
@@ -243,6 +249,13 @@ function mapRecordToDraft(record = {}) {
     service_provider_id: toText(record?.service_provider_id || record?.Service_Provider_ID),
     client_notes: toText(record?.client_notes || record?.Client_Notes),
     property_id: toText(record?.property_id || record?.Property_ID),
+    inquiry_for_job_id: toText(
+      record?.inquiry_for_job_id ||
+        record?.Inquiry_For_Job_ID ||
+        record?.Inquiry_for_Job_ID ||
+        record?.quote_record_id ||
+        record?.Quote_Record_ID
+    ),
     inquiry_status: toText(record?.inquiry_status || record?.Inquiry_Status) || "New Inquiry",
     inquiry_source: toText(record?.inquiry_source || record?.Inquiry_Source),
     type: toText(record?.type || record?.Type),
@@ -321,6 +334,65 @@ async function createInquiryRecord({ plugin, payload = null } = {}) {
   };
 }
 
+async function resolveLinkedJobIdForPayload({ plugin, linkedJobValue } = {}) {
+  const normalizedValue = toText(linkedJobValue);
+  if (!normalizedValue) return null;
+  if (/^\d+$/.test(normalizedValue)) {
+    return Number.parseInt(normalizedValue, 10);
+  }
+  if (!plugin?.switchTo) return null;
+
+  const resolveByJobField = async (field) => {
+    const query = plugin
+      .switchTo("PeterpmJob")
+      .query()
+      .where(field, normalizedValue)
+      .deSelectAll()
+      .select(["id"])
+      .limit(1)
+      .noDestroy();
+    query.getOrInitQueryCalc?.();
+    const result = await toPromiseLike(query.fetchDirect());
+    const record = extractFirstRecord(result);
+    return normalizeId(record?.id || record?.ID);
+  };
+
+  try {
+    const directById = await resolveByJobField("id");
+    if (directById) return directById;
+  } catch (_) {
+    // Fallbacks below.
+  }
+
+  try {
+    const jobByUid = await fetchJobByUid({ plugin, uid: normalizedValue });
+    const resolvedByUid = normalizeId(jobByUid?.id || jobByUid?.ID);
+    if (resolvedByUid) return resolvedByUid;
+  } catch (_) {
+    // Fallbacks below.
+  }
+
+  try {
+    const directByUniqueId = await resolveByJobField("unique_id");
+    if (directByUniqueId) return directByUniqueId;
+  } catch (_) {
+    // Fallbacks below.
+  }
+
+  try {
+    const inquiryByUid = await fetchInquiryByUid({ plugin, uid: normalizedValue });
+    if (inquiryByUid) {
+      const linkedJob = await fetchLinkedJobForInquiry({ plugin, inquiry: inquiryByUid });
+      const linkedJobId = normalizeId(linkedJob?.id || linkedJob?.ID);
+      if (linkedJobId) return linkedJobId;
+    }
+  } catch (error) {
+    console.error("[InquiryDirect] Failed resolving linked job ID", error);
+  }
+
+  return null;
+}
+
 function buildDealPayloadFromDraft(draft = {}) {
   const accountType = normalizeAccountType(draft?.account_type);
   const clientId = toText(draft?.client_id);
@@ -338,6 +410,7 @@ function buildDealPayloadFromDraft(draft = {}) {
     service_provider_id: normalizeId(draft?.service_provider_id),
     client_notes: toNullableText(draft?.client_notes),
     property_id: normalizeId(draft?.property_id),
+    inquiry_for_job_id: null,
     inquiry_status: toNullableText(draft?.inquiry_status),
     inquiry_source: toNullableText(draft?.inquiry_source),
     type: toNullableText(draft?.type),
@@ -503,16 +576,30 @@ export function InquiryDirectPage() {
     }
 
     const payload = buildDealPayloadFromDraft(inquiryDraft);
+    const linkedJobDraftValue = toText(inquiryDraft?.inquiry_for_job_id);
+    const resolvedLinkedJobId = await resolveLinkedJobIdForPayload({
+      plugin,
+      linkedJobValue: linkedJobDraftValue,
+    });
+    if (linkedJobDraftValue && !resolvedLinkedJobId) {
+      console.warn(
+        `[InquiryDirect] Could not resolve linked job "${linkedJobDraftValue}" to a numeric record ID. Saving fallback value.`
+      );
+    }
+    payload.inquiry_for_job_id =
+      resolvedLinkedJobId ?? normalizeId(linkedJobDraftValue);
     const existingId = toText(resolvedInquiry?.id);
     const nextPropertyId = toText(payload?.property_id);
     const previousPropertyId = toText(
       resolvedInquiry?.raw?.property_id || resolvedInquiry?.raw?.Property_ID
     );
-    const linkedQuoteJobId = toText(
-      resolvedInquiry?.raw?.quote_record_id ||
-        resolvedInquiry?.raw?.Quote_Record_ID ||
+    const linkedJobId = toText(
+      payload?.inquiry_for_job_id ||
         resolvedInquiry?.raw?.inquiry_for_job_id ||
-        resolvedInquiry?.raw?.Inquiry_for_Job_ID
+        resolvedInquiry?.raw?.Inquiry_For_Job_ID ||
+        resolvedInquiry?.raw?.Inquiry_for_Job_ID ||
+        resolvedInquiry?.raw?.quote_record_id ||
+        resolvedInquiry?.raw?.Quote_Record_ID
     );
     const serviceProviderId = toText(payload?.service_provider_id);
     if (existingId) {
@@ -525,7 +612,7 @@ export function InquiryDirectPage() {
         await emitAnnouncement({
           plugin,
           eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_LINKED,
-          quoteJobId: linkedQuoteJobId,
+          quoteJobId: linkedJobId,
           inquiryId: existingId,
           serviceProviderId,
           focusId: nextPropertyId,
@@ -546,10 +633,11 @@ export function InquiryDirectPage() {
         plugin,
         eventKey: ANNOUNCEMENT_EVENT_KEYS.PROPERTY_LINKED,
         quoteJobId: toText(
-          created?.raw?.quote_record_id ||
-            created?.raw?.Quote_Record_ID ||
-            created?.raw?.inquiry_for_job_id ||
-            created?.raw?.Inquiry_for_Job_ID
+          created?.raw?.inquiry_for_job_id ||
+            created?.raw?.Inquiry_For_Job_ID ||
+            created?.raw?.Inquiry_for_Job_ID ||
+            created?.raw?.quote_record_id ||
+            created?.raw?.Quote_Record_ID
         ),
         inquiryId: toText(created?.id),
         serviceProviderId,
@@ -592,15 +680,21 @@ export function InquiryDirectPage() {
     });
   }, [plugin, resolvedInquiry?.id, inquiryDraft?.service_provider_id]);
 
-  const linkedJobId = useMemo(
+  const persistedLinkedJobId = useMemo(
     () =>
       toText(
-        resolvedInquiry?.raw?.quote_record_id ||
-          resolvedInquiry?.raw?.Quote_Record_ID ||
-          resolvedInquiry?.raw?.inquiry_for_job_id ||
-          resolvedInquiry?.raw?.Inquiry_for_Job_ID
+        resolvedInquiry?.raw?.inquiry_for_job_id ||
+          resolvedInquiry?.raw?.Inquiry_For_Job_ID ||
+          resolvedInquiry?.raw?.Inquiry_for_Job_ID ||
+          resolvedInquiry?.raw?.quote_record_id ||
+          resolvedInquiry?.raw?.Quote_Record_ID
       ),
     [resolvedInquiry]
+  );
+
+  const linkedJobIdForUploads = useMemo(
+    () => toText(inquiryDraft?.inquiry_for_job_id || persistedLinkedJobId),
+    [inquiryDraft?.inquiry_for_job_id, persistedLinkedJobId]
   );
 
   const InquiryInfoBridge = useMemo(
@@ -613,11 +707,18 @@ export function InquiryDirectPage() {
             onDraftChange={handleDraftChange}
             inquiryId={toText(resolvedInquiry?.id)}
             inquiryUid={toText(resolvedInquiry?.unique_id || inquiryUid)}
-            linkedJobId={linkedJobId}
+            linkedJobId={persistedLinkedJobId}
           />
         );
       },
-    [initialValues, handleDraftChange, resolvedInquiry?.id, resolvedInquiry?.unique_id, inquiryUid, linkedJobId]
+    [
+      initialValues,
+      handleDraftChange,
+      resolvedInquiry?.id,
+      resolvedInquiry?.unique_id,
+      inquiryUid,
+      persistedLinkedJobId,
+    ]
   );
 
   if (sdkError) {
@@ -687,7 +788,7 @@ export function InquiryDirectPage() {
               uploadsMode: "inquiry",
               inquiryId: toText(resolvedInquiry?.id),
               inquiryUid: toText(resolvedInquiry?.unique_id || inquiryUid),
-              linkedJobId: toText(linkedJobId),
+              linkedJobId: toText(linkedJobIdForUploads),
             }}
             showDealInfoButton={false}
             runtimeModalProps={{

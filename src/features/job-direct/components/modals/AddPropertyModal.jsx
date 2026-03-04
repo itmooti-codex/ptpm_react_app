@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useGoogleAddressLookup } from "../../../../shared/hooks/useGoogleAddressLookup.js";
 import { Button } from "../../../../shared/components/ui/Button.jsx";
 import { CheckboxField } from "../../../../shared/components/ui/CheckboxField.jsx";
@@ -6,6 +6,7 @@ import { InputField } from "../../../../shared/components/ui/InputField.jsx";
 import { SelectField } from "../../../../shared/components/ui/SelectField.jsx";
 import { Modal } from "../../../../shared/components/ui/Modal.jsx";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
+import { findPropertyByName } from "../../sdk/jobDirectSdk.js";
 
 const STATE_OPTIONS = [
   { value: "NSW", label: "NSW" },
@@ -229,14 +230,19 @@ function AccordionSection({ title, isOpen, onToggle, children }) {
   );
 }
 
-export function AddPropertyModal({ open, onClose, onSave, initialData = null }) {
+export function AddPropertyModal({ open, onClose, onSave, initialData = null, plugin = null }) {
   const { error: showErrorToast } = useToast();
   const [form, setForm] = useState(INITIAL_FORM);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [existingPropertyRecord, setExistingPropertyRecord] = useState(null);
   const [openSections, setOpenSections] = useState({
     information: true,
     description: true,
+  });
+  const existingLookupRef = useRef({
+    requestKey: "",
+    matchedId: "",
   });
   const isEditing = Boolean(initialData && Object.keys(initialData).length);
 
@@ -245,8 +251,62 @@ export function AddPropertyModal({ open, onClose, onSave, initialData = null }) 
     setIsSaving(false);
     setSaveError("");
     setOpenSections({ information: true, description: true });
+    setExistingPropertyRecord(null);
+    existingLookupRef.current = {
+      requestKey: "",
+      matchedId: "",
+    };
     setForm(mapInitialDataToForm(initialData));
   }, [open, initialData]);
+
+  useEffect(() => {
+    if (!open || isEditing || !plugin?.switchTo) return undefined;
+
+    const targetName = trimValue(form.property_name);
+    if (!targetName) {
+      setExistingPropertyRecord(null);
+      if (existingLookupRef.current.matchedId) {
+        existingLookupRef.current.matchedId = "";
+        setForm((previous) => (trimValue(previous.id) ? { ...previous, id: "" } : previous));
+      }
+      return undefined;
+    }
+
+    existingLookupRef.current.requestKey = targetName.toLowerCase();
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const matched = await findPropertyByName({ plugin, propertyName: targetName });
+        if (existingLookupRef.current.requestKey !== targetName.toLowerCase()) return;
+        const matchedId = trimValue(matched?.id || matched?.ID || matched?.Property_ID);
+        if (!matchedId) {
+          setExistingPropertyRecord(null);
+          if (existingLookupRef.current.matchedId) {
+            existingLookupRef.current.matchedId = "";
+            setForm((previous) => (trimValue(previous.id) ? { ...previous, id: "" } : previous));
+          }
+          return;
+        }
+        existingLookupRef.current.matchedId = matchedId;
+        setExistingPropertyRecord(matched);
+        setForm((previous) => {
+          if (trimValue(previous.id) === matchedId) return previous;
+          const mapped = mapInitialDataToForm(matched);
+          return {
+            ...previous,
+            ...mapped,
+            property_name: trimValue(mapped.property_name || targetName) || targetName,
+          };
+        });
+      } catch (lookupError) {
+        if (existingLookupRef.current.requestKey !== targetName.toLowerCase()) return;
+        console.error("[JobDirect] Property duplicate lookup failed", lookupError);
+      }
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [open, isEditing, plugin, form.property_name]);
 
   const updateField = (field) => (event) => {
     const nextValue = event.target.type === "checkbox" ? event.target.checked : event.target.value;
@@ -369,13 +429,19 @@ export function AddPropertyModal({ open, onClose, onSave, initialData = null }) 
             data-property-field="address_lookup"
           />
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <InputField
-              label="Property Name"
-              value={form.property_name}
-              onChange={updateField("property_name")}
-              className="md:col-span-2"
-              data-property-field="property_name"
-            />
+            <div className="md:col-span-2">
+              <InputField
+                label="Property Name"
+                value={form.property_name}
+                onChange={updateField("property_name")}
+                data-property-field="property_name"
+              />
+              {!isEditing && trimValue(existingPropertyRecord?.id || existingPropertyRecord?.ID) ? (
+                <div className="mt-1 text-xs text-amber-700">
+                  This property already exists. Saving will update the existing property.
+                </div>
+              ) : null}
+            </div>
             <InputField
               label="Lot Number"
               value={form.lot_number}

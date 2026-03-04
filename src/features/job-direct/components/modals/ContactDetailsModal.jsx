@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useGoogleAddressLookup } from "../../../../shared/hooks/useGoogleAddressLookup.js";
 import { Button } from "../../../../shared/components/ui/Button.jsx";
 import { CheckboxField } from "../../../../shared/components/ui/CheckboxField.jsx";
@@ -6,6 +6,7 @@ import { InputField } from "../../../../shared/components/ui/InputField.jsx";
 import { SelectField } from "../../../../shared/components/ui/SelectField.jsx";
 import { Modal } from "../../../../shared/components/ui/Modal.jsx";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
+import { findContactByEmail } from "../../sdk/jobDirectSdk.js";
 
 const STATE_OPTIONS = [
   { value: "NSW", label: "NSW" },
@@ -81,6 +82,7 @@ const COMPANY_EMPLOYEE_COUNT_OPTIONS = [
 ];
 
 const INITIAL_FORM = {
+  id: "",
   company_name: "",
   company_type: "",
   company_description: "",
@@ -138,6 +140,41 @@ function trimValue(value) {
   return String(value || "").trim();
 }
 
+function mapContactRecordToForm(record = {}, previous = INITIAL_FORM) {
+  return {
+    ...previous,
+    id: trimValue(record?.id || record?.ID || record?.Contact_ID),
+    first_name: trimValue(record?.first_name || record?.First_Name || previous.first_name),
+    last_name: trimValue(record?.last_name || record?.Last_Name || previous.last_name),
+    email: trimValue(record?.email || record?.Email || previous.email),
+    sms_number: trimValue(
+      record?.sms_number ||
+        record?.SMS_Number ||
+        record?.office_phone ||
+        record?.Office_Phone ||
+        previous.sms_number
+    ),
+    lot_number: trimValue(record?.lot_number || record?.Lot_Number || previous.lot_number),
+    unit_number: trimValue(record?.unit_number || record?.Unit_Number || previous.unit_number),
+    address: trimValue(record?.address || record?.Address || previous.address),
+    city: trimValue(record?.city || record?.City || previous.city),
+    state: trimValue(record?.state || record?.State || previous.state),
+    zip_code: trimValue(record?.zip_code || record?.Zip_Code || previous.zip_code),
+    country: trimValue(record?.country || record?.Country || previous.country || "AU") || "AU",
+    postal_address: trimValue(
+      record?.postal_address || record?.Postal_Address || previous.postal_address
+    ),
+    postal_city: trimValue(record?.postal_city || record?.Postal_City || previous.postal_city),
+    postal_state: trimValue(
+      record?.postal_state || record?.Postal_State || previous.postal_state
+    ),
+    postal_country: trimValue(
+      record?.postal_country || record?.Postal_Country || previous.postal_country || "AU"
+    ) || "AU",
+    postal_code: trimValue(record?.postal_code || record?.Postal_Code || previous.postal_code),
+  };
+}
+
 function AccordionSection({ title, isOpen, onToggle, children }) {
   return (
     <section className="rounded border border-slate-200 bg-white">
@@ -161,18 +198,23 @@ function AccordionSection({ title, isOpen, onToggle, children }) {
   );
 }
 
-export function ContactDetailsModal({ open, onClose, mode = "individual", onSave }) {
+export function ContactDetailsModal({ open, onClose, mode = "individual", onSave, plugin = null }) {
   const { error: showErrorToast } = useToast();
   const [form, setForm] = useState(INITIAL_FORM);
   const [sameAsAddress, setSameAsAddress] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [existingContactRecord, setExistingContactRecord] = useState(null);
   const [openSections, setOpenSections] = useState({
     company: true,
     companyAddress: true,
     basic: true,
     address: true,
     postal: true,
+  });
+  const existingLookupRef = useRef({
+    requestKey: "",
+    matchedId: "",
   });
   const isEntity = mode === "entity";
 
@@ -188,12 +230,61 @@ export function ContactDetailsModal({ open, onClose, mode = "individual", onSave
       address: true,
       postal: true,
     });
+    setExistingContactRecord(null);
+    existingLookupRef.current = {
+      requestKey: "",
+      matchedId: "",
+    };
     setForm({
       ...INITIAL_FORM,
       country: "AU",
       postal_country: "AU",
     });
   }, [open, isEntity]);
+
+  useEffect(() => {
+    if (!open || isEntity || !plugin?.switchTo) return undefined;
+
+    const normalizedEmail = trimValue(form.email).toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes("@")) {
+      setExistingContactRecord(null);
+      if (existingLookupRef.current.matchedId) {
+        existingLookupRef.current.matchedId = "";
+        setForm((previous) => (trimValue(previous.id) ? { ...previous, id: "" } : previous));
+      }
+      return undefined;
+    }
+
+    existingLookupRef.current.requestKey = normalizedEmail;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const matched = await findContactByEmail({ plugin, email: normalizedEmail });
+        if (existingLookupRef.current.requestKey !== normalizedEmail) return;
+        const matchedId = trimValue(matched?.id || matched?.ID || matched?.Contact_ID);
+        if (!matchedId) {
+          setExistingContactRecord(null);
+          if (existingLookupRef.current.matchedId) {
+            existingLookupRef.current.matchedId = "";
+            setForm((previous) => (trimValue(previous.id) ? { ...previous, id: "" } : previous));
+          }
+          return;
+        }
+        existingLookupRef.current.matchedId = matchedId;
+        setExistingContactRecord(matched);
+        setForm((previous) => {
+          if (trimValue(previous.id) === matchedId) return previous;
+          return mapContactRecordToForm(matched, previous);
+        });
+      } catch (lookupError) {
+        if (existingLookupRef.current.requestKey !== normalizedEmail) return;
+        console.error("[JobDirect] Contact duplicate lookup failed", lookupError);
+      }
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [open, isEntity, plugin, form.email]);
 
   const updateField =
     (field, { syncToPostal = false } = {}) =>
@@ -268,6 +359,7 @@ export function ContactDetailsModal({ open, onClose, mode = "individual", onSave
     }
 
     const contactPayload = {
+      id: trimValue(form.id),
       first_name: trimValue(form.first_name),
       last_name: trimValue(form.last_name),
       email: trimValue(form.email),
@@ -518,18 +610,27 @@ export function ContactDetailsModal({ open, onClose, mode = "individual", onSave
               onChange={updateField("last_name")}
               data-contact-field="last_name"
             />
-            <InputField
-              label="Email"
-              value={form.email}
-              onChange={updateField("email")}
-              data-contact-field="email"
-            />
-            <InputField
-              label="SMS Number"
-              value={form.sms_number}
-              onChange={updateField("sms_number")}
-              data-contact-field="sms_number"
-            />
+            <div>
+              <InputField
+                label="Email"
+                value={form.email}
+                onChange={updateField("email")}
+                data-contact-field="email"
+              />
+              {!isEntity && trimValue(existingContactRecord?.id || existingContactRecord?.ID) ? (
+                <div className="mt-1 text-xs text-amber-700">
+                  This contact already exists. Saving will update the existing contact.
+                </div>
+              ) : null}
+            </div>
+            <div>
+              <InputField
+                label="SMS Number"
+                value={form.sms_number}
+                onChange={updateField("sms_number")}
+                data-contact-field="sms_number"
+              />
+            </div>
           </div>
         </AccordionSection>
 

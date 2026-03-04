@@ -796,6 +796,71 @@ export function subscribeAppointmentsByJobId({ plugin, jobId, onChange, onError 
   });
 }
 
+const CONTACT_LOOKUP_SELECT_FIELDS = [
+  "id",
+  "first_name",
+  "last_name",
+  "email",
+  "sms_number",
+  "office_phone",
+];
+
+const CONTACT_DUPLICATE_LOOKUP_SELECT_FIELDS = [
+  "id",
+  "first_name",
+  "last_name",
+  "email",
+  "sms_number",
+  "office_phone",
+  "lot_number",
+  "unit_number",
+  "address",
+  "city",
+  "state",
+  "zip_code",
+  "country",
+  "postal_address",
+  "postal_city",
+  "postal_state",
+  "postal_country",
+  "postal_code",
+];
+
+const PROPERTY_LOOKUP_SELECT_FIELDS = [
+  "id",
+  "unique_id",
+  "property_name",
+  "lot_number",
+  "unit_number",
+  "address_1",
+  "address_2",
+  "address",
+  "city",
+  "suburb_town",
+  "state",
+  "postal_code",
+  "zip_code",
+  "country",
+  "property_type",
+  "building_type",
+  "building_type_other",
+  "foundation_type",
+  "bedrooms",
+  "manhole",
+  "stories",
+  "building_age",
+  "building_features",
+  "building_features_options_as_text",
+];
+
+function normalizeSearchEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeSearchName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 export async function fetchContactsForSearch({ plugin } = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
   if (!resolvedPlugin?.switchTo) return [];
@@ -805,7 +870,7 @@ export async function fetchContactsForSearch({ plugin } = {}) {
       .switchTo("PeterpmContact")
       .query()
       .deSelectAll()
-      .select(["id", "first_name", "last_name", "email", "sms_number", "office_phone"])
+      .select(CONTACT_LOOKUP_SELECT_FIELDS)
       .noDestroy();
     query.getOrInitQueryCalc?.();
     const response = await fetchDirectWithTimeout(query, null, 30000);
@@ -828,7 +893,7 @@ export function subscribeContactsForSearch({ plugin, onChange, onError } = {}) {
     .switchTo("PeterpmContact")
     .query()
     .deSelectAll()
-    .select(["id", "first_name", "last_name", "email", "sms_number", "office_phone"])
+    .select(CONTACT_LOOKUP_SELECT_FIELDS)
     .noDestroy();
   query.getOrInitQueryCalc?.();
 
@@ -841,6 +906,59 @@ export function subscribeContactsForSearch({ plugin, onChange, onError } = {}) {
       onError?.(error);
     },
   });
+}
+
+export async function findContactByEmail({ plugin, email } = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) return null;
+
+  const rawEmail = String(email || "").trim();
+  const targetEmail = normalizeSearchEmail(rawEmail);
+  if (!targetEmail) return null;
+
+  try {
+    const directQuery = resolvedPlugin
+      .switchTo("PeterpmContact")
+      .query()
+      .where("email", rawEmail)
+      .deSelectAll()
+      .select(CONTACT_DUPLICATE_LOOKUP_SELECT_FIELDS)
+      .limit(1)
+      .noDestroy();
+    directQuery.getOrInitQueryCalc?.();
+    const directResponse = await fetchDirectWithTimeout(directQuery, null, 10000);
+    const directRecord = extractFirstRecord(directResponse);
+    if (directRecord) return directRecord;
+  } catch (error) {
+    if (!isTimeoutError(error)) {
+      console.warn("[JobDirect] Direct email lookup failed; falling back to cached search", error);
+    }
+  }
+
+  try {
+    const contacts = await fetchContactsForSearch({ plugin: resolvedPlugin });
+    const match = (Array.isArray(contacts) ? contacts : []).find(
+      (item) => normalizeSearchEmail(item?.email || item?.Email) === targetEmail
+    );
+    if (!match) return null;
+    const matchedId = normalizeIdentifier(match?.id || match?.ID || match?.Contact_ID);
+    if (!matchedId) return match;
+
+    const detailQuery = resolvedPlugin
+      .switchTo("PeterpmContact")
+      .query()
+      .where("id", matchedId)
+      .deSelectAll()
+      .select(CONTACT_DUPLICATE_LOOKUP_SELECT_FIELDS)
+      .limit(1)
+      .noDestroy();
+    detailQuery.getOrInitQueryCalc?.();
+    const detailResponse = await fetchDirectWithTimeout(detailQuery, null, 10000);
+    return extractFirstRecord(detailResponse) || match;
+  } catch (error) {
+    console.error("[JobDirect] Contact duplicate lookup failed", error);
+    return null;
+  }
 }
 
 export async function fetchCompaniesForSearch({ plugin } = {}) {
@@ -909,32 +1027,7 @@ export async function fetchPropertiesForSearch({ plugin } = {}) {
       .switchTo("PeterpmProperty")
       .query()
       .deSelectAll()
-      .select([
-        "id",
-        "unique_id",
-        "property_name",
-        "lot_number",
-        "unit_number",
-        "address_1",
-        "address_2",
-        "address",
-        "city",
-        "suburb_town",
-        "state",
-        "postal_code",
-        "zip_code",
-        "country",
-        "property_type",
-        "building_type",
-        "building_type_other",
-        "foundation_type",
-        "bedrooms",
-        "manhole",
-        "stories",
-        "building_age",
-        "building_features",
-        "building_features_options_as_text",
-      ]);
+      .select(PROPERTY_LOOKUP_SELECT_FIELDS);
 
     query.getOrInitQueryCalc?.();
     const response = await fetchDirectWithTimeout(query, null, 30000);
@@ -957,32 +1050,7 @@ export function subscribePropertiesForSearch({ plugin, onChange, onError } = {})
     .switchTo("PeterpmProperty")
     .query()
     .deSelectAll()
-    .select([
-      "id",
-      "unique_id",
-      "property_name",
-      "lot_number",
-      "unit_number",
-      "address_1",
-      "address_2",
-      "address",
-      "city",
-      "suburb_town",
-      "state",
-      "postal_code",
-      "zip_code",
-      "country",
-      "property_type",
-      "building_type",
-      "building_type_other",
-      "foundation_type",
-      "bedrooms",
-      "manhole",
-      "stories",
-      "building_age",
-      "building_features",
-      "building_features_options_as_text",
-    ])
+    .select(PROPERTY_LOOKUP_SELECT_FIELDS)
     .noDestroy();
 
   query.getOrInitQueryCalc?.();
@@ -996,6 +1064,50 @@ export function subscribePropertiesForSearch({ plugin, onChange, onError } = {})
       onError?.(error);
     },
   });
+}
+
+export async function findPropertyByName({ plugin, propertyName } = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) return null;
+
+  const rawName = String(propertyName || "").trim();
+  const targetName = normalizeSearchName(rawName);
+  if (!targetName) return null;
+
+  try {
+    const directQuery = resolvedPlugin
+      .switchTo("PeterpmProperty")
+      .query()
+      .where("property_name", rawName)
+      .deSelectAll()
+      .select(PROPERTY_LOOKUP_SELECT_FIELDS)
+      .limit(1)
+      .noDestroy();
+    directQuery.getOrInitQueryCalc?.();
+    const directResponse = await fetchDirectWithTimeout(directQuery, null, 10000);
+    const directRecord = extractFirstRecord(directResponse);
+    if (directRecord) return directRecord;
+  } catch (error) {
+    if (!isTimeoutError(error)) {
+      console.warn("[JobDirect] Direct property-name lookup failed; falling back to cached search", error);
+    }
+  }
+
+  try {
+    const properties = await fetchPropertiesForSearch({ plugin: resolvedPlugin });
+    const match = (Array.isArray(properties) ? properties : []).find((item) => {
+      const candidates = [
+        item?.property_name,
+        item?.Property_Name,
+        item?.Property_Property_Name,
+      ];
+      return candidates.some((candidate) => normalizeSearchName(candidate) === targetName);
+    });
+    return match || null;
+  } catch (error) {
+    console.error("[JobDirect] Property duplicate lookup failed", error);
+    return null;
+  }
 }
 
 function normalizeServiceProviderRecord(rawProvider = {}) {
@@ -3185,6 +3297,14 @@ export async function deleteUploadRecord({ plugin, id } = {}) {
   return true;
 }
 
+function prepareContactMutationPayload(payload = {}) {
+  const source = payload && typeof payload === "object" ? { ...payload } : {};
+  delete source.id;
+  delete source.ID;
+  delete source.Contact_ID;
+  return source;
+}
+
 export async function createContactRecord({ plugin, payload } = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
   if (!resolvedPlugin?.switchTo) {
@@ -3197,7 +3317,7 @@ export async function createContactRecord({ plugin, payload } = {}) {
   }
 
   const mutation = await contactModel.mutation();
-  mutation.createOne(payload || {});
+  mutation.createOne(prepareContactMutationPayload(payload || {}));
   const result = await mutation.execute(true).toPromise();
   if (!result || result?.isCancelling) {
     throw new Error("Contact create was cancelled.");
@@ -3225,6 +3345,59 @@ export async function createContactRecord({ plugin, payload } = {}) {
     ...payload,
     ...(created && typeof created === "object" ? created : {}),
     id: resolvedId,
+  };
+}
+
+export async function updateContactRecord({ plugin, id, payload } = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) {
+    throw new Error("SDK plugin is not ready.");
+  }
+
+  const normalizedId = normalizeIdentifier(id);
+  if (!normalizedId) {
+    throw new Error("Contact ID is missing.");
+  }
+
+  const contactModel = resolvedPlugin.switchTo("PeterpmContact");
+  if (!contactModel?.mutation) {
+    throw new Error("Contact model is unavailable.");
+  }
+
+  const mutation = await contactModel.mutation();
+  mutation.update((query) =>
+    query.where("id", normalizedId).set(prepareContactMutationPayload(payload || {}))
+  );
+  const result = await mutation.execute(true).toPromise();
+  if (!result || result?.isCancelling) {
+    throw new Error("Contact update was cancelled.");
+  }
+
+  const failure = extractStatusFailure(result);
+  if (failure) {
+    throw new Error(
+      extractMutationErrorMessage(failure.statusMessage) || "Unable to update contact."
+    );
+  }
+
+  const updated =
+    findMutationData(result, "updateContact") ??
+    findMutationData(result, "updateContacts") ??
+    findMutationDataByMatcher(result, (key) => /^update/i.test(key) && /contact/i.test(key));
+  const createdId = extractCreatedRecordId(result, "PeterpmContact");
+  const updatedRecord = Array.isArray(updated) ? updated[0] || null : updated;
+
+  if (updatedRecord === null || (!updatedRecord && !createdId)) {
+    console.warn(
+      "[JobDirect] Contact update returned no updated record. Treating as success.",
+      result
+    );
+  }
+
+  return {
+    ...payload,
+    ...(updatedRecord && typeof updatedRecord === "object" ? updatedRecord : {}),
+    id: normalizeIdentifier(updatedRecord?.id || updatedRecord?.ID || createdId || normalizedId),
   };
 }
 
@@ -3613,6 +3786,8 @@ function normalizeDealRecord(rawDeal = {}) {
 
 function normalizeLinkedJobRecord(rawJob = {}) {
   return {
+    id: String(rawJob?.id || rawJob?.ID || rawJob?.JobsID || rawJob?.Jobs_As_Client_IndividualID || "")
+      .trim(),
     unique_id: String(
       rawJob?.unique_id ||
         rawJob?.Unique_ID ||
@@ -3866,17 +4041,19 @@ function dedupeDeals(deals = []) {
 
 function normalizeJobsFromFlatFields(record = {}, accountType = "Contact") {
   const isCompany = String(accountType || "").trim().toLowerCase() === "company";
+  const ids = isCompany ? record?.JobsID : record?.Jobs_As_Client_IndividualID;
   const uniqueIds = isCompany
     ? record?.Jobs_Unique_ID
     : record?.Jobs_As_Client_Individual_Unique_ID;
   const propertyNames = record?.Property_Property_Name;
 
-  if (Array.isArray(uniqueIds) || Array.isArray(propertyNames)) {
-    const maxLength = Math.max(uniqueIds?.length || 0, propertyNames?.length || 0);
+  if (Array.isArray(ids) || Array.isArray(uniqueIds) || Array.isArray(propertyNames)) {
+    const maxLength = Math.max(ids?.length || 0, uniqueIds?.length || 0, propertyNames?.length || 0);
     const jobs = [];
     for (let index = 0; index < maxLength; index += 1) {
       jobs.push(
         normalizeLinkedJobRecord({
+          id: ids?.[index],
           unique_id: uniqueIds?.[index],
           property_name: propertyNames?.[index],
         })
@@ -3911,7 +4088,7 @@ function extractLinkedJobsFromAccountRecord(record, accountType = "Contact") {
 function dedupeLinkedJobs(jobs = []) {
   const seen = new Set();
   return jobs.filter((job) => {
-    const key = String(job.unique_id || "").trim();
+    const key = String(job.id || job.unique_id || "").trim();
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -4073,7 +4250,7 @@ async function fetchJobsByAccountId({ plugin, accountType, accountId } = {}) {
         (jobQuery) =>
           jobQuery
             .deSelectAll()
-            .select(["unique_id"])
+            .select(["id", "unique_id"])
             .include("Property", (propertyQuery) =>
               propertyQuery.deSelectAll().select(["property_name"])
             )
@@ -4107,6 +4284,7 @@ async function fetchJobsByAccountId({ plugin, accountType, accountId } = {}) {
         ? `
           query calcCompanies($id: PeterpmCompanyID!) {
             calcCompanies(query: [{ where: { id: $id } }]) {
+              JobsID: field(arg: ["Jobs", "id"])
               Jobs_Unique_ID: field(arg: ["Jobs", "unique_id"])
               Property_Property_Name: field(arg: ["Jobs", "Property", "property_name"])
             }
@@ -4115,6 +4293,7 @@ async function fetchJobsByAccountId({ plugin, accountType, accountId } = {}) {
         : `
           query calcContacts($id: PeterpmContactID!) {
             calcContacts(query: [{ where: { id: $id } }]) {
+              Jobs_As_Client_IndividualID: field(arg: ["Jobs_As_Client_Individual", "id"])
               Jobs_As_Client_Individual_Unique_ID: field(arg: ["Jobs_As_Client_Individual", "unique_id"])
               Property_Property_Name: field(arg: ["Jobs_As_Client_Individual", "Property", "property_name"])
             }

@@ -35,6 +35,7 @@ import {
   createAffiliationRecord,
   createCompanyRecord,
   createContactRecord,
+  updateContactRecord,
   deleteAffiliationRecord,
   fetchActivitiesByJobId,
   fetchPropertiesForSearch,
@@ -3148,10 +3149,19 @@ export function JobDetailsPage() {
         if (!plugin) {
           throw new Error("SDK plugin is not ready.");
         }
-        const created = await createContactRecord({
-          plugin,
-          payload: draftRecord || {},
-        });
+        const existingContactId = toText(
+          draftRecord?.id || draftRecord?.ID || draftRecord?.Contact_ID
+        );
+        const created = existingContactId
+          ? await updateContactRecord({
+              plugin,
+              id: existingContactId,
+              payload: draftRecord || {},
+            })
+          : await createContactRecord({
+              plugin,
+              payload: draftRecord || {},
+            });
         const createdId = toText(created?.id || created?.ID);
         const refreshed = await fetchContactsForLookup({ plugin });
         setContactsLookup(Array.isArray(refreshed) ? refreshed : []);
@@ -3265,10 +3275,19 @@ export function JobDetailsPage() {
       mode: "individual",
       onSave: async (draftRecord) => {
         if (!plugin) throw new Error("SDK plugin is not ready.");
-        const created = await createContactRecord({
-          plugin,
-          payload: draftRecord || {},
-        });
+        const existingContactId = toText(
+          draftRecord?.id || draftRecord?.ID || draftRecord?.Contact_ID
+        );
+        const created = existingContactId
+          ? await updateContactRecord({
+              plugin,
+              id: existingContactId,
+              payload: draftRecord || {},
+            })
+          : await createContactRecord({
+              plugin,
+              payload: draftRecord || {},
+            });
         const createdId = toText(created?.id || created?.ID);
         const refreshed = await fetchContactsForLookup({ plugin });
         setContactsLookup(Array.isArray(refreshed) ? refreshed : []);
@@ -4897,11 +4916,7 @@ export function JobDetailsPage() {
 
               {activeTab === "Activities" ? (
                 <div className="rounded border border-slate-200 bg-white p-4">
-                  {!currentJobId ? (
-                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                      Activities are available only after quote/job is created.
-                    </div>
-                  ) : isWorkSectionsLoading && !jobActivities.length ? (
+                  {isWorkSectionsLoading && !jobActivities.length ? (
                     <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
                       Loading activities...
                     </div>
@@ -4925,11 +4940,7 @@ export function JobDetailsPage() {
                     focusedKind === "material" ? "ring-2 ring-amber-300" : ""
                   }`}
                 >
-                  {!currentJobId ? (
-                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                      Materials are available only after quote/job is created.
-                    </div>
-                  ) : isWorkSectionsLoading && !jobMaterials.length ? (
+                  {isWorkSectionsLoading && !jobMaterials.length ? (
                     <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
                       Loading materials...
                     </div>
@@ -4955,20 +4966,10 @@ export function JobDetailsPage() {
                       : ""
                   }`}
                 >
-                  {!currentJobId ? (
-                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                      Invoice and payment are available only after quote/job is created.
-                    </div>
-                  ) : quoteStatusNormalized !== "accepted" ? (
-                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                      Invoice and payment unlock only after quote is accepted.
-                    </div>
-                  ) : (
-                    <InvoiceSection
-                      plugin={plugin}
-                      jobData={jobDirectBootstrapJobData || { id: currentJobId, ID: currentJobId }}
-                    />
-                  )}
+                  <InvoiceSection
+                    plugin={plugin}
+                    jobData={jobDirectBootstrapJobData || { id: currentJobId, ID: currentJobId }}
+                  />
                 </div>
               ) : null}
 
@@ -5349,6 +5350,7 @@ export function JobDetailsPage() {
         open={isAddPropertyOpen}
         onClose={() => setIsAddPropertyOpen(false)}
         onSave={handleAddPropertySave}
+        plugin={plugin}
         initialData={propertyModalMode === "edit" && resolvedPropertyId ? resolvedProperty : null}
       />
 
@@ -5506,6 +5508,7 @@ export function JobDetailsPage() {
         open={contactModalState.open}
         onClose={closeContactDetailsModal}
         mode={contactModalState.mode}
+        plugin={plugin}
         onSave={contactModalState.onSave}
       />
 

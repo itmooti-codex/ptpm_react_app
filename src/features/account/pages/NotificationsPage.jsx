@@ -97,7 +97,7 @@ export function NotificationsPage() {
                         className={`w-full rounded border px-3 py-2 text-left ${
                           item.read
                             ? "border-transparent bg-slate-50"
-                            : "border-slate-200 bg-white hover:bg-slate-50"
+                            : "border-[#cfe0f7] bg-[#edf4ff] hover:bg-[#e5efff]"
                         }`}
                       >
                         <div className="mb-1 flex items-center justify-between gap-2">

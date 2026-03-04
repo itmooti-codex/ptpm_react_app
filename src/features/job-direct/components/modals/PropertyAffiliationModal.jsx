@@ -5,10 +5,28 @@ import { InputField } from "../../../../shared/components/ui/InputField.jsx";
 import { Modal } from "../../../../shared/components/ui/Modal.jsx";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
 import { useContactEntityLookupData } from "../../hooks/useContactEntityLookupData.js";
-import { createCompanyRecord, createContactRecord } from "../../sdk/jobDirectSdk.js";
+import {
+  createCompanyRecord,
+  createContactRecord,
+  updateContactRecord,
+} from "../../sdk/jobDirectSdk.js";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function tokenizeQuery(value) {
+  return normalizeText(value)
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function matchesSearchQuery(searchText = "", query = "") {
+  const normalizedSearchText = normalizeText(searchText);
+  const queryTokens = tokenizeQuery(query);
+  if (!queryTokens.length) return true;
+  return queryTokens.every((token) => normalizedSearchText.includes(token));
 }
 
 function buildContactLabel(contact = {}) {
@@ -42,11 +60,27 @@ function SearchLookupInput({
   const [isOpen, setIsOpen] = useState(false);
 
   const filteredItems = useMemo(() => {
-    const query = normalizeText(value);
-    if (!query) return items;
+    const query = String(value || "");
+    if (!tokenizeQuery(query).length) return items;
     return items.filter((item) => {
-      const searchText = [item.label, item.meta, item.id].map(normalizeText).join(" ");
-      return searchText.includes(query);
+      const searchText = [
+        item.label,
+        item.meta,
+        item.id,
+        item.first_name,
+        item.last_name,
+        item.firstName,
+        item.lastName,
+        item.full_name,
+        item.fullName,
+        item.name,
+        item.searchText,
+        Array.isArray(item.searchTokens) ? item.searchTokens.join(" ") : item.searchTokens,
+      ]
+        .map((part) => String(part || "").trim())
+        .filter(Boolean)
+        .join(" ");
+      return matchesSearchQuery(searchText, query);
     });
   }, [items, value]);
 
@@ -285,18 +319,30 @@ export function PropertyAffiliationModal({
           return createdCompany;
         }
 
-        const createdContact = await createContactRecord({
-          plugin,
-          payload: draftRecord,
-        });
-        const normalizedContact = addContact(createdContact);
+        const existingContactId = String(
+          draftRecord?.id || draftRecord?.ID || draftRecord?.Contact_ID || ""
+        ).trim();
+        const savedContact = existingContactId
+          ? await updateContactRecord({
+              plugin,
+              id: existingContactId,
+              payload: draftRecord,
+            })
+          : await createContactRecord({
+              plugin,
+              payload: draftRecord,
+            });
+        const normalizedContact = addContact(savedContact);
         setForm((previous) => ({
           ...previous,
           contact_id: normalizedContact.id || "",
           contact_label: normalizedContact.label || "",
         }));
-        success("Contact created", "New contact was saved.");
-        return createdContact;
+        success(
+          existingContactId ? "Contact updated" : "Contact created",
+          existingContactId ? "Existing contact was updated." : "New contact was saved."
+        );
+        return savedContact;
       },
     });
   };

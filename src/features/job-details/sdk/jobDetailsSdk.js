@@ -945,7 +945,7 @@ export async function savePropertyForDetails({
     throw new Error("SDK plugin is not ready.");
   }
   const payload = propertyPayload && typeof propertyPayload === "object" ? propertyPayload : {};
-  let resolvedPropertyId = normalizeId(propertyId);
+  let resolvedPropertyId = normalizeId(propertyId) || normalizeId(payload?.id || payload?.ID);
 
   if (resolvedPropertyId) {
     await updatePropertyRecord({

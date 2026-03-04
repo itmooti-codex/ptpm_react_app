@@ -164,6 +164,26 @@ function applyAnnouncementOrder(query) {
   return query;
 }
 
+function compareByPublishDateDesc(a, b) {
+  const aTs = Number(a?.publishDateTime || 0);
+  const bTs = Number(b?.publishDateTime || 0);
+  if (aTs !== bTs) return bTs - aTs;
+
+  const aId = toText(a?.id);
+  const bId = toText(b?.id);
+  const aNumericId = /^\d+$/.test(aId) ? Number.parseInt(aId, 10) : null;
+  const bNumericId = /^\d+$/.test(bId) ? Number.parseInt(bId, 10) : null;
+  if (aNumericId !== null && bNumericId !== null && aNumericId !== bNumericId) {
+    return bNumericId - aNumericId;
+  }
+  return bId.localeCompare(aId);
+}
+
+function sortAnnouncementsByPublishDateDesc(list = []) {
+  if (!Array.isArray(list)) return [];
+  return [...list].sort(compareByPublishDateDesc);
+}
+
 function normalizeAnnouncementRecord(record) {
   const id = toText(readRecordField(record, ["id", "ID", "unique_id", "Unique_ID"]));
   const publishDateTime = toEpochSeconds(
@@ -372,7 +392,7 @@ export function AnnouncementsProvider({ children }) {
             .filter((item) => item.id);
 
           if (mapped.length) {
-            setNotifications(mapped);
+            setNotifications(sortAnnouncementsByPublishDateDesc(mapped));
           }
           setNotificationError(null);
           setIsNotifLoading(false);
@@ -411,7 +431,7 @@ export function AnnouncementsProvider({ children }) {
               return;
             }
 
-            setNotifications(mapped);
+            setNotifications(sortAnnouncementsByPublishDateDesc(mapped));
             setNotificationError(null);
             setIsNotifLoading(false);
           },
@@ -446,10 +466,12 @@ export function AnnouncementsProvider({ children }) {
   }, [preferences.pauseAllNotification]);
 
   const filteredNotifications = useMemo(
-    () =>
-      (Array.isArray(notifications) ? notifications : []).filter((item) =>
+    () => {
+      const visible = (Array.isArray(notifications) ? notifications : []).filter((item) =>
         isNotificationAllowedByPreferences(item, preferences)
-      ),
+      );
+      return sortAnnouncementsByPublishDateDesc(visible);
+    },
     [notifications, preferences]
   );
 

@@ -1,6 +1,7 @@
 export {
   fetchPropertiesForSearch,
   subscribePropertiesForSearch,
+  findPropertyByName,
   createPropertyRecord,
   updatePropertyRecord,
   fetchPropertyRecordById,
