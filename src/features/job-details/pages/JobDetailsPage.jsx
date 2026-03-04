@@ -2059,6 +2059,24 @@ export function JobDetailsPage() {
       }),
     [companiesLookup]
   );
+  const contactLookupById = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(contactsLookup) ? contactsLookup : []).forEach((contact) => {
+      const id = toText(contact?.id || contact?.ID);
+      if (!id) return;
+      map.set(id, contact);
+    });
+    return map;
+  }, [contactsLookup]);
+  const companyLookupById = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(companiesLookup) ? companiesLookup : []).forEach((company) => {
+      const id = toText(company?.id || company?.ID);
+      if (!id) return;
+      map.set(id, company);
+    });
+    return map;
+  }, [companiesLookup]);
   const jobEmailFallbackLabel = useMemo(() => {
     if (isCompanyAccount) {
       const primaryName = fullName(
