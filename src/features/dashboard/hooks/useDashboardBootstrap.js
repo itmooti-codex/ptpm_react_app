@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useVitalStatsPlugin } from "../../job-direct/hooks/useVitalStatsPlugin.js";
+import { useVitalStatsPlugin } from "@platform/vitalstats/useVitalStatsPlugin.js";
 import { fetchServiceProviders } from "../sdk/dashboardSdk.js";
 import { readDashboardCache, writeDashboardCache } from "../sdk/dashboardCache.js";
 

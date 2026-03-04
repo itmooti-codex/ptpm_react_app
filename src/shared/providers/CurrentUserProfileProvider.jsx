@@ -1,6 +1,6 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { APP_USER } from "../../config/userConfig.js";
-import { ensureVitalStatsPlugin } from "../../features/job-direct/sdk/vitalStatsBootstrap.js";
+import { ensureVitalStatsPlugin } from "@platform/vitalstats/bootstrap.js";
 
 export const CurrentUserProfileContext = createContext(null);
 

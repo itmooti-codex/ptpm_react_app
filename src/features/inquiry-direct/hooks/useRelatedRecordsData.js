@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   fetchLinkedDealsByAccount,
   fetchLinkedJobsByAccount,
-} from "../../job-direct/sdk/jobDirectSdk.js";
+} from "@modules/job-workspace/sdk/core/runtime.js";
 
 const RELATED_RECORDS_CACHE_TTL_MS = 2 * 60 * 1000;
 const relatedRecordsCache = new Map();

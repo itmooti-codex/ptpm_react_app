@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchJobDirectDataByUid } from "../sdk/jobDirectSdk.js";
+import { fetchJobDirectDataByUid } from "@modules/job-workspace/sdk/core/runtime.js";
 
 export function useJobDirectData(jobUid, plugin) {
   const [jobData, setJobData] = useState(null);

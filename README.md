@@ -13,6 +13,10 @@ npm run dev
 
 Required environment variables are listed in `.env.example`.
 
+## QA
+
+- Dashboard regression checklist: `docs/dashboard-qa-checklist.md`
+
 ## Current scope
 
 - React + Vite + Tailwind setup
@@ -47,7 +51,8 @@ src/
       pages/
         JobDirectPage.jsx
       sdk/
-        jobDirectSdk.js
+        core/
+          runtime.js
       styles/
         jobDirectOverrides.css
       docs/
@@ -70,11 +75,11 @@ This is wired in `src/features/job-direct/hooks/useJobUid.js`.
 
 ## SDK integration status
 
-`src/features/job-direct/sdk/jobDirectSdk.js` contains a stable function contract for phase 2:
+`src/features/job-direct/sdk/core/runtime.js` contains a stable function contract:
 
 - `fetchJobDirectDataByUid({ jobUid, plugin })`
 
-This is intentionally a stub in phase 1 (design-first). It will be implemented using `sdkGuide.md` and model mappings in the next phase.
+This is the active SDK entry used by feature modules.
 
 ## Legacy trace reference
 

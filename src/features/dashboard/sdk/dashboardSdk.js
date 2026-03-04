@@ -10,7 +10,7 @@ import {
   extractStatusFailure,
   isPersistedId,
   normalizeObjectList,
-} from "../../job-direct/sdk/utils/sdkResponseUtils.js";
+} from "@modules/job-workspace/sdk/utils/sdkResponseUtils.js";
 import { TAB_IDS } from "../constants/tabs.js";
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────
@@ -252,6 +252,27 @@ function applyJobsTabStatusFilter(q, f) {
   });
 }
 
+function applyQuoteTabStatusFilter(q, f) {
+  if (!Array.isArray(f.statuses) || !f.statuses.length) return q;
+  const requested = f.statuses.map((item) => String(item || "").trim());
+  const quoteStatuses = requested.filter((status) => QUOTE_TAB_QUOTE_STATUSES.includes(status));
+  const includeQuoteStatus = requested.includes("Quote");
+  if (!quoteStatuses.length && !includeQuoteStatus) return q;
+
+  return q.andWhere((sq) => {
+    if (quoteStatuses.length) {
+      sq.where("quote_status", "in", quoteStatuses);
+    }
+    if (includeQuoteStatus) {
+      if (quoteStatuses.length) {
+        sq.orWhere("job_status", "eq", "Quote");
+      } else {
+        sq.where("job_status", "eq", "Quote");
+      }
+    }
+  });
+}
+
 // ─── Shared Job Includes ──────────────────────────────────────────────────────
 
 function applyJobIncludes(q) {
@@ -464,6 +485,49 @@ function resolveBaseFactoryByTab(tabId) {
   }
 }
 
+function hasAnyFilterValues(filters = {}) {
+  const f = filters && typeof filters === "object" ? filters : {};
+  if (String(f.accountName || "").trim()) return true;
+  if (String(f.address || "").trim()) return true;
+  if (String(f.serviceman || "").trim()) return true;
+  if (String(f.quoteNumber || "").trim()) return true;
+  if (String(f.invoiceNumber || "").trim()) return true;
+  if (String(f.recommendation || "").trim()) return true;
+  if (String(f.priceMin || "").trim()) return true;
+  if (String(f.priceMax || "").trim()) return true;
+  if (String(f.dateFrom || "").trim()) return true;
+  if (String(f.dateTo || "").trim()) return true;
+  if (Array.isArray(f.statuses) && f.statuses.length) return true;
+  if (Array.isArray(f.serviceProviders) && f.serviceProviders.length) return true;
+  if (Array.isArray(f.accountTypes) && f.accountTypes.length) return true;
+  if (Array.isArray(f.sources) && f.sources.length) return true;
+  return false;
+}
+
+function applyTabFiltersToQuery(q, tabId, filters = {}) {
+  const f = filters && typeof filters === "object" ? filters : {};
+  if (tabId === TAB_IDS.INQUIRY) {
+    return applyDealFilters(q, f);
+  }
+  if (tabId === TAB_IDS.QUOTE) {
+    return applyQuoteTabStatusFilter(applyCommonJobFilters(q, f), f);
+  }
+  if (
+    tabId === TAB_IDS.JOBS ||
+    tabId === TAB_IDS.URGENT_CALLS ||
+    tabId === TAB_IDS.OPEN_TASKS
+  ) {
+    return applyJobsTabStatusFilter(applyCommonJobFilters(q, f), f);
+  }
+  if (tabId === TAB_IDS.PAYMENT) {
+    return applyCommonJobFilters(q, f, { statusField: "payment_status" });
+  }
+  if (tabId === TAB_IDS.ACTIVE_JOBS) {
+    return applyCommonJobFilters(q, f, { statusField: "job_status" });
+  }
+  return q;
+}
+
 function mapCalendarCounts(records = []) {
   const toMillis = (raw) => {
     const numeric = Number(raw);
@@ -517,14 +581,38 @@ function buildCountPageQuery(baseFactory, plugin, { limit, offset }) {
     .noDestroy();
 }
 
-async function fetchCountByPaging(baseFactory, plugin, { pageSize = 250, maxPages = 400 } = {}) {
-  let total = 0;
+function buildFilteredCountPageQuery({
+  plugin,
+  tabId,
+  filters = {},
+  limit,
+  offset,
+} = {}) {
+  const baseFactory = resolveBaseFactoryByTab(tabId);
+  if (!baseFactory) return null;
 
-  for (let page = 0; page < maxPages; page += 1) {
-    const query = buildCountPageQuery(baseFactory, plugin, {
+  const q = applyTabFiltersToQuery(baseFactory(plugin), tabId, filters);
+  return q
+    .deSelectAll()
+    .select(["id"])
+    .orderBy("id", "asc")
+    .limit(limit)
+    .offset(offset)
+    .noDestroy();
+}
+
+async function fetchCountByPagedQuery(buildPageQuery, { pageSize = 250, maxPages = null } = {}) {
+  let total = 0;
+  const normalizedMaxPages =
+    Number.isFinite(maxPages) && Number(maxPages) > 0 ? Math.floor(Number(maxPages)) : null;
+
+  for (let page = 0; ; page += 1) {
+    if (normalizedMaxPages !== null && page >= normalizedMaxPages) break;
+    const query = buildPageQuery({
       limit: pageSize,
       offset: page * pageSize,
     });
+    if (!query) break;
     const rows = await fetchDirectRecords(query);
     const size = Array.isArray(rows) ? rows.length : 0;
     total += size;
@@ -532,6 +620,13 @@ async function fetchCountByPaging(baseFactory, plugin, { pageSize = 250, maxPage
   }
 
   return total;
+}
+
+async function fetchCountByPaging(baseFactory, plugin, options = {}) {
+  return fetchCountByPagedQuery(
+    ({ limit, offset }) => buildCountPageQuery(baseFactory, plugin, { limit, offset }),
+    options
+  );
 }
 
 function buildCalendarRange({ lookbackDays = 180, lookaheadDays = 180 } = {}) {
@@ -634,25 +729,7 @@ export function buildQuotesQuery(plugin, filters = {}, page = 1, pageSize = 25, 
       "created_at",
     ]);
   q = applyCommonJobFilters(q, f);
-  if (Array.isArray(f.statuses) && f.statuses.length) {
-    const requested = f.statuses.map((item) => String(item || "").trim());
-    const quoteStatuses = requested.filter((status) => QUOTE_TAB_QUOTE_STATUSES.includes(status));
-    const includeQuoteStatus = requested.includes("Quote");
-    if (quoteStatuses.length || includeQuoteStatus) {
-      q = q.andWhere((sq) => {
-        if (quoteStatuses.length) {
-          sq.where("quote_status", "in", quoteStatuses);
-        }
-        if (includeQuoteStatus) {
-          if (quoteStatuses.length) {
-            sq.orWhere("job_status", "eq", "Quote");
-          } else {
-            sq.where("job_status", "eq", "Quote");
-          }
-        }
-      });
-    }
-  }
+  q = applyQuoteTabStatusFilter(q, f);
   q = applyJobIncludes(q);
   q = q.orderBy("created_at", sortOrder).limit(pageSize).offset(calcOffset(page, pageSize));
   return { query: q.noDestroy(), normalize: normalizeQuote };
@@ -817,11 +894,24 @@ export async function fetchTabCounts({ plugin } = {}) {
   };
 }
 
-export async function fetchTabCountByTab({ plugin, tabId } = {}) {
+export async function fetchTabCountByTab({ plugin, tabId, filters = null } = {}) {
   if (!plugin) return 0;
   const baseFactory = resolveBaseFactoryByTab(tabId);
   if (!baseFactory) return 0;
   try {
+    if (hasAnyFilterValues(filters || {})) {
+      return await fetchCountByPagedQuery(
+        ({ limit, offset }) =>
+          buildFilteredCountPageQuery({
+            plugin,
+            tabId,
+            filters,
+            limit,
+            offset,
+          }),
+        { pageSize: 250 }
+      );
+    }
     return await fetchCountByPaging(baseFactory, plugin);
   } catch (error) {
     console.warn(`[fetchTabCountByTab] ${String(tabId)} count failed:`, error);

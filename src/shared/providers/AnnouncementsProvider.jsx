@@ -1,7 +1,7 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { APP_USER } from "../../config/userConfig.js";
-import { ensureVitalStatsPlugin } from "../../features/job-direct/sdk/vitalStatsBootstrap.js";
+import { ensureVitalStatsPlugin } from "@platform/vitalstats/bootstrap.js";
 import { resolveNotificationNavigation } from "../announcements/announcementNavigation.js";
 import { useCurrentUserProfile } from "../hooks/useCurrentUserProfile.js";
 

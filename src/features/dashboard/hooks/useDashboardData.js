@@ -14,6 +14,7 @@ import {
   buildActiveJobsQuery,
   buildUrgentCallsQuery,
   buildOpenTasksQuery,
+  fetchTabCountByTab,
 } from "../sdk/dashboardSdk.js";
 
 const TAB_QUERY_BUILDERS = {
@@ -97,14 +98,41 @@ export function useDashboardData({
     let activeQuery = null;
     let activeSubscription = null;
     let loadTimeoutId = null;
+    let resolvedFilteredTotalCount = Number.isFinite(cachedRowsState?.totalCount)
+      ? cachedRowsState.totalCount
+      : null;
 
     try {
-      const queryPage = hasActiveFilters ? 1 : currentPage;
-      const queryPageSize = hasActiveFilters ? 1000 : pageSize;
-      const built = builder(plugin, appliedFilters, queryPage, queryPageSize, sortOrder);
+      const built = builder(plugin, appliedFilters, currentPage, pageSize, sortOrder);
       const query = built.query;
       const { normalize } = built;
       activeQuery = query;
+
+      if (hasActiveFilters) {
+        fetchTabCountByTab({
+          plugin,
+          tabId: activeTab,
+          filters: appliedFilters,
+        })
+          .then((count) => {
+            if (cancelled) return;
+            const normalizedCount = Number.isFinite(count) ? count : 0;
+            resolvedFilteredTotalCount = normalizedCount;
+            setTotalCount(normalizedCount);
+            if (cachedRowsState && Array.isArray(cachedRowsState.rows)) {
+              writeDashboardCache(rowsCacheKey, {
+                rows: cachedRowsState.rows,
+                totalCount: normalizedCount,
+              });
+            }
+          })
+          .catch((countError) => {
+            if (cancelled) return;
+            console.warn("[useDashboardData] filtered count fetch failed:", countError);
+          });
+      } else {
+        setTotalCount(null);
+      }
 
       const subscribeSource =
         (typeof query.subscribe === "function" && query.subscribe()) ||
@@ -139,25 +167,11 @@ export function useDashboardData({
           }
           const records = extractFromPayload(payload);
           const normalized = records.map(normalize);
-          if (hasActiveFilters) {
-            const total = normalized.length;
-            const start = Math.max(0, (currentPage - 1) * pageSize);
-            const end = start + pageSize;
-            const pagedRows = normalized.slice(start, end);
-            setTotalCount(total);
-            setRows(pagedRows);
-            writeDashboardCache(rowsCacheKey, {
-              rows: pagedRows,
-              totalCount: total,
-            });
-          } else {
-            setTotalCount(null);
-            setRows(normalized);
-            writeDashboardCache(rowsCacheKey, {
-              rows: normalized,
-              totalCount: null,
-            });
-          }
+          setRows(normalized);
+          writeDashboardCache(rowsCacheKey, {
+            rows: normalized,
+            totalCount: hasActiveFilters ? resolvedFilteredTotalCount : null,
+          });
           setError(null);
           setIsLoading(false);
         },

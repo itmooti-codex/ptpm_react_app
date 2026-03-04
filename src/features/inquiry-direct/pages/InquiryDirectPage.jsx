@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { JobDirectLayout } from "../../job-direct/components/JobDirectLayout.jsx";
-import { JobDirectStoreProvider } from "../../job-direct/hooks/useJobDirectStore.jsx";
-import { useVitalStatsPlugin } from "../../job-direct/hooks/useVitalStatsPlugin.js";
+import { JobDirectLayout } from "@modules/job-workspace/components/layout/JobDirectLayout.jsx";
+import { JobDirectStoreProvider } from "@modules/job-workspace/hooks/useJobDirectStore.jsx";
+import { useVitalStatsPlugin } from "@platform/vitalstats/useVitalStatsPlugin.js";
 import { getFriendlyServiceMessage } from "../../../shared/utils/userFacingErrors.js";
 import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
 import {
   ANNOUNCEMENT_EVENT_KEYS,
 } from "../../../shared/announcements/announcementTypes.js";
 import { emitAnnouncement } from "../../../shared/announcements/announcementEmitter.js";
-import { SECTION_LABELS } from "../../job-direct/constants/navigation.js";
+import { SECTION_LABELS } from "@modules/job-workspace/constants/navigation.js";
 import { InquiryInformationSection } from "../components/sections/InquiryInformationSection.jsx";
 import { useInquiryUid } from "../hooks/useInquiryUid.js";
 import {
@@ -18,7 +18,7 @@ import {
   extractStatusFailure,
   isPersistedId,
   normalizeObjectList,
-} from "../../job-direct/sdk/utils/sdkResponseUtils.js";
+} from "@modules/job-workspace/sdk/utils/sdkResponseUtils.js";
 import {
   fetchInquiryByUid,
   fetchJobByUid,

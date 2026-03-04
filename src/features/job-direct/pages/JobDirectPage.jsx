@@ -1,9 +1,9 @@
 import { useEffect } from "react";
-import { JobDirectLayout } from "../components/JobDirectLayout.jsx";
+import { JobDirectLayout } from "@modules/job-workspace/components/layout/JobDirectLayout.jsx";
 import { useJobDirectBootstrap } from "../hooks/useJobDirectBootstrap.js";
-import { JobDirectStoreProvider } from "../hooks/useJobDirectStore.jsx";
+import { JobDirectStoreProvider } from "@modules/job-workspace/hooks/useJobDirectStore.jsx";
 import { useJobUid } from "../hooks/useJobUid.js";
-import { useVitalStatsPlugin } from "../hooks/useVitalStatsPlugin.js";
+import { useVitalStatsPlugin } from "@platform/vitalstats/useVitalStatsPlugin.js";
 import { getFriendlyServiceMessage } from "../../../shared/utils/userFacingErrors.js";
 import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
 

@@ -1,4 +1,4 @@
-import { JobDirectIconActionButton } from "../../../../job-direct/components/primitives/JobDirectTable.jsx";
+import { JobDirectIconActionButton } from "@modules/job-workspace/components/primitives/JobDirectTable.jsx";
 import { ClientCell } from "../ClientCell.jsx";
 
 function EyeIcon() {

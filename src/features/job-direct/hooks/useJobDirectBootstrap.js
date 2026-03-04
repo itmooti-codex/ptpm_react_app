@@ -5,7 +5,7 @@ import {
   fetchJobDirectDataByUid,
   fetchPropertiesForSearch,
   fetchServiceProvidersForSearch,
-} from "../sdk/jobDirectSdk.js";
+} from "@modules/job-workspace/sdk/core/runtime.js";
 
 const LOOKUP_CACHE_TTL_MS = 5 * 60 * 1000;
 const LOOKUP_CACHE_KEY = "ptpm:job-direct:lookup-cache:v2";

@@ -1,4 +1,4 @@
-import { JobDirectStatusBadge, JobDirectIconActionButton } from "../../../../job-direct/components/primitives/JobDirectTable.jsx";
+import { JobDirectStatusBadge, JobDirectIconActionButton } from "@modules/job-workspace/components/primitives/JobDirectTable.jsx";
 import { ClientCell } from "../ClientCell.jsx";
 import { resolveStatusStyle } from "../../../constants/statusStyles.js";
 

@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../../shared/components/ui/Button.jsx";
 import { Modal } from "../../../shared/components/ui/Modal.jsx";
@@ -7,29 +7,24 @@ import { getFriendlyServiceMessage } from "../../../shared/utils/userFacingError
 import { buildLookupDisplayLabel } from "../../../shared/utils/lookupLabel.js";
 import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
 import { APP_USER } from "../../../config/userConfig.js";
-import { JobDirectStoreProvider } from "../../job-direct/hooks/useJobDirectStore.jsx";
-import { useVitalStatsPlugin } from "../../job-direct/hooks/useVitalStatsPlugin.js";
-import { AddPropertyModal } from "../../job-direct/components/modals/AddPropertyModal.jsx";
-import { DealInformationModal } from "../../job-direct/components/modals/DealInformationModal.jsx";
-import { ContactDetailsModal } from "../../job-direct/components/modals/ContactDetailsModal.jsx";
-import { TasksModal } from "../../job-direct/components/modals/TasksModal.jsx";
-import { AddActivitiesSection } from "../../job-direct/components/sections/AddActivitiesSection.jsx";
-import { AddMaterialsSection } from "../../job-direct/components/sections/AddMaterialsSection.jsx";
-import { InvoiceSection } from "../../job-direct/components/sections/InvoiceSection.jsx";
-import { UploadsSection } from "../../job-direct/components/sections/UploadsSection.jsx";
-import { AppointmentTabSection } from "../../job-direct/components/sections/job-information/AppointmentTabSection.jsx";
-import { SearchDropdownInput } from "../../job-direct/components/sections/job-information/JobInfoFormFields.jsx";
+import { JobDirectStoreProvider } from "@modules/job-workspace/hooks/useJobDirectStore.jsx";
+import { useVitalStatsPlugin } from "@platform/vitalstats/useVitalStatsPlugin.js";
+import { AddPropertyModal } from "@modules/job-workspace/components/modals/AddPropertyModal.jsx";
+import { DealInformationModal } from "@modules/job-workspace/components/modals/DealInformationModal.jsx";
+import { ContactDetailsModal } from "@modules/job-workspace/components/modals/ContactDetailsModal.jsx";
+import { TasksModal } from "@modules/job-workspace/components/modals/TasksModal.jsx";
+import { SearchDropdownInput } from "@modules/job-workspace/components/sections/job-information/JobInfoFormFields.jsx";
 import {
   EditActionIcon as EditIcon,
   TrashActionIcon as TrashIcon,
-} from "../../job-direct/components/icons/ActionIcons.jsx";
-import { StarIcon } from "../../job-direct/components/sections/job-information/JobInfoOptionCards.jsx";
+} from "@modules/job-workspace/components/icons/ActionIcons.jsx";
+import { StarIcon } from "@modules/job-workspace/components/sections/job-information/JobInfoOptionCards.jsx";
 import {
   getAffiliationCompanyName,
   getAffiliationContactName,
   getPropertyFeatureText,
   isPrimaryAffiliation,
-} from "../../job-direct/components/sections/job-information/jobInfoUtils.js";
+} from "@modules/job-workspace/components/sections/job-information/jobInfoUtils.js";
 import { resolveStatusStyle } from "../../dashboard/constants/statusStyles.js";
 import {
   createAffiliationRecord,
@@ -46,8 +41,8 @@ import {
   subscribeMaterialsByJobId,
   uploadMaterialFile,
   updateAffiliationRecord,
-} from "../../job-direct/sdk/jobDirectSdk.js";
-import { TitleBackIcon } from "../../job-direct/components/icons/JobDirectIcons.jsx";
+} from "@modules/job-workspace/sdk/core/runtime.js";
+import { TitleBackIcon } from "@modules/job-workspace/components/icons/JobDirectIcons.jsx";
 import {
   allocateServiceProviderForInquiry,
   createUploadForDetails,
@@ -75,6 +70,56 @@ import {
 } from "../../../shared/announcements/announcementTypes.js";
 import { emitAnnouncement } from "../../../shared/announcements/announcementEmitter.js";
 import { parseAnnouncementLocationSearch } from "../../../shared/announcements/announcementNavigation.js";
+import {
+  dedupeById,
+  formatCurrency,
+  formatDate,
+  formatFileSize,
+  formatRelativeTime,
+  fullName,
+  getAuthorName,
+  getMemoFileMeta,
+  isBodyCorpCompanyAccountType,
+  isCompanyAccountType,
+  isContactAccountType,
+  isLikelyEmailValue,
+  isLikelyPhoneValue,
+  mergeMemosPreservingComments,
+  normalizeStatus,
+  parseJsonLike,
+  resolveDetailsLayoutColumns,
+  resolveFocusedDetailsCard,
+  toTelHref,
+  toText,
+} from "./jobDetailsPageHelpers.js";
+
+const AddActivitiesSection = lazy(() =>
+  import("@modules/job-workspace/components/sections/AddActivitiesSection.jsx").then((module) => ({
+    default: module.AddActivitiesSection,
+  }))
+);
+const AddMaterialsSection = lazy(() =>
+  import("@modules/job-workspace/components/sections/AddMaterialsSection.jsx").then((module) => ({
+    default: module.AddMaterialsSection,
+  }))
+);
+const InvoiceSection = lazy(() =>
+  import("@modules/job-workspace/components/sections/InvoiceSection.jsx").then((module) => ({
+    default: module.InvoiceSection,
+  }))
+);
+const UploadsSection = lazy(() =>
+  import("@modules/job-workspace/components/sections/UploadsSection.jsx").then((module) => ({
+    default: module.UploadsSection,
+  }))
+);
+const AppointmentTabSection = lazy(() =>
+  import("@modules/job-workspace/components/sections/job-information/AppointmentTabSection.jsx").then(
+    (module) => ({
+      default: module.AppointmentTabSection,
+    })
+  )
+);
 
 const PAGE_TABS = [
   "Overview",
@@ -214,214 +259,12 @@ class SectionErrorBoundary extends Component {
   }
 }
 
-function resolveDetailsLayoutColumns(layoutMode) {
-  switch (layoutMode) {
-    case "focus-inquiry":
-      return "minmax(0,2.4fr) minmax(260px,0.9fr) minmax(260px,0.9fr)";
-    case "focus-property":
-      return "minmax(260px,0.9fr) minmax(0,2.4fr) minmax(260px,0.9fr)";
-    case "focus-job":
-      return "minmax(260px,0.9fr) minmax(260px,0.9fr) minmax(0,2.4fr)";
-    default:
-      return "minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)";
-  }
-}
-
-function resolveFocusedDetailsCard(layoutMode) {
-  if (layoutMode === "focus-inquiry") return "inquiry";
-  if (layoutMode === "focus-property") return "property";
-  if (layoutMode === "focus-job") return "job";
-  return "";
-}
-
-function toText(value) {
-  return String(value ?? "").trim();
-}
-
-function normalizeStatus(value) {
-  return toText(value).toLowerCase();
-}
-
-function isCompanyAccountType(value) {
-  const normalized = normalizeStatus(value);
-  return normalized === "company" || normalized === "entity";
-}
-
-function isContactAccountType(value) {
-  const normalized = normalizeStatus(value);
-  return normalized === "contact" || normalized === "individual";
-}
-
-function isBodyCorpCompanyAccountType(value) {
-  const normalized = normalizeStatus(value);
-  return normalized.includes("body corp");
-}
-
-function formatDate(value) {
-  const text = toText(value);
-  if (!text) return "—";
-
-  let date = null;
-  const numericText = text.replace(/,/g, "");
-  if (/^-?\d+(\.\d+)?$/.test(numericText)) {
-    const numeric = Number(numericText);
-    if (Number.isFinite(numeric)) {
-      const rounded = Math.trunc(numeric);
-      const asMs = String(Math.abs(rounded)).length <= 10 ? rounded * 1000 : rounded;
-      date = new Date(asMs);
-    }
-  } else if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
-    date = new Date(text);
-  } else {
-    const parsed = new Date(text);
-    if (!Number.isNaN(parsed.getTime())) date = parsed;
-  }
-
-  if (!date || Number.isNaN(date.getTime())) return text;
-
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = String(date.getFullYear()).slice(-2);
-  return `${day}/${month}/${year}`;
-}
-
-function formatCurrency(value) {
-  const numeric = Number(String(value ?? "").replace(/[^0-9.-]+/g, ""));
-  if (!Number.isFinite(numeric)) return "—";
-  return numeric.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  });
-}
-
-function formatFileSize(size) {
-  const value = Number(size);
-  if (!Number.isFinite(value) || value <= 0) return "-";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function parseJsonLike(value) {
-  if (!value) return null;
-  if (typeof value === "object") return value;
-  const text = toText(value);
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function getMemoFileMeta(input) {
-  if (!input) return null;
-  if (typeof input === "string") {
-    const parsed = parseJsonLike(input);
-    if (parsed && typeof parsed === "object") {
-      return getMemoFileMeta(parsed);
-    }
-    const link = toText(input);
-    if (!link) return null;
-    return {
-      link,
-      name: link.split("/").filter(Boolean).pop() || "Attachment",
-      size: "",
-      type: "",
-    };
-  }
-  if (typeof input === "object") {
-    if (Array.isArray(input)) {
-      const first = input.find(Boolean);
-      return first ? getMemoFileMeta(first) : null;
-    }
-    if (input.fileObject) {
-      return getMemoFileMeta(input.fileObject);
-    }
-    const link = toText(input.link || input.url || input.path);
-    if (!link) return null;
-    return {
-      link,
-      name: toText(input.name || input.filename) || link.split("/").filter(Boolean).pop() || "Attachment",
-      size: input.size || "",
-      type: toText(input.type || input.mime),
-    };
-  }
-  return null;
-}
-
-function formatRelativeTime(value) {
-  if (value == null || value === "") return "-";
-  let ms = null;
-  if (typeof value === "number" && Number.isFinite(value)) {
-    ms = value > 1e12 ? value : value * 1000;
-  } else {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) ms = parsed.getTime();
-  }
-  if (!Number.isFinite(ms)) return "-";
-  const diffSeconds = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-  if (diffSeconds < 60) return `${diffSeconds}s ago`;
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return new Date(ms).toLocaleDateString();
-}
-
-function getAuthorName(author = {}) {
+function DeferredTabSectionLoader({ label = "Loading section..." }) {
   return (
-    toText(author?.display_name || author?.Display_Name) ||
-    [toText(author?.first_name || author?.First_Name), toText(author?.last_name || author?.Last_Name)]
-      .filter(Boolean)
-      .join(" ")
-      .trim() ||
-    "Unknown"
+    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+      {label}
+    </div>
   );
-}
-
-function dedupeById(records = []) {
-  const seen = new Set();
-  return (Array.isArray(records) ? records : []).filter((record, index) => {
-    const key = toText(record?.id || record?.ID) || `idx-${index}`;
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function mergeMemosPreservingComments(previous = [], next = []) {
-  const prevList = Array.isArray(previous) ? previous : [];
-  const nextList = Array.isArray(next) ? next : [];
-  if (!prevList.length || !nextList.length) return nextList;
-
-  const previousById = new Map();
-  prevList.forEach((memo, index) => {
-    const key = toText(memo?.id || memo?.ID) || `prev-${index}`;
-    previousById.set(key, memo);
-  });
-
-  return nextList.map((memo, index) => {
-    const key = toText(memo?.id || memo?.ID) || `next-${index}`;
-    const previousMemo = previousById.get(key);
-    if (!previousMemo) return memo;
-
-    const nextComments = Array.isArray(memo?.ForumComments) ? memo.ForumComments : [];
-    if (nextComments.length > 0) return memo;
-
-    const previousComments = Array.isArray(previousMemo?.ForumComments)
-      ? previousMemo.ForumComments
-      : [];
-    if (!previousComments.length) return memo;
-
-    return {
-      ...memo,
-      ForumComments: previousComments,
-    };
-  });
 }
 
 function mapAffiliationToForm(initialData = null) {
@@ -471,29 +314,6 @@ function mapAffiliationToForm(initialData = null) {
         initialData.company_as_accounts_contact_name || initialData.Company_as_Accounts_Contact_Name
       ) || (sameAsCompany ? toText(initialData.company_name || initialData.CompanyName) : ""),
   };
-}
-
-function fullName(firstName, lastName) {
-  return [toText(firstName), toText(lastName)].filter(Boolean).join(" ").trim();
-}
-
-function isLikelyEmailValue(value) {
-  const text = toText(value);
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
-}
-
-function isLikelyPhoneValue(value) {
-  const text = toText(value);
-  if (!text) return false;
-  const digits = text.replace(/\D+/g, "");
-  return digits.length >= 6;
-}
-
-function toTelHref(value) {
-  const text = toText(value);
-  if (!text) return "";
-  const normalized = text.replace(/[^\d+]+/g, "");
-  return normalized ? `tel:${normalized}` : "";
 }
 
 function getInquiryPrimaryContact(inquiry = {}) {
@@ -4804,44 +4624,48 @@ export function JobDetailsPage() {
                     focusedKind === "upload" ? "ring-2 ring-amber-300" : ""
                   }`}
                 >
-                  {!currentJobId && !inquiryId ? (
-                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                      Uploads are available when inquiry or quote/job is linked.
-                    </div>
-                  ) : (
-                    <UploadsSection
-                      plugin={plugin}
-                      uploadsMode={currentJobId ? "job" : "inquiry"}
-                      jobData={currentJobId ? { id: currentJobId, ID: currentJobId } : { id: "", ID: "" }}
-                      inquiryId={inquiryId}
-                      inquiryUid={currentInquiryUniqueId}
-                      linkedJobId={currentJobId}
-                      highlightUploadId={focusedKind === "upload" ? focusedId : ""}
-                      additionalCreatePayload={inquiryId ? { inquiry_id: inquiryId } : null}
-                    />
-                  )}
-                </div>
-              ) : null}
+	                  {!currentJobId && !inquiryId ? (
+	                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+	                      Uploads are available when inquiry or quote/job is linked.
+	                    </div>
+	                  ) : (
+	                    <Suspense fallback={<DeferredTabSectionLoader label="Loading uploads..." />}>
+	                      <UploadsSection
+	                        plugin={plugin}
+	                        uploadsMode={currentJobId ? "job" : "inquiry"}
+	                        jobData={currentJobId ? { id: currentJobId, ID: currentJobId } : { id: "", ID: "" }}
+	                        inquiryId={inquiryId}
+	                        inquiryUid={currentInquiryUniqueId}
+	                        linkedJobId={currentJobId}
+	                        highlightUploadId={focusedKind === "upload" ? focusedId : ""}
+	                        additionalCreatePayload={inquiryId ? { inquiry_id: inquiryId } : null}
+	                      />
+	                    </Suspense>
+	                  )}
+	                </div>
+	              ) : null}
 
               {activeTab === "Appointments" ? (
                 <div className="rounded border border-slate-200 bg-white p-4">
-                  {!currentJobId && !inquiryId ? (
-                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                      Appointments are available when inquiry or quote/job is linked.
-                    </div>
-                  ) : (
-                    <AppointmentTabSection
-                      plugin={plugin}
-                      jobData={jobDirectBootstrapJobData || { id: currentJobId, ID: currentJobId }}
-                      preloadedLookupData={jobDirectLookupData}
-                      inquiryRecordId={inquiryId}
-                      inquiryUid={currentInquiryUniqueId}
-                      highlightAppointmentId={focusedKind === "appointment" ? focusedId : ""}
-                      prefillContext={appointmentPrefillContext}
-                    />
-                  )}
-                </div>
-              ) : null}
+	                  {!currentJobId && !inquiryId ? (
+	                    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+	                      Appointments are available when inquiry or quote/job is linked.
+	                    </div>
+	                  ) : (
+	                    <Suspense fallback={<DeferredTabSectionLoader label="Loading appointments..." />}>
+	                      <AppointmentTabSection
+	                        plugin={plugin}
+	                        jobData={jobDirectBootstrapJobData || { id: currentJobId, ID: currentJobId }}
+	                        preloadedLookupData={jobDirectLookupData}
+	                        inquiryRecordId={inquiryId}
+	                        inquiryUid={currentInquiryUniqueId}
+	                        highlightAppointmentId={focusedKind === "appointment" ? focusedId : ""}
+	                        prefillContext={appointmentPrefillContext}
+	                      />
+	                    </Suspense>
+	                  )}
+	                </div>
+	              ) : null}
 
               {activeTab === "Tasks" ? (
                 <div className="rounded border border-slate-200 bg-white p-4">
@@ -4920,19 +4744,21 @@ export function JobDetailsPage() {
                     <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
                       Loading activities...
                     </div>
-                  ) : workSectionsError && !jobActivities.length ? (
-                    <div className="rounded border border-red-200 bg-red-50 px-3 py-4 text-sm text-red-600">
-                      {workSectionsError}
-                    </div>
-                  ) : (
-                    <AddActivitiesSection
-                      plugin={plugin}
-                      jobData={{ id: currentJobId, ID: currentJobId }}
-                      highlightActivityId={focusedKind === "activity" ? focusedId : ""}
-                    />
-                  )}
-                </div>
-              ) : null}
+	                  ) : workSectionsError && !jobActivities.length ? (
+	                    <div className="rounded border border-red-200 bg-red-50 px-3 py-4 text-sm text-red-600">
+	                      {workSectionsError}
+	                    </div>
+	                  ) : (
+	                    <Suspense fallback={<DeferredTabSectionLoader label="Loading activities..." />}>
+	                      <AddActivitiesSection
+	                        plugin={plugin}
+	                        jobData={{ id: currentJobId, ID: currentJobId }}
+	                        highlightActivityId={focusedKind === "activity" ? focusedId : ""}
+	                      />
+	                    </Suspense>
+	                  )}
+	                </div>
+	              ) : null}
 
               {activeTab === "Materials" ? (
                 <div
@@ -4944,19 +4770,21 @@ export function JobDetailsPage() {
                     <div className="rounded border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
                       Loading materials...
                     </div>
-                  ) : workSectionsError && !jobMaterials.length ? (
-                    <div className="rounded border border-red-200 bg-red-50 px-3 py-4 text-sm text-red-600">
-                      {workSectionsError}
-                    </div>
-                  ) : (
-                    <AddMaterialsSection
-                      plugin={plugin}
-                      jobData={{ id: currentJobId, ID: currentJobId }}
-                      preloadedLookupData={jobDirectLookupData}
-                    />
-                  )}
-                </div>
-              ) : null}
+	                  ) : workSectionsError && !jobMaterials.length ? (
+	                    <div className="rounded border border-red-200 bg-red-50 px-3 py-4 text-sm text-red-600">
+	                      {workSectionsError}
+	                    </div>
+	                  ) : (
+	                    <Suspense fallback={<DeferredTabSectionLoader label="Loading materials..." />}>
+	                      <AddMaterialsSection
+	                        plugin={plugin}
+	                        jobData={{ id: currentJobId, ID: currentJobId }}
+	                        preloadedLookupData={jobDirectLookupData}
+	                      />
+	                    </Suspense>
+	                  )}
+	                </div>
+	              ) : null}
 
               {activeTab === "Invoice & Payment" ? (
                 <div
@@ -4966,12 +4794,14 @@ export function JobDetailsPage() {
                       : ""
                   }`}
                 >
-                  <InvoiceSection
-                    plugin={plugin}
-                    jobData={jobDirectBootstrapJobData || { id: currentJobId, ID: currentJobId }}
-                  />
-                </div>
-              ) : null}
+	                  <Suspense fallback={<DeferredTabSectionLoader label="Loading invoice..." />}>
+	                    <InvoiceSection
+	                      plugin={plugin}
+	                      jobData={jobDirectBootstrapJobData || { id: currentJobId, ID: currentJobId }}
+	                    />
+	                  </Suspense>
+	                </div>
+	              ) : null}
 
               </section>
             </JobDirectStoreProvider>

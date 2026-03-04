@@ -21,7 +21,7 @@ import { DashboardHeader } from "../components/DashboardHeader.jsx";
 import { DashboardSidebar } from "../components/DashboardSidebar.jsx";
 import { DashboardContent } from "../components/DashboardContent.jsx";
 import { DashboardBatchDeleteModal } from "../components/modals/DashboardBatchDeleteModal.jsx";
-import { TasksModal } from "../../job-direct/components/modals/TasksModal.jsx";
+import { TasksModal } from "@modules/job-workspace/components/modals/TasksModal.jsx";
 
 function FullPageLoader({ text = "Loading dashboard..." }) {
   return (

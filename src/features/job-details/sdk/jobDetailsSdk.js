@@ -13,14 +13,14 @@ import {
   fetchTasksByJobId,
   updatePropertyRecord,
   updateTaskRecord,
-} from "../../job-direct/sdk/jobDirectSdk.js";
+} from "@modules/job-workspace/sdk/core/runtime.js";
 import {
   extractCancellationMessage,
   extractMutationErrorMessage,
   extractStatusFailure,
   isPersistedId,
   normalizeObjectList,
-} from "../../job-direct/sdk/utils/sdkResponseUtils.js";
+} from "@modules/job-workspace/sdk/utils/sdkResponseUtils.js";
 
 function toText(value) {
   return String(value ?? "").trim();
