@@ -649,6 +649,55 @@ function getJobClient(job) {
   };
 }
 
+function formatAppointmentPropertyDetails({
+  propertyLabel = "",
+  propertyMeta = "",
+  property = null,
+} = {}) {
+  const label = toText(propertyLabel);
+  const metaTokens = toText(propertyMeta)
+    .split("|")
+    .map((item) => toText(item))
+    .filter(Boolean);
+  const uidFromMeta = toText(metaTokens[0]);
+  if (label && uidFromMeta && !label.toLowerCase().includes(uidFromMeta.toLowerCase())) {
+    return `${label} | ${uidFromMeta}`;
+  }
+  if (label) return label;
+
+  const propertyName = toText(
+    property?.property_name ||
+      property?.Property_Name ||
+      property?.name ||
+      property?.Name
+  );
+  const propertyUid = toText(property?.unique_id || property?.Unique_ID || uidFromMeta);
+  const propertyAddress = [
+    toText(
+      property?.address_1 ||
+        property?.Address_1 ||
+        property?.address ||
+        property?.Address
+    ),
+    toText(
+      property?.suburb_town ||
+        property?.Suburb_Town ||
+        property?.city ||
+        property?.City
+    ),
+    toText(property?.state || property?.State),
+    toText(
+      property?.postal_code ||
+        property?.Postal_Code ||
+        property?.zip_code ||
+        property?.Zip_Code
+    ),
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return [propertyName, propertyUid, propertyAddress].filter(Boolean).join(" | ");
+}
+
 function toAffiliationOption(affiliation = {}) {
   const contactName = fullName(
     affiliation?.contact_first_name,
@@ -2166,6 +2215,102 @@ export function JobDetailsPage() {
       }),
     [propertiesLookup]
   );
+  const appointmentPrefillContext = useMemo(() => {
+    const locationId = toText(resolvedPropertyId);
+    const selectedProperty = propertySearchItems.find(
+      (item) => toText(item?.id) === locationId
+    );
+    const locationLabel = toText(
+      selectedProperty?.label ||
+        resolvedProperty?.property_name ||
+        resolvedProperty?.Property_Name ||
+        resolvedProperty?.address_1 ||
+        resolvedProperty?.Address_1 ||
+        resolvedProperty?.address ||
+        resolvedProperty?.Address ||
+        resolvedProperty?.unique_id ||
+        resolvedProperty?.Unique_ID
+    );
+    const propertyDetails = formatAppointmentPropertyDetails({
+      propertyLabel: locationLabel,
+      propertyMeta: selectedProperty?.meta,
+      property: resolvedProperty,
+    });
+
+    const hostId = toText(selectedProviderId || allocatedProviderId);
+    const selectedHost = providerItems.find((item) => toText(item?.id) === hostId);
+    const hostLabel = toText(
+      selectedHost?.label || resolvedProviderName || (hostId ? `Provider #${hostId}` : "")
+    );
+
+    const companyPrimaryId = toText(
+      inquiryCompanyPrimaryPerson?.id || inquiryCompanyPrimaryPerson?.ID
+    );
+    const companyPrimaryLabel = buildLookupDisplayLabel(
+      fullName(
+        inquiryCompanyPrimaryPerson?.first_name || inquiryCompanyPrimaryPerson?.First_Name,
+        inquiryCompanyPrimaryPerson?.last_name || inquiryCompanyPrimaryPerson?.Last_Name
+      ),
+      inquiryCompanyPrimaryPerson?.email || inquiryCompanyPrimaryPerson?.Email,
+      inquiryCompanyPrimaryPerson?.sms_number || inquiryCompanyPrimaryPerson?.SMS_Number,
+      companyPrimaryId ? `Contact #${companyPrimaryId}` : ""
+    );
+    const contactId = toText(inquiryPrimaryContact?.id || inquiryPrimaryContact?.ID);
+    const contactLabel = buildLookupDisplayLabel(
+      fullName(
+        inquiryPrimaryContact?.first_name || inquiryPrimaryContact?.First_Name,
+        inquiryPrimaryContact?.last_name || inquiryPrimaryContact?.Last_Name
+      ),
+      inquiryPrimaryContact?.email || inquiryPrimaryContact?.Email,
+      inquiryPrimaryContact?.sms_number || inquiryPrimaryContact?.SMS_Number,
+      contactId ? `Contact #${contactId}` : ""
+    );
+    const guestId = isCompanyAccount ? companyPrimaryId || contactId : contactId;
+    const guestLabel = isCompanyAccount
+      ? companyPrimaryLabel || contactLabel
+      : contactLabel;
+
+    const recordUid = toText(currentInquiryUniqueId || currentJobUniqueId);
+    const inquiryTypeLabel = toText(inquiry?.type || inquiry?.Type);
+    const serviceLabel = toText(inquiry?.deal_name || inquiry?.Deal_Name);
+    const title = [recordUid, inquiryTypeLabel, serviceLabel].filter(Boolean).join(" | ");
+    const serviceDetails =
+      toText(inquiry?.how_can_we_help || inquiry?.How_can_we_help) ||
+      serviceLabel ||
+      inquiryTypeLabel;
+    const description = [
+      serviceDetails ? `Service:\n${serviceDetails}` : "",
+      propertyDetails ? `Property:\n${propertyDetails}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    return {
+      accountType: isCompanyAccount ? "Company" : "Contact",
+      locationId,
+      locationLabel,
+      hostId,
+      hostLabel,
+      guestId,
+      guestLabel,
+      title,
+      description,
+    };
+  }, [
+    allocatedProviderId,
+    currentInquiryUniqueId,
+    currentJobUniqueId,
+    inquiry,
+    inquiryCompanyPrimaryPerson,
+    inquiryPrimaryContact,
+    isCompanyAccount,
+    propertySearchItems,
+    providerItems,
+    resolvedProperty,
+    resolvedPropertyId,
+    resolvedProviderName,
+    selectedProviderId,
+  ]);
   const affiliationItems = useMemo(
     () =>
       (Array.isArray(affiliations) ? affiliations : [])
@@ -4673,6 +4818,7 @@ export function JobDetailsPage() {
                       inquiryRecordId={inquiryId}
                       inquiryUid={currentInquiryUniqueId}
                       highlightAppointmentId={focusedKind === "appointment" ? focusedId : ""}
+                      prefillContext={appointmentPrefillContext}
                     />
                   )}
                 </div>

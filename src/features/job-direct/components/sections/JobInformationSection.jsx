@@ -40,6 +40,60 @@ import {
   resolveOptionDefault,
 } from "./job-information/jobInfoUtils.js";
 
+function toText(value) {
+  return String(value || "").trim();
+}
+
+function formatPropertyPrefillDetails({
+  propertyLabel = "",
+  propertyMeta = "",
+  activeProperty = null,
+} = {}) {
+  const label = toText(propertyLabel);
+  const metaTokens = toText(propertyMeta)
+    .split("|")
+    .map((item) => toText(item))
+    .filter(Boolean);
+  const uidFromMeta = toText(metaTokens[0]);
+  if (label && uidFromMeta && !label.toLowerCase().includes(uidFromMeta.toLowerCase())) {
+    return `${label} | ${uidFromMeta}`;
+  }
+  if (label) return label;
+
+  const propertyName = toText(
+    activeProperty?.property_name ||
+      activeProperty?.Property_Name ||
+      activeProperty?.name ||
+      activeProperty?.Name
+  );
+  const propertyUid = toText(activeProperty?.unique_id || activeProperty?.Unique_ID || uidFromMeta);
+  const address = [
+    toText(
+      activeProperty?.address_1 ||
+        activeProperty?.Address_1 ||
+        activeProperty?.address ||
+        activeProperty?.Address
+    ),
+    toText(
+      activeProperty?.suburb_town ||
+        activeProperty?.Suburb_Town ||
+        activeProperty?.city ||
+        activeProperty?.City
+    ),
+    toText(activeProperty?.state || activeProperty?.State),
+    toText(
+      activeProperty?.postal_code ||
+        activeProperty?.Postal_Code ||
+        activeProperty?.zip_code ||
+        activeProperty?.Zip_Code
+    ),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return [propertyName, propertyUid, address].filter(Boolean).join(" | ");
+}
+
 export function JobInformationSection({
   activeTab,
   onTabChange,
@@ -185,6 +239,12 @@ export function JobInformationSection({
     );
     return String(selected?.label || "").trim();
   }, [effectivePropertyId, propertySearchItems]);
+  const selectedPropertyMeta = useMemo(() => {
+    const selected = (propertySearchItems || []).find(
+      (item) => normalizePropertyId(item?.id) === normalizePropertyId(effectivePropertyId)
+    );
+    return toText(selected?.meta);
+  }, [effectivePropertyId, propertySearchItems]);
 
   const selectedIndividual = useMemo(
     () => getJobIndividualSelection(activeJobData),
@@ -198,8 +258,31 @@ export function JobInformationSection({
     () => getJobPrimaryServiceProviderDetails(activeJobData),
     [activeJobData]
   );
+  const linkedInquiry = useMemo(
+    () => getJobRelatedInquiry(activeJobData) || null,
+    [activeJobData]
+  );
   const appointmentPrefillContext = useMemo(() => {
     const isCompanyAccount = selection.accountType === "Company";
+    const inquiryUid = toText(linkedInquiry?.unique_id);
+    const jobUid = toText(activeJobData?.unique_id || activeJobData?.Unique_ID);
+    const jobTypeLabel = toText(
+      JOB_TYPE_OPTIONS.find((option) => toText(option?.value) === toText(jobFieldsDraft.job_type))
+        ?.label || jobFieldsDraft.job_type
+    );
+    const serviceLabel = toText(linkedInquiry?.deal_name || jobTypeLabel);
+    const title = [inquiryUid || jobUid, serviceLabel].filter(Boolean).join(" | ");
+    const propertyDetails = formatPropertyPrefillDetails({
+      propertyLabel: selectedPropertyLabel,
+      propertyMeta: selectedPropertyMeta,
+      activeProperty: activeRelatedProperty,
+    });
+    const description = [
+      serviceLabel ? `Service:\n${serviceLabel}` : "",
+      propertyDetails ? `Property:\n${propertyDetails}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     const contactGuestId = String(selection.clientId || selectedIndividual.id || "").trim();
     const companyPrimaryId = String(selectedEntity.primaryId || "").trim();
     const companyPrimaryLabel = buildLookupDisplayLabel(
@@ -221,9 +304,17 @@ export function JobInformationSection({
       guestLabel: isCompanyAccount
         ? companyPrimaryLabel || selectedIndividual.label
         : selectedIndividual.label,
+      title,
+      description,
     };
   }, [
+    activeJobData?.Unique_ID,
+    activeJobData?.unique_id,
+    activeRelatedProperty,
     effectivePropertyId,
+    jobFieldsDraft.job_type,
+    linkedInquiry?.deal_name,
+    linkedInquiry?.unique_id,
     selectedEntity.name,
     selectedEntity.primaryEmail,
     selectedEntity.primaryId,
@@ -231,6 +322,7 @@ export function JobInformationSection({
     selectedIndividual.id,
     selectedIndividual.label,
     selectedPropertyLabel,
+    selectedPropertyMeta,
     selectedProvider?.id,
     selectedProvider?.label,
     selectedServiceProviderId,
