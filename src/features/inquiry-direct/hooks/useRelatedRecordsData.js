@@ -40,7 +40,12 @@ function writeCachedRelatedRecords(cacheKey = "", value = {}) {
   });
 }
 
-export function useRelatedRecordsData({ plugin, accountType = "", accountId = "" } = {}) {
+export function useRelatedRecordsData({
+  plugin,
+  accountType = "",
+  accountId = "",
+  refreshKey = 0,
+} = {}) {
   const [relatedDeals, setRelatedDeals] = useState([]);
   const [relatedJobs, setRelatedJobs] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -59,13 +64,16 @@ export function useRelatedRecordsData({ plugin, accountType = "", accountId = ""
 
     const normalizedAccountType = normalizeAccountType(accountType);
     const cacheKey = buildCacheKey(normalizedAccountType, normalizedAccountId);
-    const cached = readCachedRelatedRecords(cacheKey);
-    if (cached) {
-      setRelatedDeals(Array.isArray(cached.deals) ? cached.deals : []);
-      setRelatedJobs(Array.isArray(cached.jobs) ? cached.jobs : []);
-      setIsLoading(false);
-      setError("");
-      return undefined;
+    const shouldBypassCache = Boolean(refreshKey);
+    if (!shouldBypassCache) {
+      const cached = readCachedRelatedRecords(cacheKey);
+      if (cached) {
+        setRelatedDeals(Array.isArray(cached.deals) ? cached.deals : []);
+        setRelatedJobs(Array.isArray(cached.jobs) ? cached.jobs : []);
+        setIsLoading(false);
+        setError("");
+        return undefined;
+      }
     }
 
     setIsLoading(true);
@@ -136,7 +144,7 @@ export function useRelatedRecordsData({ plugin, accountType = "", accountId = ""
     return () => {
       isActive = false;
     };
-  }, [plugin, accountId, accountType]);
+  }, [plugin, accountId, accountType, refreshKey]);
 
   return {
     relatedDeals,

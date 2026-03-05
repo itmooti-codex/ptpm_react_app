@@ -8,6 +8,7 @@ import { TasksModal } from "../../../modules/job-workspace/components/modals/Tas
 import { ContactDetailsModal } from "../../../modules/job-workspace/components/modals/ContactDetailsModal.jsx";
 import { JobDirectStoreProvider } from "../../../modules/job-workspace/hooks/useJobDirectStore.jsx";
 import { useToast } from "../../../shared/providers/ToastProvider.jsx";
+import { APP_USER } from "../../../config/userConfig.js";
 import {
   ensureGooglePlacesLoaded,
   parseGoogleAddressComponents,
@@ -15,7 +16,15 @@ import {
 import { useVitalStatsPlugin } from "../../../platform/vitalstats/useVitalStatsPlugin.js";
 import { resolveStatusStyle } from "../../../shared/constants/statusStyles.js";
 import {
+  createLinkedJobForInquiry,
+  createMemoCommentForDetails,
+  createMemoPostForDetails,
+  deleteMemoCommentForDetails,
+  deleteMemoPostForDetails,
+  fetchMemosForDetails,
   resolveJobDetailsContext,
+  subscribeMemosForDetails,
+  updateContactFieldsById,
   updateCompanyFieldsById,
   updateInquiryFieldsById,
 } from "../../../modules/job-records/public/sdk.js";
@@ -29,6 +38,7 @@ import {
   fetchServicesForActivities,
   fetchServiceProvidersForSearch,
   searchPropertiesForLookup,
+  uploadMaterialFile,
   updateContactRecord,
   updatePropertyRecord,
 } from "../../../modules/job-workspace/sdk/core/runtime.js";
@@ -37,6 +47,7 @@ import {
   AppointmentTabSection,
   ColorMappedSelectInput,
   EditActionIcon as EditIcon,
+  TrashActionIcon as TrashIcon,
   normalizePropertyId,
   PropertyTabSection,
   SearchDropdownInput,
@@ -46,12 +57,17 @@ import {
 } from "@modules/job-workspace/public/components.js";
 import {
   formatDate,
+  formatFileSize,
+  formatRelativeTime,
   fullName,
+  getAuthorName,
+  getMemoFileMeta,
   isBodyCorpCompanyAccountType,
   isCompanyAccountType,
   isContactAccountType,
   isLikelyEmailValue,
   isLikelyPhoneValue,
+  mergeMemosPreservingComments,
   toTelHref,
   toText,
 } from "../../job-details/pages/jobDetailsPageHelpers.js";
@@ -546,6 +562,11 @@ function getInquiryPrimaryContact(inquiry = {}) {
     city: toText(nested?.city || nested?.City || inquiry?.Primary_Contact_City),
     state: toText(nested?.state || nested?.State || inquiry?.Primary_Contact_State),
     zip_code: toText(nested?.zip_code || nested?.Zip_Code || inquiry?.Primary_Contact_Zip_Code),
+    popup_comment: toText(
+      nested?.popup_comment ||
+        nested?.Popup_Comment ||
+        inquiry?.Primary_Contact_Popup_Comment
+    ),
   };
 }
 
@@ -579,6 +600,9 @@ function getInquiryCompany(inquiry = {}) {
         inquiry?.Company_Number_Of_Employees
     ),
     account_type: toText(nested?.account_type || nested?.Account_Type || inquiry?.Company_Account_Type),
+    popup_comment: toText(
+      nested?.popup_comment || nested?.Popup_Comment || inquiry?.Company_Popup_Comment
+    ),
     Primary_Person: {
       id: toText(
         nestedPrimaryPerson?.id || nestedPrimaryPerson?.ID || companyScopedPrimaryContact.id
@@ -1039,6 +1063,9 @@ function buildInquiryLiteBaseQuery(plugin) {
       "company_id",
       "primary_contact_id",
       "property_id",
+      "quote_record_id",
+      "Quote_Record_ID",
+      "Quote_record_ID",
       "inquiry_for_job_id",
       "Inquiry_For_Job_ID",
       "Inquiry_for_Job_ID",
@@ -1244,6 +1271,40 @@ async function fetchJobIdByUniqueId({ plugin, uniqueId }) {
   return toText(record?.id || record?.ID);
 }
 
+async function fetchJobUniqueIdById({ plugin, jobId }) {
+  const normalizedJobId = toText(jobId);
+  if (!plugin?.switchTo || !normalizedJobId) return "";
+  const query = plugin
+    .switchTo("PeterpmJob")
+    .query()
+    .where("id", /^\d+$/.test(normalizedJobId) ? Number.parseInt(normalizedJobId, 10) : normalizedJobId)
+    .deSelectAll()
+    .select(["id", "unique_id"])
+    .limit(1)
+    .noDestroy();
+  query.getOrInitQueryCalc?.();
+  const result = await toPromiseLike(query.fetchDirect());
+  const record = extractFirstRecord(result);
+  return toText(record?.unique_id || record?.Unique_ID);
+}
+
+async function fetchJobInquiryRecordIdById({ plugin, jobId }) {
+  const normalizedJobId = toText(jobId);
+  if (!plugin?.switchTo || !normalizedJobId) return "";
+  const query = plugin
+    .switchTo("PeterpmJob")
+    .query()
+    .where("id", /^\d+$/.test(normalizedJobId) ? Number.parseInt(normalizedJobId, 10) : normalizedJobId)
+    .deSelectAll()
+    .select(["id", "inquiry_record_id"])
+    .limit(1)
+    .noDestroy();
+  query.getOrInitQueryCalc?.();
+  const result = await toPromiseLike(query.fetchDirect());
+  const record = extractFirstRecord(result);
+  return toText(record?.inquiry_record_id || record?.Inquiry_Record_ID);
+}
+
 export function InquiryDetailsPage() {
   const navigate = useNavigate();
   const { success, error } = useToast();
@@ -1273,6 +1334,7 @@ export function InquiryDetailsPage() {
   const [isSavingLinkedJob, setIsSavingLinkedJob] = useState(false);
   const [linkedJobSelectionOverride, setLinkedJobSelectionOverride] = useState(undefined);
   const [relatedJobIdByUid, setRelatedJobIdByUid] = useState({});
+  const [relatedRecordsRefreshKey, setRelatedRecordsRefreshKey] = useState(0);
   const [inquiryTakenByLookup, setInquiryTakenByLookup] = useState([]);
   const [isInquiryTakenByLookupLoading, setIsInquiryTakenByLookupLoading] = useState(false);
   const [inquiryTakenByFallback, setInquiryTakenByFallback] = useState(null);
@@ -1280,6 +1342,14 @@ export function InquiryDetailsPage() {
   const [selectedInquiryTakenById, setSelectedInquiryTakenById] = useState("");
   const [isSavingInquiryTakenBy, setIsSavingInquiryTakenBy] = useState(false);
   const [isCreatingCallback, setIsCreatingCallback] = useState(false);
+  const [isCreateQuoteModalOpen, setIsCreateQuoteModalOpen] = useState(false);
+  const [isCreatingQuote, setIsCreatingQuote] = useState(false);
+  const [isOpeningQuoteJob, setIsOpeningQuoteJob] = useState(false);
+  const [isQuoteJobDirectlyLinked, setIsQuoteJobDirectlyLinked] = useState(false);
+  const [quoteCreateDraft, setQuoteCreateDraft] = useState({
+    quote_date: "",
+    follow_up_date: "",
+  });
   const [isDeleteRecordModalOpen, setIsDeleteRecordModalOpen] = useState(false);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
   const [isInquiryDetailsModalOpen, setIsInquiryDetailsModalOpen] = useState(false);
@@ -1305,6 +1375,23 @@ export function InquiryDetailsPage() {
   const [appointmentModalEditingId, setAppointmentModalEditingId] = useState("");
   const [appointmentModalDraft, setAppointmentModalDraft] = useState(null);
   const [isUploadsModalOpen, setIsUploadsModalOpen] = useState(false);
+  const [memos, setMemos] = useState([]);
+  const [isMemosLoading, setIsMemosLoading] = useState(false);
+  const [memosError, setMemosError] = useState("");
+  const [memoText, setMemoText] = useState("");
+  const [isMemoChatOpen, setIsMemoChatOpen] = useState(false);
+  const [memoFile, setMemoFile] = useState(null);
+  const [memoReplyDrafts, setMemoReplyDrafts] = useState({});
+  const [isPostingMemo, setIsPostingMemo] = useState(false);
+  const [sendingReplyPostId, setSendingReplyPostId] = useState("");
+  const [memoDeleteTarget, setMemoDeleteTarget] = useState(null);
+  const [isDeletingMemoItem, setIsDeletingMemoItem] = useState(false);
+  const [popupCommentDrafts, setPopupCommentDrafts] = useState({
+    contact: "",
+    company: "",
+  });
+  const [isPopupCommentModalOpen, setIsPopupCommentModalOpen] = useState(false);
+  const [isSavingPopupComment, setIsSavingPopupComment] = useState(false);
   const [inquiryDetailsForm, setInquiryDetailsForm] = useState({
     ...INQUIRY_DETAILS_EDIT_EMPTY_FORM,
   });
@@ -1319,6 +1406,8 @@ export function InquiryDetailsPage() {
   const previousSelectedPropertyIdRef = useRef("");
   const previousVisibleWorkspaceTabsKeyRef = useRef("");
   const previousAccountBindingKeyRef = useRef("");
+  const memoFileInputRef = useRef(null);
+  const popupCommentAutoShownRef = useRef({});
   const safeUid = useMemo(() => String(uid || "").trim(), [uid]);
   const hasUid = Boolean(safeUid);
   const configuredAdminProviderId = useMemo(
@@ -1390,6 +1479,14 @@ export function InquiryDetailsPage() {
       inquiryPrimaryContact?.id ||
       inquiryPrimaryContact?.ID
   );
+  const contactPopupComment = toText(
+    inquiryPrimaryContact?.popup_comment || inquiryPrimaryContact?.Popup_Comment
+  );
+  const companyPopupComment = toText(inquiryCompany?.popup_comment || inquiryCompany?.Popup_Comment);
+  const hasPopupCommentsSection = Boolean(showContactDetails || showCompanyDetails);
+  const hasAnyPopupComment = Boolean(contactPopupComment || companyPopupComment);
+  const hasMemoContext = Boolean(inquiryNumericId);
+  const currentUserId = toText(APP_USER?.id);
   const relatedRecordsAccountType = useMemo(() => {
     if (isCompanyAccount) return "Company";
     if (isContactAccount) return "Contact";
@@ -1410,6 +1507,7 @@ export function InquiryDetailsPage() {
     plugin,
     accountType: relatedRecordsAccountType,
     accountId: relatedRecordsAccountId,
+    refreshKey: relatedRecordsRefreshKey,
   });
   const filteredRelatedDeals = useMemo(() => {
     const currentInquiryId = toText(inquiryNumericId);
@@ -1423,6 +1521,9 @@ export function InquiryDetailsPage() {
     });
   }, [inquiryNumericId, relatedDeals, safeUid]);
   const isInquiryRequestExpanded = true;
+  const quoteJobIdFromRecord = toText(
+    inquiry?.quote_record_id || inquiry?.Quote_Record_ID || inquiry?.Quote_record_ID
+  );
   const linkedInquiryJobIdFromRecord = toText(
     inquiry?.inquiry_for_job_id || inquiry?.Inquiry_For_Job_ID || inquiry?.Inquiry_for_Job_ID
   );
@@ -1640,6 +1741,23 @@ export function InquiryDetailsPage() {
       accountCompanyPrimaryPhone ||
       accountCompanyAddress
   );
+
+  useEffect(() => {
+    setPopupCommentDrafts({
+      contact: contactPopupComment,
+      company: companyPopupComment,
+    });
+  }, [companyPopupComment, contactPopupComment, inquiryCompanyId, inquiryContactId]);
+
+  useEffect(() => {
+    const currentUid = toText(safeUid);
+    if (!currentUid || isContextLoading) return;
+    if (!hasAnyPopupComment) return;
+    if (popupCommentAutoShownRef.current?.[currentUid]) return;
+    popupCommentAutoShownRef.current[currentUid] = true;
+    setIsPopupCommentModalOpen(true);
+  }, [hasAnyPopupComment, isContextLoading, safeUid]);
+
   const sameAsContactPropertySource = useMemo(() => {
     const contactStreet = toText(inquiryPrimaryContact?.address);
     const contactCity = toText(inquiryPrimaryContact?.city);
@@ -2643,6 +2761,31 @@ export function InquiryDetailsPage() {
   }, [serviceProviderIdResolved, serviceProviderPrefillLabel]);
 
   useEffect(() => {
+    const quoteJobId = toText(quoteJobIdFromRecord);
+    const inquiryId = toText(inquiryNumericId);
+    if (!plugin?.switchTo || !/^\d+$/.test(quoteJobId) || !inquiryId) {
+      setIsQuoteJobDirectlyLinked(false);
+      return;
+    }
+
+    let cancelled = false;
+    fetchJobInquiryRecordIdById({ plugin, jobId: quoteJobId })
+      .then((jobInquiryId) => {
+        if (cancelled) return;
+        setIsQuoteJobDirectlyLinked(toText(jobInquiryId) === inquiryId);
+      })
+      .catch((linkError) => {
+        if (cancelled) return;
+        console.warn("[InquiryDetails] Failed verifying quote/job association", linkError);
+        setIsQuoteJobDirectlyLinked(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [inquiryNumericId, plugin, quoteJobIdFromRecord]);
+
+  useEffect(() => {
     setLinkedJobSelectionOverride(undefined);
   }, [linkedInquiryJobIdFromRecord, safeUid]);
 
@@ -2714,6 +2857,76 @@ export function InquiryDetailsPage() {
       setResolvedInquiry(refreshed);
     }
   }, [inquiryNumericId, plugin]);
+
+  const refreshMemos = useCallback(async () => {
+    if (!plugin || !isSdkReady || !hasMemoContext) {
+      setMemos([]);
+      return;
+    }
+    const rows = await fetchMemosForDetails({
+      plugin,
+      inquiryId: inquiryNumericId,
+      limit: 120,
+    });
+    setMemos(Array.isArray(rows) ? rows : []);
+  }, [hasMemoContext, inquiryNumericId, isSdkReady, plugin]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!plugin || !isSdkReady || !hasMemoContext) {
+      setMemos([]);
+      setIsMemosLoading(false);
+      setMemosError("");
+      return undefined;
+    }
+
+    setIsMemosLoading(true);
+    setMemosError("");
+
+    fetchMemosForDetails({
+      plugin,
+      inquiryId: inquiryNumericId,
+      limit: 120,
+    })
+      .then((rows) => {
+        if (cancelled) return;
+        setMemos(Array.isArray(rows) ? rows : []);
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        console.error("[InquiryDetails] Failed to load memos", loadError);
+        setMemos([]);
+        setMemosError(loadError?.message || "Unable to load memos.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsMemosLoading(false);
+      });
+
+    const unsubscribeMemos = subscribeMemosForDetails({
+      plugin,
+      inquiryId: inquiryNumericId,
+      limit: 120,
+      onChange: (rows) => {
+        if (cancelled) return;
+        setMemos((previous) =>
+          mergeMemosPreservingComments(previous, Array.isArray(rows) ? rows : [])
+        );
+        setMemosError("");
+        setIsMemosLoading(false);
+      },
+      onError: (streamError) => {
+        if (cancelled) return;
+        console.error("[InquiryDetails] Memo subscription failed", streamError);
+        setMemosError((previous) => previous || "Live memo updates are unavailable.");
+      },
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeMemos?.();
+    };
+  }, [hasMemoContext, inquiryNumericId, isSdkReady, plugin]);
 
   useEffect(() => {
     setOptimisticListSelectionByField({});
@@ -3171,6 +3384,323 @@ export function InquiryDetailsPage() {
       setIsCreatingCallback(false);
     }
   }, [error, inquiryNumericId, isCreatingCallback, plugin, refreshResolvedInquiry, success]);
+
+  const handleOpenCreateQuoteModal = useCallback(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    setQuoteCreateDraft({
+      quote_date: `${year}-${month}-${day}`,
+      follow_up_date: "",
+    });
+    setIsCreateQuoteModalOpen(true);
+  }, []);
+
+  const hasLinkedQuoteJob =
+    isQuoteJobDirectlyLinked && toText(inquiryStatus).toLowerCase() === "quote created";
+
+  const handleQuoteJobAction = useCallback(async () => {
+    if (isCreatingQuote || isOpeningQuoteJob) return;
+    if (!hasLinkedQuoteJob) {
+      handleOpenCreateQuoteModal();
+      return;
+    }
+    const linkedJobValue = toText(quoteJobIdFromRecord);
+    if (!linkedJobValue) {
+      handleOpenCreateQuoteModal();
+      return;
+    }
+
+    setIsOpeningQuoteJob(true);
+    try {
+      let targetUid = "";
+      if (plugin?.switchTo) {
+        targetUid = await fetchJobUniqueIdById({ plugin, jobId: linkedJobValue });
+      }
+      const resolvedUid = toText(targetUid || linkedJobValue);
+      if (!resolvedUid) {
+        error("Open failed", "Unable to resolve quote/job record.");
+        return;
+      }
+      navigate(`/details/${encodeURIComponent(resolvedUid)}`);
+    } catch (openError) {
+      console.error("[InquiryDetails] Failed opening quote/job details", openError);
+      error("Open failed", openError?.message || "Unable to open quote/job.");
+    } finally {
+      setIsOpeningQuoteJob(false);
+    }
+  }, [
+    error,
+    handleOpenCreateQuoteModal,
+    hasLinkedQuoteJob,
+    inquiryStatus,
+    isCreatingQuote,
+    isQuoteJobDirectlyLinked,
+    isOpeningQuoteJob,
+    quoteJobIdFromRecord,
+    navigate,
+    plugin,
+  ]);
+
+  const handleCloseCreateQuoteModal = useCallback(() => {
+    if (isCreatingQuote) return;
+    setIsCreateQuoteModalOpen(false);
+  }, [isCreatingQuote]);
+
+  const handleConfirmCreateQuote = useCallback(async () => {
+    if (isCreatingQuote) return;
+    if (!plugin || !inquiryNumericId) {
+      error("Create failed", "Inquiry context is not ready.");
+      return;
+    }
+
+    const providerId = toText(serviceProviderIdResolved || selectedServiceProviderId);
+    const inquiryTakenById = toText(
+      selectedInquiryTakenById || inquiryTakenByStoredId || inquiryTakenByIdResolved
+    );
+
+    const propertyId = normalizePropertyId(activeRelatedProperty?.id || inquiryPropertyId);
+
+    setIsCreatingQuote(true);
+    setIsCreateQuoteModalOpen(false);
+    try {
+      const inquiryPayload = {
+        ...(inquiry || {}),
+        id: inquiryNumericId,
+        ID: inquiryNumericId,
+        property_id: propertyId || null,
+        Property_ID: propertyId || null,
+      };
+      if (providerId) {
+        inquiryPayload.service_provider_id = providerId;
+        inquiryPayload.Service_Provider_ID = providerId;
+      }
+      const createdJob = await createLinkedJobForInquiry({
+        plugin,
+        inquiry: inquiryPayload,
+        serviceProviderId: providerId || null,
+        inquiryTakenById: inquiryTakenById || null,
+        quoteDate: quoteCreateDraft.quote_date,
+        followUpDate: quoteCreateDraft.follow_up_date,
+      });
+      await refreshResolvedInquiry();
+      setRelatedRecordsRefreshKey((previous) => previous + 1);
+      success(
+        "Quote created",
+        `Quote ${toText(createdJob?.unique_id || createdJob?.Unique_ID) || ""} created.`
+      );
+    } catch (createError) {
+      console.error("[InquiryDetails] Create quote failed", createError);
+      error("Create failed", createError?.message || "Unable to create quote.");
+    } finally {
+      setIsCreatingQuote(false);
+    }
+  }, [
+    activeRelatedProperty?.id,
+    error,
+    inquiry,
+    inquiryNumericId,
+    inquiryPropertyId,
+    isCreatingQuote,
+    plugin,
+    quoteCreateDraft.follow_up_date,
+    quoteCreateDraft.quote_date,
+    refreshResolvedInquiry,
+    selectedInquiryTakenById,
+    selectedServiceProviderId,
+    serviceProviderIdResolved,
+    inquiryTakenByStoredId,
+    inquiryTakenByIdResolved,
+    success,
+  ]);
+
+  const handleMemoFileChange = useCallback((event) => {
+    const nextFile = Array.from(event?.target?.files || [])[0] || null;
+    setMemoFile(nextFile);
+    if (event?.target) event.target.value = "";
+  }, []);
+
+  const handleSendMemo = useCallback(async () => {
+    const text = toText(memoText);
+    if (!hasMemoContext) {
+      error("Post failed", "No linked inquiry found for memos.");
+      return;
+    }
+    if (!text && !memoFile) {
+      error("Post failed", "Enter a message or attach a file.");
+      return;
+    }
+    if (isPostingMemo) return;
+
+    setIsPostingMemo(true);
+    try {
+      let memoFilePayload = "";
+      if (memoFile) {
+        const uploaded = await uploadMaterialFile({
+          file: memoFile,
+          uploadPath: `forum-memos/${inquiryNumericId || safeUid || "inquiry-details"}`,
+        });
+        memoFilePayload = JSON.stringify(uploaded?.fileObject || {});
+      }
+
+      await createMemoPostForDetails({
+        plugin,
+        payload: {
+          post_copy: text,
+          post_status: "Published",
+          related_inquiry_id: inquiryNumericId || null,
+          related_job_id: linkedInquiryJobIdFromRecord || null,
+          created_at: Math.floor(Date.now() / 1000),
+          file: memoFilePayload || "",
+        },
+      });
+
+      setMemoText("");
+      setMemoFile(null);
+      await refreshMemos();
+      success("Memo posted", "Your memo was added to the thread.");
+    } catch (postError) {
+      console.error("[InquiryDetails] Failed posting memo", postError);
+      error("Post failed", postError?.message || "Unable to post memo.");
+    } finally {
+      setIsPostingMemo(false);
+    }
+  }, [
+    error,
+    hasMemoContext,
+    inquiryNumericId,
+    isPostingMemo,
+    memoFile,
+    memoText,
+    plugin,
+    refreshMemos,
+    safeUid,
+    linkedInquiryJobIdFromRecord,
+    success,
+  ]);
+
+  const handleSendMemoReply = useCallback(
+    async (postId) => {
+      const normalizedPostId = toText(postId);
+      const text = toText(memoReplyDrafts?.[normalizedPostId]);
+      if (!normalizedPostId || !text) return;
+      if (sendingReplyPostId) return;
+
+      setSendingReplyPostId(normalizedPostId);
+      try {
+        await createMemoCommentForDetails({
+          plugin,
+          payload: {
+            forum_post_id: normalizedPostId,
+            comment: text,
+            comment_status: "Published",
+            created_at: Math.floor(Date.now() / 1000),
+          },
+        });
+        setMemoReplyDrafts((previous) => ({
+          ...(previous || {}),
+          [normalizedPostId]: "",
+        }));
+        await refreshMemos();
+        success("Reply posted", "Your reply was added.");
+      } catch (replyError) {
+        console.error("[InquiryDetails] Failed posting memo reply", replyError);
+        error("Reply failed", replyError?.message || "Unable to post reply.");
+      } finally {
+        setSendingReplyPostId("");
+      }
+    },
+    [error, memoReplyDrafts, plugin, refreshMemos, sendingReplyPostId, success]
+  );
+
+  const confirmDeleteMemoItem = useCallback(async () => {
+    if (!memoDeleteTarget || isDeletingMemoItem) return;
+    const deleteType = toText(memoDeleteTarget?.type);
+    const targetId = toText(memoDeleteTarget?.id);
+    if (!deleteType || !targetId) return;
+
+    setIsDeletingMemoItem(true);
+    try {
+      if (deleteType === "post") {
+        await deleteMemoPostForDetails({ plugin, postId: targetId });
+      } else {
+        await deleteMemoCommentForDetails({ plugin, commentId: targetId });
+      }
+      setMemoDeleteTarget(null);
+      await refreshMemos();
+      success("Deleted", deleteType === "post" ? "Memo deleted." : "Reply deleted.");
+    } catch (deleteError) {
+      console.error("[InquiryDetails] Failed deleting memo item", deleteError);
+      error("Delete failed", deleteError?.message || "Unable to delete item.");
+    } finally {
+      setIsDeletingMemoItem(false);
+    }
+  }, [error, isDeletingMemoItem, memoDeleteTarget, plugin, refreshMemos, success]);
+
+  const handleSavePopupComments = useCallback(async () => {
+    if (isSavingPopupComment) return;
+
+    const nextContactComment = toText(popupCommentDrafts?.contact);
+    const nextCompanyComment = toText(popupCommentDrafts?.company);
+    const contactChanged = nextContactComment !== contactPopupComment;
+    const companyChanged = nextCompanyComment !== companyPopupComment;
+
+    if (!contactChanged && !companyChanged) {
+      setIsPopupCommentModalOpen(false);
+      return;
+    }
+
+    try {
+      setIsSavingPopupComment(true);
+
+      if (contactChanged) {
+        if (!inquiryContactId) {
+          throw new Error("Primary contact is missing.");
+        }
+        await updateContactFieldsById({
+          plugin,
+          contactId: inquiryContactId,
+          payload: {
+            popup_comment: nextContactComment || null,
+          },
+        });
+      }
+
+      if (companyChanged) {
+        if (!inquiryCompanyId) {
+          throw new Error("Company is missing.");
+        }
+        await updateCompanyFieldsById({
+          plugin,
+          companyId: inquiryCompanyId,
+          payload: {
+            popup_comment: nextCompanyComment || null,
+          },
+        });
+      }
+
+      success("Saved", "Popup comment updated.");
+      setIsPopupCommentModalOpen(false);
+      await refreshResolvedInquiry();
+    } catch (saveError) {
+      console.error("[InquiryDetails] Popup comment save failed", saveError);
+      error("Save failed", saveError?.message || "Unable to update popup comment.");
+    } finally {
+      setIsSavingPopupComment(false);
+    }
+  }, [
+    companyPopupComment,
+    contactPopupComment,
+    error,
+    inquiryCompanyId,
+    inquiryContactId,
+    isSavingPopupComment,
+    plugin,
+    popupCommentDrafts,
+    refreshResolvedInquiry,
+    success,
+  ]);
 
   const handleDeleteRecord = useCallback(() => {
     setIsMoreOpen(false);
@@ -3910,6 +4440,21 @@ export function InquiryDetailsPage() {
               >
                 Manage Tasks
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 whitespace-nowrap px-3 !text-xs"
+                onClick={handleQuoteJobAction}
+                disabled={!inquiryNumericId || isCreatingQuote || isOpeningQuoteJob}
+              >
+                {isCreatingQuote
+                  ? "Creating Quote/Job..."
+                  : isOpeningQuoteJob
+                    ? "Opening Quote/Job..."
+                    : hasLinkedQuoteJob
+                      ? "View Quote/Job"
+                      : "Create Quote/Job"}
+              </Button>
 
               <div className="relative" ref={moreMenuRef}>
                 <Button
@@ -4240,6 +4785,59 @@ export function InquiryDetailsPage() {
         </div>
       </Modal>
       <Modal
+        open={isCreateQuoteModalOpen}
+        onClose={handleCloseCreateQuoteModal}
+        title="Create Quote/Job"
+        widthClass="max-w-md"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCloseCreateQuoteModal}
+              disabled={isCreatingQuote}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleConfirmCreateQuote}
+              disabled={isCreatingQuote}
+            >
+              {isCreatingQuote ? "Creating..." : "Create Quote/Job"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <InputField
+            label="Quote Date"
+            type="date"
+            field="quote_date"
+            value={quoteCreateDraft.quote_date}
+            onChange={(event) =>
+              setQuoteCreateDraft((previous) => ({
+                ...previous,
+                quote_date: String(event?.target?.value || ""),
+              }))
+            }
+          />
+          <InputField
+            label="Follow Up Date"
+            type="date"
+            field="follow_up_date"
+            value={quoteCreateDraft.follow_up_date}
+            onChange={(event) =>
+              setQuoteCreateDraft((previous) => ({
+                ...previous,
+                follow_up_date: String(event?.target?.value || ""),
+              }))
+            }
+          />
+        </div>
+      </Modal>
+      <Modal
         open={isDeleteRecordModalOpen}
         onClose={handleCloseDeleteRecordModal}
         title="Delete Record"
@@ -4269,6 +4867,121 @@ export function InquiryDetailsPage() {
         <p className="text-sm text-slate-700">
           This will mark the inquiry status as <strong>Cancelled</strong> and return you to the
           dashboard.
+        </p>
+      </Modal>
+      <Modal
+        open={isPopupCommentModalOpen}
+        onClose={() => {
+          if (isSavingPopupComment) return;
+          setPopupCommentDrafts({
+            contact: contactPopupComment,
+            company: companyPopupComment,
+          });
+          setIsPopupCommentModalOpen(false);
+        }}
+        title="Popup Comments"
+        widthClass="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setPopupCommentDrafts({
+                  contact: contactPopupComment,
+                  company: companyPopupComment,
+                });
+                setIsPopupCommentModalOpen(false);
+              }}
+              disabled={isSavingPopupComment}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSavePopupComments}
+              disabled={isSavingPopupComment}
+            >
+              {isSavingPopupComment ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {showContactDetails ? (
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">
+                Primary Contact Comment
+              </label>
+              <textarea
+                className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-[#003882] focus:outline-none focus:ring-2 focus:ring-[#003882]/20"
+                rows={5}
+                value={popupCommentDrafts.contact}
+                onChange={(event) =>
+                  setPopupCommentDrafts((previous) => ({
+                    ...(previous || {}),
+                    contact: event.target.value,
+                  }))
+                }
+                placeholder="Add popup comment for primary contact"
+              />
+            </div>
+          ) : null}
+
+          {showCompanyDetails ? (
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">
+                Company Comment
+              </label>
+              <textarea
+                className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-[#003882] focus:outline-none focus:ring-2 focus:ring-[#003882]/20"
+                rows={5}
+                value={popupCommentDrafts.company}
+                onChange={(event) =>
+                  setPopupCommentDrafts((previous) => ({
+                    ...(previous || {}),
+                    company: event.target.value,
+                  }))
+                }
+                placeholder="Add popup comment for company"
+              />
+            </div>
+          ) : null}
+        </div>
+      </Modal>
+      <Modal
+        open={Boolean(memoDeleteTarget)}
+        onClose={() => {
+          if (isDeletingMemoItem) return;
+          setMemoDeleteTarget(null);
+        }}
+        title={toText(memoDeleteTarget?.type) === "post" ? "Delete Memo" : "Delete Reply"}
+        widthClass="max-w-md"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMemoDeleteTarget(null)}
+              disabled={isDeletingMemoItem}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={confirmDeleteMemoItem}
+              disabled={isDeletingMemoItem}
+            >
+              {isDeletingMemoItem ? "Deleting..." : "Delete"}
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          {toText(memoDeleteTarget?.type) === "post"
+            ? "Are you sure you want to delete this memo?"
+            : "Are you sure you want to delete this reply?"}
         </p>
       </Modal>
 
@@ -4844,6 +5557,280 @@ export function InquiryDetailsPage() {
             </div>
           </section>
       </section>
+      <div className="pointer-events-none fixed bottom-5 right-6 z-[60] flex flex-col items-end gap-3">
+        <button
+          type="button"
+          className={`pointer-events-auto relative inline-flex h-12 w-12 items-center justify-center rounded-full border border-red-700 bg-red-600 text-white shadow-[0_10px_24px_rgba(220,38,38,0.35)] transition ${
+            hasPopupCommentsSection
+              ? "hover:bg-red-700"
+              : "cursor-not-allowed opacity-45"
+          }`}
+          onClick={() => {
+            if (!hasPopupCommentsSection) return;
+            setIsPopupCommentModalOpen(true);
+          }}
+          disabled={!hasPopupCommentsSection}
+          aria-label="Open popup comments"
+          title={hasPopupCommentsSection ? "Popup comments" : "Popup comments unavailable"}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+            <path
+              d="M12 7.25V13.25"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+            <circle cx="12" cy="17.1" r="1.25" fill="currentColor" />
+          </svg>
+        </button>
+
+        {isMemoChatOpen ? (
+          <section className="pointer-events-auto flex w-[370px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.22)]">
+            <header className="flex items-center justify-between bg-[#003882] px-3 py-2.5 text-white">
+              <div className="text-sm font-semibold">Memos</div>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 items-center justify-center rounded border border-white/30 text-white hover:bg-white/10"
+                onClick={() => setIsMemoChatOpen(false)}
+                aria-label="Close memos chat"
+                title="Close"
+              >
+                ✕
+              </button>
+            </header>
+
+            <div className="max-h-[420px] min-h-[340px] space-y-2 overflow-y-auto bg-slate-50 p-2.5">
+              {!hasMemoContext ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  Memos are available when inquiry is linked.
+                </div>
+              ) : isMemosLoading ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  Loading memos...
+                </div>
+              ) : memosError ? (
+                <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+                  {memosError}
+                </div>
+              ) : !memos.length ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  No memos yet.
+                </div>
+              ) : (
+                memos.map((memo, memoIndex) => {
+                  const memoId = toText(memo?.id || memo?.ID) || `memo-chat-${memoIndex}`;
+                  const memoAuthor = memo?.Author || {};
+                  const memoIsMine =
+                    Boolean(currentUserId) && toText(memo?.author_id || memoAuthor?.id) === currentUserId;
+                  const memoAuthorName = getAuthorName(memoAuthor);
+                  const memoFileMeta = getMemoFileMeta(memo?.file || memo?.File);
+                  const replies = Array.isArray(memo?.ForumComments) ? memo.ForumComments : [];
+                  const isReplySending = sendingReplyPostId === memoId;
+                  return (
+                    <div
+                      key={memoId}
+                      className={`rounded-lg border px-2.5 py-2 ${
+                        memoIsMine
+                          ? "border-blue-200 bg-blue-50"
+                          : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <div className="truncate text-[11px] font-semibold text-slate-700">
+                          {memoIsMine ? "You" : memoAuthorName}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-slate-500">
+                            {formatRelativeTime(memo?.created_at || memo?.Date_Added)}
+                          </span>
+                          <button
+                            type="button"
+                            className="inline-flex h-5 w-5 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
+                            onClick={() => setMemoDeleteTarget({ type: "post", id: memoId })}
+                            title="Delete memo"
+                            aria-label="Delete memo"
+                          >
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="whitespace-pre-wrap text-xs text-slate-700">
+                        {toText(
+                          memo?.post_copy ||
+                            memo?.Post_Copy ||
+                            memo?.comment ||
+                            memo?.Comment ||
+                            memo?.text ||
+                            memo?.Text ||
+                            memo?.content ||
+                            memo?.Content
+                        ) || "-"}
+                      </p>
+                      {memoFileMeta?.link ? (
+                        <a
+                          href={memoFileMeta.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1.5 inline-flex max-w-full rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-[#003882] underline underline-offset-2"
+                        >
+                          <span className="max-w-[240px] truncate">
+                            {memoFileMeta.name || "View attachment"}
+                            {memoFileMeta.size ? ` (${formatFileSize(memoFileMeta.size)})` : ""}
+                          </span>
+                        </a>
+                      ) : null}
+
+                      {replies.length ? (
+                        <div className="mt-2 space-y-1.5 border-t border-slate-200 pt-2">
+                          {replies.map((reply, replyIndex) => {
+                            const replyId = toText(reply?.id || reply?.ID) || `${memoId}-reply-${replyIndex}`;
+                            const replyAuthor = reply?.Author || {};
+                            const replyIsMine =
+                              Boolean(currentUserId) &&
+                              toText(reply?.author_id || replyAuthor?.id) === currentUserId;
+                            return (
+                              <div
+                                key={replyId}
+                                className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5"
+                              >
+                                <div className="mb-0.5 flex items-center justify-between gap-2">
+                                  <span className="truncate text-[10px] font-semibold text-slate-700">
+                                    {replyIsMine ? "You" : getAuthorName(replyAuthor)}
+                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] text-slate-500">
+                                      {formatRelativeTime(reply?.created_at)}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
+                                      onClick={() =>
+                                        setMemoDeleteTarget({ type: "comment", id: replyId })
+                                      }
+                                      title="Delete reply"
+                                      aria-label="Delete reply"
+                                    >
+                                      <TrashIcon />
+                                    </button>
+                                  </div>
+                                </div>
+                                <p className="whitespace-pre-wrap text-xs text-slate-700">
+                                  {toText(
+                                    reply?.comment ||
+                                      reply?.Comment ||
+                                      reply?.post_copy ||
+                                      reply?.Post_Copy ||
+                                      reply?.text ||
+                                      reply?.Text ||
+                                      reply?.content ||
+                                      reply?.Content
+                                  ) || "-"}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-2 flex items-end gap-1.5">
+                        <textarea
+                          className="min-h-[34px] flex-1 rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 outline-none focus:border-slate-400"
+                          placeholder="Reply..."
+                          value={toText(memoReplyDrafts?.[memoId])}
+                          onChange={(event) =>
+                            setMemoReplyDrafts((previous) => ({
+                              ...(previous || {}),
+                              [memoId]: event.target.value,
+                            }))
+                          }
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="!px-2 !py-1 !text-xs"
+                          disabled={Boolean(sendingReplyPostId)}
+                          onClick={() => handleSendMemoReply(memoId)}
+                        >
+                          {isReplySending ? "..." : "Send"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <footer className="space-y-2 border-t border-slate-200 bg-white p-2.5">
+              <textarea
+                className="min-h-[52px] w-full rounded border border-slate-300 px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-slate-400"
+                placeholder="Write a memo..."
+                value={memoText}
+                onChange={(event) => setMemoText(event.target.value)}
+                disabled={!hasMemoContext || isPostingMemo}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="!px-2 !py-1 !text-xs"
+                    onClick={() => memoFileInputRef.current?.click()}
+                    disabled={!hasMemoContext || isPostingMemo}
+                  >
+                    Attach
+                  </Button>
+                  <input
+                    ref={memoFileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleMemoFileChange}
+                  />
+                  {memoFile ? (
+                    <span className="max-w-[150px] truncate text-[11px] text-slate-500">
+                      {memoFile.name}
+                    </span>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="!bg-[#003882] !px-2 !py-1 !text-xs !text-white hover:!bg-[#0A4A9E]"
+                  onClick={handleSendMemo}
+                  disabled={!hasMemoContext || isPostingMemo}
+                >
+                  {isPostingMemo ? "Posting..." : "Send"}
+                </Button>
+              </div>
+            </footer>
+          </section>
+        ) : null}
+
+        <button
+          type="button"
+          className="pointer-events-auto relative inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#003882] text-white shadow-[0_10px_24px_rgba(0,56,130,0.35)] transition hover:bg-[#0A4A9E]"
+          onClick={() => setIsMemoChatOpen((previous) => !previous)}
+          aria-label={isMemoChatOpen ? "Close memos chat" : "Open memos chat"}
+          title={isMemoChatOpen ? "Close memos chat" : "Open memos chat"}
+        >
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" aria-hidden="true">
+            <path
+              d="M20 6.5v7A3.5 3.5 0 0 1 16.5 17H9l-4 3v-3A3.5 3.5 0 0 1 1.5 13.5v-7A3.5 3.5 0 0 1 5 3h11.5A3.5 3.5 0 0 1 20 6.5Z"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+            <path d="M6.5 8.5h8M6.5 11.5h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+          {memos.length ? (
+            <span className="absolute -right-1 -top-1 inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white">
+              {memos.length > 99 ? "99+" : memos.length}
+            </span>
+          ) : null}
+        </button>
+      </div>
       </JobDirectStoreProvider>
     </main>
   );
