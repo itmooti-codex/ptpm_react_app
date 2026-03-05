@@ -21,7 +21,7 @@ import { DashboardHeader } from "../components/DashboardHeader.jsx";
 import { DashboardSidebar } from "../components/DashboardSidebar.jsx";
 import { DashboardContent } from "../components/DashboardContent.jsx";
 import { DashboardBatchDeleteModal } from "../components/modals/DashboardBatchDeleteModal.jsx";
-import { TasksModal } from "@modules/job-workspace/components/modals/TasksModal.jsx";
+import { TasksModal } from "@modules/job-workspace/public/components.js";
 
 function FullPageLoader({ text = "Loading dashboard..." }) {
   return (
@@ -485,6 +485,16 @@ export function DashboardPage() {
     (row) => {
       const uid = String(row?.uid || "").trim();
       if (!uid) return;
+      if (activeTab === TAB_IDS.INQUIRY) {
+        navigate(`/inquiry-details/${encodeURIComponent(uid)}`, {
+          state: {
+            sourceTab: activeTab,
+            sourceId: row?.id ?? "",
+            sourceUid: uid,
+          },
+        });
+        return;
+      }
       navigate(`/details/${encodeURIComponent(uid)}`, {
         state: {
           sourceTab: activeTab,

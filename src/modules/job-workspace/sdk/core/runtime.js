@@ -37,11 +37,14 @@ export {
 } from "./domains/tasks/tasks.js";
 export {
   fetchContactsForSearch,
+  searchContactsForLookup,
   subscribeContactsForSearch,
   findContactByEmail,
   fetchCompaniesForSearch,
+  searchCompaniesForLookup,
   subscribeCompaniesForSearch,
   fetchPropertiesForSearch,
+  searchPropertiesForLookup,
   subscribePropertiesForSearch,
   findPropertyByName,
 } from "./domains/lookups/lookups.js";

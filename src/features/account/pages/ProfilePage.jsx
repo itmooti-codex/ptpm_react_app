@@ -5,7 +5,7 @@ import { Button } from "../../../shared/components/ui/Button.jsx";
 import { useToast } from "../../../shared/providers/ToastProvider.jsx";
 import { useCurrentUserProfile } from "../../../shared/hooks/useCurrentUserProfile.js";
 import { APP_USER } from "../../../config/userConfig.js";
-import { uploadMaterialFile } from "@modules/job-workspace/sdk/core/runtime.js";
+import { uploadMaterialFile } from "@modules/job-workspace/public/sdk.js";
 
 const STATE_OPTIONS = [
   { value: "NSW", label: "NSW" },

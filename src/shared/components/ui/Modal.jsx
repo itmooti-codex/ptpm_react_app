@@ -7,13 +7,14 @@ export function Modal({
   onClose,
   children,
   widthClass = "max-w-2xl",
+  zIndexClass = "z-50",
   footer,
 }) {
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      className={cx("fixed inset-0 flex items-center justify-center bg-black/40 px-4", zIndexClass)}
       onClick={onClose}
       role="presentation"
     >

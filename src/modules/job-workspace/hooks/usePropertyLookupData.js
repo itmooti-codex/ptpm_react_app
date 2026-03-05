@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchPropertiesForSearch,
+  searchPropertiesForLookup,
   subscribePropertiesForSearch,
 } from "../sdk/core/runtime.js";
 import {
@@ -8,7 +9,6 @@ import {
   useJobDirectStoreActions,
 } from "./useJobDirectStore.jsx";
 import { selectProperties } from "../state/selectors.js";
-import { registerSharedLookupSubscription } from "./lookupRealtimeRegistry.js";
 
 const EMPTY_LIST = [];
 
@@ -148,6 +148,7 @@ export function usePropertyLookupData(
     [storeProperties]
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     if (!normalizedInitialProperties.length) return;
@@ -165,26 +166,24 @@ export function usePropertyLookupData(
   useEffect(() => {
     if (!plugin) return undefined;
 
-    const releasePropertiesSubscription = registerSharedLookupSubscription({
-      key: "lookup:properties",
-      start: () =>
-        subscribePropertiesForSearch({
-          plugin,
-          onChange: (records) => {
-            const normalized = (records || []).map((item) => normalizeProperty(item));
-            actions.replaceEntityCollection(
-              "properties",
-              dedupeRecords(normalized, createPropertyLookupKey)
-            );
-          },
-          onError: (lookupError) => {
-            console.error("[JobDirect] Property lookup subscription failed", lookupError);
-          },
-        }),
+    const stopPropertiesSubscription = subscribePropertiesForSearch({
+      plugin,
+      onChange: (records) => {
+        const normalized = (records || []).map((item) => normalizeProperty(item));
+        actions.replaceEntityCollection(
+          "properties",
+          dedupeRecords(normalized, createPropertyLookupKey)
+        );
+      },
+      onError: (lookupError) => {
+        console.error("[JobDirect] Property lookup subscription failed", lookupError);
+      },
     });
 
     return () => {
-      releasePropertiesSubscription();
+      if (typeof stopPropertiesSubscription === "function") {
+        stopPropertiesSubscription();
+      }
     };
   }, [actions, plugin]);
 
@@ -229,9 +228,44 @@ export function usePropertyLookupData(
     return normalized;
   }, [actions]);
 
+  const searchProperties = useCallback(
+    async (query, { minLength = 2, limit = 50 } = {}) => {
+      const normalizedQuery = normalizeString(query);
+      if (!plugin || normalizedQuery.length < minLength) return [];
+
+      setIsSearching(true);
+      try {
+        const records = await searchPropertiesForLookup({
+          plugin,
+          query: normalizedQuery,
+          limit,
+        });
+        const normalized = dedupeRecords(
+          (records || []).map((item) => normalizeProperty(item)),
+          createPropertyLookupKey
+        );
+        if (normalized.length) {
+          actions.replaceEntityCollection(
+            "properties",
+            dedupeRecords([...normalized, ...properties], createPropertyLookupKey)
+          );
+        }
+        return normalized;
+      } catch (lookupError) {
+        console.error("[JobDirect] Property lookup search failed", lookupError);
+        return [];
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    [actions, plugin, properties]
+  );
+
   return {
     properties,
     isLookupLoading: isLoading,
+    isLookupSearching: isSearching,
     addProperty,
+    searchProperties,
   };
 }

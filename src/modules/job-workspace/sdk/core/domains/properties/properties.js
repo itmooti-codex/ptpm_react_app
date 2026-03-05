@@ -18,6 +18,14 @@ import {
 
 function preparePropertyMutationPayload(payload = {}) {
   const valueOrEmpty = (value) => String(value || "").trim();
+  const wholeNumberOrEmpty = (value) => valueOrEmpty(value).replace(/[^\d]/g, "");
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(payload || {}, key);
+  const prepared = {};
+  const assignText = (key, value) => {
+    const normalized = valueOrEmpty(value);
+    if (!normalized) return;
+    prepared[key] = normalized;
+  };
   const rawFeatureValues = Array.isArray(payload?.building_features)
     ? payload.building_features
     : Array.isArray(payload?.Building_Features)
@@ -39,28 +47,42 @@ function preparePropertyMutationPayload(payload = {}) {
     id: /^\d+$/.test(String(featureId)) ? Number.parseInt(featureId, 10) : featureId,
   }));
 
-  return {
-    property_name: valueOrEmpty(payload?.property_name),
-    lot_number: valueOrEmpty(payload?.lot_number),
-    unit_number: valueOrEmpty(payload?.unit_number),
-    address_1: valueOrEmpty(payload?.address_1),
-    address_2: valueOrEmpty(payload?.address_2),
-    suburb_town: valueOrEmpty(payload?.suburb_town),
-    postal_code: valueOrEmpty(payload?.postal_code),
-    state: valueOrEmpty(payload?.state),
-    country: valueOrEmpty(payload?.country),
-    property_type: valueOrEmpty(payload?.property_type),
-    building_type: valueOrEmpty(payload?.building_type),
-    building_type_other: valueOrEmpty(payload?.building_type_other),
-    foundation_type: valueOrEmpty(payload?.foundation_type),
-    bedrooms: valueOrEmpty(payload?.bedrooms),
-    manhole: Boolean(payload?.manhole),
-    stories: valueOrEmpty(payload?.stories),
-    building_age: valueOrEmpty(payload?.building_age),
-    building_features: featuresText,
-    building_features_options_as_text: featureOptionsText,
-    Building_Features: buildingFeaturesRelation,
-  };
+  assignText("property_name", payload?.property_name);
+  assignText("lot_number", payload?.lot_number);
+  assignText("unit_number", payload?.unit_number);
+  assignText("address_1", payload?.address_1);
+  assignText("address_2", payload?.address_2);
+  assignText("suburb_town", payload?.suburb_town);
+  assignText("postal_code", payload?.postal_code);
+  assignText("state", payload?.state);
+  assignText("country", payload?.country);
+  assignText("property_type", payload?.property_type);
+  assignText("building_type", payload?.building_type);
+  assignText("building_type_other", payload?.building_type_other);
+  assignText("foundation_type", payload?.foundation_type);
+  assignText("bedrooms", payload?.bedrooms);
+  assignText("building_age", payload?.building_age);
+
+  if (hasOwn("manhole") || hasOwn("Manhole")) {
+    prepared.manhole = Boolean(payload?.manhole ?? payload?.Manhole);
+  }
+
+  const normalizedStories = wholeNumberOrEmpty(payload?.stories);
+  if (normalizedStories) {
+    prepared.stories = Number.parseInt(normalizedStories, 10);
+  }
+
+  if (featuresText) {
+    prepared.building_features = featuresText;
+  }
+  if (featureOptionsText) {
+    prepared.building_features_options_as_text = featureOptionsText;
+  }
+  if (buildingFeaturesRelation.length) {
+    prepared.Building_Features = buildingFeaturesRelation;
+  }
+
+  return prepared;
 }
 
 export async function createPropertyRecord({ plugin, payload } = {}) {

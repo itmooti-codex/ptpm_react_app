@@ -50,7 +50,14 @@ export function JobDetailsCardSection({
   onClientSelectionChange,
   onJobFieldsChange,
 }) {
-  const { contacts, companies, addContact, addCompany } = useContactEntityLookupData(plugin, {
+  const {
+    contacts,
+    companies,
+    addContact,
+    addCompany,
+    searchContacts,
+    searchCompanies,
+  } = useContactEntityLookupData(plugin, {
     initialContacts: preloadedLookupData?.contacts || [],
     initialCompanies: preloadedLookupData?.companies || [],
     skipInitialFetch: true,
@@ -282,6 +289,7 @@ export function JobDetailsCardSection({
           placeholder="Search by name, email, phone"
           items={contactSearchItems}
           onValueChange={setClientQuery}
+          onSearchQueryChange={searchContacts}
           onSelect={(item) => {
             setSelectedClientId(item.id || "");
             setClientQuery(item.label || "");
@@ -302,6 +310,7 @@ export function JobDetailsCardSection({
           placeholder="Search entity"
           items={companySearchItems}
           onValueChange={setEntityQuery}
+          onSearchQueryChange={searchCompanies}
           onSelect={(item) => {
             setSelectedEntityId(item.id || "");
             setSelectedEntityContactId(item.primary?.id || "");

@@ -3,7 +3,7 @@ import {
   JobDirectTable,
   JobDirectEmptyTableRow,
   useRenderWindow,
-} from "@modules/job-workspace/components/primitives/JobDirectTable.jsx";
+} from "@modules/job-workspace/public/components.js";
 import { TAB_IDS } from "../../constants/tabs.js";
 import { getInquiryColumns } from "./columns/inquiryColumns.jsx";
 import { getQuoteColumns } from "./columns/quoteColumns.jsx";

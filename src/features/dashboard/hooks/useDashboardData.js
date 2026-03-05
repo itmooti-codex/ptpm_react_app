@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { extractFromPayload } from "../sdk/dashboardCore.js";
+import { extractFromPayload } from "@shared/sdk/dashboardCore.js";
 import { TAB_IDS } from "../constants/tabs.js";
 import {
   buildRowsCacheKey,

@@ -12,6 +12,19 @@ function SearchIcon() {
   );
 }
 
+function ClearIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function CalendarIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -222,6 +235,9 @@ export function SearchDropdownInput({
   onValueChange,
   onSelect,
   onAdd,
+  onSearchQueryChange = null,
+  searchDebounceMs = 250,
+  minSearchLength = 2,
   hideAddAction = false,
   emptyText,
   addButtonLabel,
@@ -229,6 +245,7 @@ export function SearchDropdownInput({
 }) {
   const rootRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
+  const hasValue = Boolean(String(value || "").trim());
 
   const filteredItems = useMemo(() => {
     const query = String(value || "");
@@ -265,6 +282,21 @@ export function SearchDropdownInput({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    if (typeof onSearchQueryChange !== "function") return undefined;
+    const normalizedQuery = String(value || "").trim();
+    if (normalizedQuery.length < Math.max(0, Number(minSearchLength) || 0)) {
+      return undefined;
+    }
+    const timeoutId = window.setTimeout(() => {
+      Promise.resolve(onSearchQueryChange(normalizedQuery)).catch((searchError) => {
+        console.error("[JobDirect] Lookup search callback failed", searchError);
+      });
+    }, Math.max(0, Number(searchDebounceMs) || 0));
+    return () => window.clearTimeout(timeoutId);
+  }, [isOpen, minSearchLength, onSearchQueryChange, searchDebounceMs, value]);
+
   const shouldRenderAddAction = !hideAddAction && typeof onAdd === "function";
 
   return (
@@ -281,11 +313,25 @@ export function SearchDropdownInput({
             onValueChange(event.target.value);
             setIsOpen(true);
           }}
-          className="w-full rounded border border-slate-300 bg-white px-2.5 py-2 pr-9 text-sm text-slate-700 outline-none focus:border-slate-400"
+          className="w-full rounded border border-slate-300 bg-white px-2.5 py-2 pr-14 text-sm text-slate-700 outline-none focus:border-slate-400"
         />
+        {hasValue ? (
+          <button
+            type="button"
+            className="absolute inset-y-0 right-8 inline-flex items-center rounded-md px-1.5 text-slate-400 hover:text-slate-600"
+            aria-label={`Clear ${label || "field"} search`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              onValueChange("");
+              setIsOpen(true);
+            }}
+          >
+            <ClearIcon />
+          </button>
+        ) : null}
         <button
           type="button"
-          className="absolute inset-y-0 right-3 inline-flex items-center rounded-md px-2 text-slate-400"
+          className="absolute inset-y-0 right-2 inline-flex items-center rounded-md px-1.5 text-slate-400"
           onClick={() => setIsOpen((prev) => !prev)}
           aria-label={`Search ${label || "field"}`}
         >

@@ -19,11 +19,11 @@ import {
   useJobDirectSelector,
   useJobDirectStoreActions,
 } from "../../../hooks/useJobDirectStore.jsx";
+import { useContactEntityLookupData } from "../../../hooks/useContactEntityLookupData.js";
+import { usePropertyLookupData } from "../../../hooks/usePropertyLookupData.js";
 import { useServiceProviderLookupData } from "../../../hooks/useServiceProviderLookupData.js";
 import {
   selectAppointments,
-  selectContacts,
-  selectProperties,
 } from "../../../state/selectors.js";
 import {
   createAppointmentRecord,
@@ -97,6 +97,48 @@ function MapPinIcon() {
   );
 }
 
+function applyBackgroundOpacity(colorValue, opacityValue = 1) {
+  const color = toText(colorValue);
+  if (!color) return "";
+  const opacity = Number(opacityValue);
+  if (!Number.isFinite(opacity) || opacity >= 1) return color;
+  const safeOpacity = Math.max(0, Math.min(1, opacity));
+
+  const hexMatch = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+  if (hexMatch) {
+    const raw = hexMatch[1];
+    const expanded =
+      raw.length === 3
+        ? raw
+            .split("")
+            .map((char) => `${char}${char}`)
+            .join("")
+        : raw;
+    const red = Number.parseInt(expanded.slice(0, 2), 16);
+    const green = Number.parseInt(expanded.slice(2, 4), 16);
+    const blue = Number.parseInt(expanded.slice(4, 6), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${safeOpacity})`;
+  }
+
+  const rgbMatch = color.match(/^rgba?\(([^)]+)\)$/i);
+  if (rgbMatch) {
+    const channels = rgbMatch[1]
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (channels.length >= 3) {
+      const red = Number.parseFloat(channels[0]);
+      const green = Number.parseFloat(channels[1]);
+      const blue = Number.parseFloat(channels[2]);
+      if (Number.isFinite(red) && Number.isFinite(green) && Number.isFinite(blue)) {
+        return `rgba(${red}, ${green}, ${blue}, ${safeOpacity})`;
+      }
+    }
+  }
+
+  return color;
+}
+
 function TableContactActions({ email = "", phone = "", mapQuery = "" }) {
   const emailText = toText(email);
   const phoneText = toText(phone);
@@ -156,12 +198,32 @@ export function AppointmentTabSection({
   prefillContext = null,
   mode = "",
   editingAppointmentId = "",
+  layoutMode = "split",
+  onRequestCreate = null,
+  onRequestEdit = null,
+  hideStatusFieldInForm = false,
+  eventRowTintOpacity = 1,
 }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
   const appointments = useJobDirectSelector(selectAppointments);
-  const properties = useJobDirectSelector(selectProperties);
-  const contacts = useJobDirectSelector(selectContacts);
+  const {
+    contacts,
+    searchContacts,
+    isLookupLoading: isContactLookupLoading,
+  } = useContactEntityLookupData(plugin, {
+    initialContacts: preloadedLookupData?.contacts || [],
+    initialCompanies: preloadedLookupData?.companies || [],
+    skipInitialFetch: true,
+  });
+  const {
+    properties,
+    searchProperties,
+    isLookupLoading: isPropertyLookupLoading,
+  } = usePropertyLookupData(plugin, {
+    initialProperties: preloadedLookupData?.properties || [],
+    skipInitialFetch: true,
+  });
   const { serviceProviders, isLookupLoading: isServiceProviderLookupLoading } =
     useServiceProviderLookupData(plugin, {
       initialProviders: preloadedLookupData?.serviceProviders || [],
@@ -272,11 +334,22 @@ export function AppointmentTabSection({
   );
 
   const forcedMode = normalizeTextValue(mode).toLowerCase();
+  const resolvedLayoutMode = normalizeTextValue(layoutMode).toLowerCase();
+  const isTableOnlyLayout = resolvedLayoutMode === "table";
+  const isFormOnlyLayout = resolvedLayoutMode === "form";
+  const showFormPanel = !isTableOnlyLayout;
+  const showTablePanel = !isFormOnlyLayout;
   const resolvedEditingId =
     forcedMode === "create"
       ? ""
       : normalizeTextValue(editingAppointmentId || draftState.editingAppointmentId);
   const isEditMode = forcedMode === "update" || Boolean(resolvedEditingId);
+  const shouldHideStatusFieldInForm = Boolean(hideStatusFieldInForm);
+  const normalizedEventRowTintOpacity = useMemo(() => {
+    const numeric = Number(eventRowTintOpacity);
+    if (!Number.isFinite(numeric)) return 1;
+    return Math.max(0, Math.min(1, numeric));
+  }, [eventRowTintOpacity]);
   const form = draftState.form;
 
   const normalizedPrefill = useMemo(
@@ -754,12 +827,12 @@ export function AppointmentTabSection({
     [guestItems, normalizeTextValue]
   );
 
-  const startEditing = useCallback(
+  const buildDraftFromRecord = useCallback(
     (record) => {
       const appointmentId = normalizeTextValue(record?.id || record?.ID);
-      if (!appointmentId) return;
+      if (!appointmentId) return null;
       const duration = deriveDurationFromRecord(record);
-      setDraftState({
+      return {
         form: {
           ...emptyForm,
           status:
@@ -786,7 +859,7 @@ export function AppointmentTabSection({
         hostQuery: resolveHostLabel(record),
         guestQuery: resolveGuestLabel(record),
         editingAppointmentId: appointmentId,
-      });
+      };
     },
     [
       defaultEventColor,
@@ -800,6 +873,15 @@ export function AppointmentTabSection({
     ]
   );
 
+  const startEditing = useCallback(
+    (record) => {
+      const nextDraftState = buildDraftFromRecord(record);
+      if (!nextDraftState) return;
+      setDraftState(nextDraftState);
+    },
+    [buildDraftFromRecord]
+  );
+
   const computeDurationMinutes = useCallback(() => {
     const hours = Number.parseInt(normalizeTextValue(form.duration_hours) || "0", 10);
     const minutes = Number.parseInt(normalizeTextValue(form.duration_minutes) || "0", 10);
@@ -807,6 +889,15 @@ export function AppointmentTabSection({
     const safeMinutes = Number.isFinite(minutes) ? Math.max(0, minutes) : 0;
     return safeHours * 60 + safeMinutes;
   }, [form.duration_hours, form.duration_minutes, normalizeTextValue]);
+  const editingRecordStatusValue = useMemo(() => {
+    if (!isEditMode) return "";
+    const targetId = normalizeTextValue(resolvedEditingId);
+    if (!targetId) return "";
+    const matchedRecord = (Array.isArray(appointments) ? appointments : []).find(
+      (record) => normalizeTextValue(record?.id || record?.ID) === targetId
+    );
+    return normalizeTextValue(matchedRecord?.status);
+  }, [appointments, isEditMode, normalizeTextValue, resolvedEditingId]);
 
   const handleSubmitAppointment = useCallback(async () => {
     if (!plugin) {
@@ -849,7 +940,9 @@ export function AppointmentTabSection({
     const isInquiryType = normalizeAppointmentValue(form.type) === "inquiry";
     const shouldAttachInquiry = hasInquiryContext || isInquiryType;
     const statusValue = isEditMode
-      ? normalizeTextValue(form.status) || "New"
+      ? normalizeTextValue(
+          shouldHideStatusFieldInForm ? editingRecordStatusValue || form.status : form.status
+        ) || "New"
       : "New";
 
     const payload = {
@@ -919,6 +1012,7 @@ export function AppointmentTabSection({
     computeDurationMinutes,
     dealId,
     defaultEventColor,
+    editingRecordStatusValue,
     error,
     form,
     inquiryUidValue,
@@ -929,6 +1023,7 @@ export function AppointmentTabSection({
     plugin,
     resetForm,
     resolvedEditingId,
+    shouldHideStatusFieldInForm,
     storeActions,
     success,
   ]);
@@ -1025,13 +1120,18 @@ export function AppointmentTabSection({
     <div
       ref={sectionRef}
       data-job-section="job-section-appointment"
-      className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[460px_minmax(0,1fr)]"
+      className={
+        showFormPanel && showTablePanel
+          ? "grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[460px_minmax(0,1fr)]"
+          : "min-w-0"
+      }
     >
+      {showFormPanel ? (
       <div className="space-y-4">
         <Card className="space-y-4">
           <div className="text-base font-bold leading-4 text-neutral-700">Appointments</div>
 
-          {isEditMode ? (
+          {isEditMode && !shouldHideStatusFieldInForm ? (
             <ColorMappedSelectInput
               label="Appointment Status"
               field="status"
@@ -1109,6 +1209,7 @@ export function AppointmentTabSection({
               setDraftState((previous) => ({ ...previous, locationQuery: value }));
               handleFieldChange("location_id", "");
             }}
+            onSearchQueryChange={searchProperties}
             onSelect={(item) => {
               setDraftState((previous) => ({
                 ...previous,
@@ -1117,7 +1218,7 @@ export function AppointmentTabSection({
               handleFieldChange("location_id", String(item?.id || "").trim());
             }}
             hideAddAction
-            emptyText="No properties found."
+            emptyText={isPropertyLookupLoading ? "Loading properties..." : "No properties found."}
           />
 
           <SearchDropdownInput
@@ -1155,6 +1256,7 @@ export function AppointmentTabSection({
               setDraftState((previous) => ({ ...previous, guestQuery: value }));
               handleFieldChange("primary_guest_contact_id", "");
             }}
+            onSearchQueryChange={searchContacts}
             onSelect={(item) => {
               setDraftState((previous) => ({
                 ...previous,
@@ -1163,7 +1265,7 @@ export function AppointmentTabSection({
               handleFieldChange("primary_guest_contact_id", String(item?.id || "").trim());
             }}
             hideAddAction
-            emptyText="No contacts found."
+            emptyText={isContactLookupLoading ? "Loading contacts..." : "No contacts found."}
           />
         </Card>
 
@@ -1194,9 +1296,24 @@ export function AppointmentTabSection({
           </Button>
         </div>
       </div>
+      ) : null}
 
+      {showTablePanel ? (
       <Card className="min-w-0 space-y-4">
-        <div className="text-base font-bold leading-4 text-neutral-700">Appointments</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-base font-bold leading-4 text-neutral-700">Appointments</div>
+          {isTableOnlyLayout && typeof onRequestCreate === "function" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              className="h-8 whitespace-nowrap px-3 text-xs"
+              onClick={() => onRequestCreate()}
+            >
+              Add Appointment
+            </Button>
+          ) : null}
+        </div>
         <div className="w-full max-w-full overflow-x-auto">
           <table id="appointments-table" className="w-full min-w-[1180px] table-fixed text-left text-sm text-slate-600">
             <thead className="border-b border-slate-200 text-slate-500">
@@ -1259,10 +1376,13 @@ export function AppointmentTabSection({
                   const isHighlighted =
                     Boolean(normalizedHighlightAppointmentId) &&
                     recordId === normalizedHighlightAppointmentId;
-                  const rowTintStyle =
-                    !isHighlighted && eventOption?.backgroundColor
-                      ? { backgroundColor: eventOption.backgroundColor }
-                      : undefined;
+                  const rowTintColor = !isHighlighted
+                    ? applyBackgroundOpacity(
+                        eventOption?.backgroundColor,
+                        normalizedEventRowTintOpacity
+                      )
+                    : "";
+                  const rowTintStyle = rowTintColor ? { backgroundColor: rowTintColor } : undefined;
 
                   return (
                     <tr
@@ -1327,7 +1447,14 @@ export function AppointmentTabSection({
                           <button
                             type="button"
                             className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
-                            onClick={() => startEditing(record)}
+                            onClick={() => {
+                              if (isTableOnlyLayout && typeof onRequestEdit === "function") {
+                                const nextDraftState = buildDraftFromRecord(record);
+                                onRequestEdit(record, nextDraftState);
+                                return;
+                              }
+                              startEditing(record);
+                            }}
                             disabled={updatingId === recordId || isDeleting}
                             aria-label="Edit appointment"
                             title="Edit"
@@ -1382,6 +1509,7 @@ export function AppointmentTabSection({
           <div className="text-xs text-slate-500">Showing all {appointments.length} appointments.</div>
         ) : null}
       </Card>
+      ) : null}
 
       <Modal
         open={Boolean(deleteTarget)}

@@ -16,6 +16,32 @@ import {
 
 const JobDirectStoreContext = createContext(null);
 
+function stableSerialize(value) {
+  const seen = new WeakSet();
+  const normalize = (input) => {
+    if (input === null || input === undefined) return input ?? null;
+    if (typeof input !== "object") return input;
+    if (seen.has(input)) return "__cycle__";
+    seen.add(input);
+    if (Array.isArray(input)) {
+      return input.map((item) => normalize(item));
+    }
+    const normalizedObject = {};
+    Object.keys(input)
+      .sort()
+      .forEach((key) => {
+        normalizedObject[key] = normalize(input[key]);
+      });
+    return normalizedObject;
+  };
+
+  try {
+    return JSON.stringify(normalize(value));
+  } catch (_) {
+    return "";
+  }
+}
+
 export function JobDirectStoreProvider({
   children,
   jobUid = null,
@@ -27,17 +53,31 @@ export function JobDirectStoreProvider({
     jobUid,
     createJobDirectReducerInitialState
   );
+  const bootstrapSignature = useMemo(() => {
+    if (!jobUid && !jobData && !lookupData) return "";
+    return [
+      String(jobUid || ""),
+      stableSerialize(jobData),
+      stableSerialize(lookupData),
+    ].join("::");
+  }, [jobData, jobUid, lookupData]);
   const stateRef = useRef(state);
   const listenersRef = useRef(new Set());
+  const previousBootstrapSignatureRef = useRef("");
 
   useEffect(() => {
     dispatch(setJobUid(jobUid));
   }, [jobUid]);
 
   useEffect(() => {
-    if (!jobUid && !jobData && !lookupData) return;
+    if (!bootstrapSignature) {
+      previousBootstrapSignatureRef.current = "";
+      return;
+    }
+    if (previousBootstrapSignatureRef.current === bootstrapSignature) return;
+    previousBootstrapSignatureRef.current = bootstrapSignature;
     dispatch(hydrateBootstrapState({ jobUid, jobData, lookupData }));
-  }, [jobUid, jobData, lookupData]);
+  }, [bootstrapSignature, jobData, jobUid, lookupData]);
 
   useEffect(() => {
     stateRef.current = state;

@@ -7,25 +7,25 @@ import { getFriendlyServiceMessage } from "../../../shared/utils/userFacingError
 import { buildLookupDisplayLabel } from "../../../shared/utils/lookupLabel.js";
 import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
 import { APP_USER } from "../../../config/userConfig.js";
-import { JobDirectStoreProvider } from "@modules/job-workspace/hooks/useJobDirectStore.jsx";
+import { JobDirectStoreProvider } from "@modules/job-workspace/public/hooks.js";
 import { useVitalStatsPlugin } from "@platform/vitalstats/useVitalStatsPlugin.js";
-import { AddPropertyModal } from "@modules/job-workspace/components/modals/AddPropertyModal.jsx";
-import { DealInformationModal } from "@modules/job-workspace/components/modals/DealInformationModal.jsx";
-import { ContactDetailsModal } from "@modules/job-workspace/components/modals/ContactDetailsModal.jsx";
-import { TasksModal } from "@modules/job-workspace/components/modals/TasksModal.jsx";
-import { SearchDropdownInput } from "@modules/job-workspace/components/sections/job-information/JobInfoFormFields.jsx";
+import { AddPropertyModal } from "@modules/job-workspace/public/components.js";
+import { DealInformationModal } from "@modules/job-workspace/public/components.js";
+import { ContactDetailsModal } from "@modules/job-workspace/public/components.js";
+import { TasksModal } from "@modules/job-workspace/public/components.js";
+import { SearchDropdownInput } from "@modules/job-workspace/public/components.js";
 import {
   EditActionIcon as EditIcon,
   TrashActionIcon as TrashIcon,
-} from "@modules/job-workspace/components/icons/ActionIcons.jsx";
-import { StarIcon } from "@modules/job-workspace/components/sections/job-information/JobInfoOptionCards.jsx";
+} from "@modules/job-workspace/public/components.js";
+import { StarIcon } from "@modules/job-workspace/public/components.js";
 import {
   getAffiliationCompanyName,
   getAffiliationContactName,
   getPropertyFeatureText,
   isPrimaryAffiliation,
-} from "@modules/job-workspace/components/sections/job-information/jobInfoUtils.js";
-import { resolveStatusStyle } from "../../dashboard/constants/statusStyles.js";
+} from "@modules/job-workspace/public/components.js";
+import { resolveStatusStyle } from "@shared/constants/statusStyles.js";
 import {
   createAffiliationRecord,
   createCompanyRecord,
@@ -34,15 +34,18 @@ import {
   deleteAffiliationRecord,
   fetchActivitiesByJobId,
   fetchPropertiesForSearch,
+  searchPropertiesForLookup,
   fetchMaterialsByJobId,
   fetchCompaniesForSearch,
+  searchCompaniesForLookup,
+  searchContactsForLookup,
   fetchServiceProvidersForSearch,
   subscribeActivitiesByJobId,
   subscribeMaterialsByJobId,
   uploadMaterialFile,
   updateAffiliationRecord,
-} from "@modules/job-workspace/sdk/core/runtime.js";
-import { TitleBackIcon } from "@modules/job-workspace/components/icons/JobDirectIcons.jsx";
+} from "@modules/job-workspace/public/sdk.js";
+import { TitleBackIcon } from "@modules/job-workspace/public/components.js";
 import {
   allocateServiceProviderForInquiry,
   createUploadForDetails,
@@ -64,7 +67,7 @@ import {
   updateCompanyFieldsById,
   updateInquiryFieldsById,
   updateJobFieldsById,
-} from "../sdk/jobDetailsSdk.js";
+} from "@modules/job-records/public/sdk.js";
 import {
   ANNOUNCEMENT_EVENT_KEYS,
 } from "../../../shared/announcements/announcementTypes.js";
@@ -94,27 +97,27 @@ import {
 } from "./jobDetailsPageHelpers.js";
 
 const AddActivitiesSection = lazy(() =>
-  import("@modules/job-workspace/components/sections/AddActivitiesSection.jsx").then((module) => ({
+  import("@modules/job-workspace/public/components.js").then((module) => ({
     default: module.AddActivitiesSection,
   }))
 );
 const AddMaterialsSection = lazy(() =>
-  import("@modules/job-workspace/components/sections/AddMaterialsSection.jsx").then((module) => ({
+  import("@modules/job-workspace/public/components.js").then((module) => ({
     default: module.AddMaterialsSection,
   }))
 );
 const InvoiceSection = lazy(() =>
-  import("@modules/job-workspace/components/sections/InvoiceSection.jsx").then((module) => ({
+  import("@modules/job-workspace/public/components.js").then((module) => ({
     default: module.InvoiceSection,
   }))
 );
 const UploadsSection = lazy(() =>
-  import("@modules/job-workspace/components/sections/UploadsSection.jsx").then((module) => ({
+  import("@modules/job-workspace/public/components.js").then((module) => ({
     default: module.UploadsSection,
   }))
 );
 const AppointmentTabSection = lazy(() =>
-  import("@modules/job-workspace/components/sections/job-information/AppointmentTabSection.jsx").then(
+  import("@modules/job-workspace/public/components.js").then(
     (module) => ({
       default: module.AppointmentTabSection,
     })
@@ -1222,6 +1225,81 @@ export function JobDetailsPage() {
       cancelled = true;
     };
   }, [plugin, isSdkReady]);
+
+  const mergeContactsLookupRows = useCallback((records = []) => {
+    const normalized = Array.isArray(records) ? records : [];
+    if (!normalized.length) return;
+    setContactsLookup((previous) => dedupeById([...normalized, ...(Array.isArray(previous) ? previous : [])]));
+  }, []);
+
+  const mergeCompaniesLookupRows = useCallback((records = []) => {
+    const normalized = Array.isArray(records) ? records : [];
+    if (!normalized.length) return;
+    setCompaniesLookup((previous) => dedupeById([...normalized, ...(Array.isArray(previous) ? previous : [])]));
+  }, []);
+
+  const mergePropertiesLookupRows = useCallback((records = []) => {
+    const normalized = Array.isArray(records) ? records : [];
+    if (!normalized.length) return;
+    setPropertiesLookup((previous) => dedupeById([...normalized, ...(Array.isArray(previous) ? previous : [])]));
+  }, []);
+
+  const searchContactsInDatabase = useCallback(
+    async (query) => {
+      const normalizedQuery = toText(query);
+      if (!plugin || !isSdkReady || normalizedQuery.length < 2) return [];
+      setIsContactLookupLoading(true);
+      try {
+        const records = await searchContactsForLookup({ plugin, query: normalizedQuery, limit: 50 });
+        mergeContactsLookupRows(records);
+        return records;
+      } catch (lookupError) {
+        console.warn("[JobDetails] Contact lookup search failed", lookupError);
+        return [];
+      } finally {
+        setIsContactLookupLoading(false);
+      }
+    },
+    [isSdkReady, mergeContactsLookupRows, plugin]
+  );
+
+  const searchCompaniesInDatabase = useCallback(
+    async (query) => {
+      const normalizedQuery = toText(query);
+      if (!plugin || !isSdkReady || normalizedQuery.length < 2) return [];
+      setIsCompanyLookupLoading(true);
+      try {
+        const records = await searchCompaniesForLookup({ plugin, query: normalizedQuery, limit: 50 });
+        mergeCompaniesLookupRows(records);
+        return records;
+      } catch (lookupError) {
+        console.warn("[JobDetails] Company lookup search failed", lookupError);
+        return [];
+      } finally {
+        setIsCompanyLookupLoading(false);
+      }
+    },
+    [isSdkReady, mergeCompaniesLookupRows, plugin]
+  );
+
+  const searchPropertiesInDatabase = useCallback(
+    async (query) => {
+      const normalizedQuery = toText(query);
+      if (!plugin || !isSdkReady || normalizedQuery.length < 2) return [];
+      setIsPropertyLookupLoading(true);
+      try {
+        const records = await searchPropertiesForLookup({ plugin, query: normalizedQuery, limit: 50 });
+        mergePropertiesLookupRows(records);
+        return records;
+      } catch (lookupError) {
+        console.warn("[JobDetails] Property lookup search failed", lookupError);
+        return [];
+      } finally {
+        setIsPropertyLookupLoading(false);
+      }
+    },
+    [isSdkReady, mergePropertiesLookupRows, plugin]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -4118,6 +4196,7 @@ export function JobDetailsPage() {
                         placeholder="Search by property name, UID, or address"
                         items={propertySearchItems}
                         onValueChange={setPropertySearchValue}
+                        onSearchQueryChange={searchPropertiesInDatabase}
                         onSelect={handleSelectPropertyFromSearch}
                         onAdd={openCreatePropertyModal}
                         addButtonLabel="Add New Property"
@@ -4395,6 +4474,9 @@ export function JobDetailsPage() {
                                   placeholder={isCompanyAccount ? "Search company" : "Search contact"}
                                   items={jobEmailItems}
                                   onValueChange={setJobEmailContactSearchValue}
+                                  onSearchQueryChange={
+                                    isCompanyAccount ? searchCompaniesInDatabase : searchContactsInDatabase
+                                  }
                                   onSelect={(item) => {
                                     const nextId = toText(item?.id);
                                     setSelectedJobEmailContactId(nextId);
@@ -5237,6 +5319,7 @@ export function JobDetailsPage() {
               value={affiliationForm.contact_label}
               placeholder="Search contact"
               items={contactItems}
+              onSearchQueryChange={searchContactsInDatabase}
               onValueChange={(value) =>
                 setAffiliationForm((previous) => ({
                   ...previous,
@@ -5261,6 +5344,7 @@ export function JobDetailsPage() {
               value={affiliationForm.company_label}
               placeholder="Search company"
               items={companyItems}
+              onSearchQueryChange={searchCompaniesInDatabase}
               onValueChange={(value) =>
                 setAffiliationForm((previous) => ({
                   ...previous,
@@ -5310,6 +5394,7 @@ export function JobDetailsPage() {
             value={affiliationForm.company_as_accounts_contact_label}
             placeholder="Search company"
             items={companyItems}
+            onSearchQueryChange={searchCompaniesInDatabase}
             onValueChange={(value) =>
               setAffiliationForm((previous) => ({
                 ...previous,

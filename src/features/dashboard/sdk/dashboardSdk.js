@@ -3,14 +3,14 @@ import {
   extractFromPayload,
   formatUnixDate,
   toEpochRange,
-} from "./dashboardCore.js";
+} from "@shared/sdk/dashboardCore.js";
 import {
   extractCancellationMessage,
   extractMutationErrorMessage,
   extractStatusFailure,
   isPersistedId,
   normalizeObjectList,
-} from "@modules/job-workspace/sdk/utils/sdkResponseUtils.js";
+} from "@modules/job-workspace/public/sdk.js";
 import { TAB_IDS } from "../constants/tabs.js";
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────

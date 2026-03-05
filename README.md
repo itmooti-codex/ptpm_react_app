@@ -31,55 +31,82 @@ Required environment variables are listed in `.env.example`.
 src/
   app/
     App.jsx
+  platform/
+    vitalstats/
+      bootstrap.js
+      config.js
+      useVitalStatsPlugin.js
+  modules/
+    job-workspace/
+      public/
+        components.js
+        hooks.js
+        constants.js
+        sdk.js
+      components/
+      hooks/
+      constants/
+      sdk/
+      state/
+      utils/
+    job-records/
+      public/
+        sdk.js
+      sdk/
+        jobDetailsSdk.js
   shared/
+    announcements/
     components/ui/
+    constants/
+    hooks/
     layout/
     lib/
+    sdk/
+    utils/
   features/
+    account/
+    dashboard/
+    inquiry-direct/
+    job-details/
     job-direct/
-      components/
-        JobDirectLayout.jsx
-        JobDirectHeader.jsx
-        JobDirectSidebar.jsx
-        JobDirectContent.jsx
-        sections/
-        modals/
-      hooks/
-        useJobUid.js
-        useJobDirectData.js
-        useJobDirectState.js
-      pages/
-        JobDirectPage.jsx
-      sdk/
-        core/
-          runtime.js
-      styles/
-        jobDirectOverrides.css
-      docs/
-        legacy-runtime-map.md
+      pages/JobDirectPage.jsx
+      hooks/useJobDirectBootstrap.js
+      hooks/useJobUid.js
+      styles/jobDirectOverrides.css
+      docs/legacy-runtime-map.md
   main.jsx
   index.css
 ```
 
 ## Job UID behavior
 
-The app reads:
+The app reads `jobuid` from:
 
-- `jobuid` from `window.location.search`
+- route param (`/job-direct/:jobuid`)
+- query string fallback (`?jobuid=...`)
 
 Example:
 
-- `http://localhost:5173/?jobuid=abc123`
+- `http://localhost:5173/job-direct/abc123`
+- `http://localhost:5173/job-direct?jobuid=abc123`
 
 This is wired in `src/features/job-direct/hooks/useJobUid.js`.
 
-## SDK integration status
+## Module import rules
 
-`src/features/job-direct/sdk/core/runtime.js` contains a stable function contract:
+- Features should import modules only through module public entrypoints:
+  - `@modules/job-workspace/public/components.js`
+  - `@modules/job-workspace/public/hooks.js`
+  - `@modules/job-workspace/public/constants.js`
+  - `@modules/job-workspace/public/sdk.js`
+  - `@modules/job-records/public/sdk.js`
+- Deep imports into module internals are intentionally blocked by boundary lint.
 
-- `fetchJobDirectDataByUid({ jobUid, plugin })`
+Run:
 
-This is the active SDK entry used by feature modules.
+```bash
+npm run lint:boundaries
+```
 
 ## Legacy trace reference
 

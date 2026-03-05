@@ -127,9 +127,7 @@ export function PropertyOptionCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="uid-text">
-            {property?.unique_id || "No Property UID"}
-          </div>
+          {property?.unique_id ? <div className="uid-text">{property.unique_id}</div> : null}
           <div className="mt-1 text-sm font-semibold text-neutral-700">
             {property?.property_name || "Untitled Property"}
           </div>

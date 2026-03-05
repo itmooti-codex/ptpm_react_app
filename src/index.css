@@ -50,6 +50,9 @@
   --fs-blockquote: 20px;
   --lh-blockquote: 24px;
   --fw-blockquote: 500;
+
+  /* Single control point for Inquiry Details font scaling */
+  --inquiry-details-font-scale: 1.1;
 }
 
 @layer base {
@@ -134,5 +137,150 @@
     font-size: var(--fs-blockquote);
     line-height: var(--lh-blockquote);
     font-weight: var(--fw-blockquote);
+  }
+
+  .service-provider-allocation-field {
+    position: relative;
+    padding-top: 4px;
+  }
+
+  .service-provider-allocation-legend {
+    position: absolute;
+    left: 10px;
+    top: -2px;
+    z-index: 25;
+    display: inline-flex;
+    align-items: center;
+    background: #f8fafc;
+    border-radius: 4px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 14px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: #475569;
+  }
+
+  .service-provider-allocation-root > .relative {
+    margin-top: 0;
+  }
+
+  .service-provider-allocation-root input[data-field="service_provider_allocation"],
+  .service-provider-allocation-root input[data-field="inquiry_taken_by_allocation"] {
+    height: 32px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
+@layer components {
+  [data-page="inquiry-details"] {
+    --inquiry-details-font-scale-factor: var(--inquiry-details-font-scale, 1);
+  }
+
+  [data-page="inquiry-details"] .text-\[9px\] {
+    font-size: calc(9px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .text-\[10px\] {
+    font-size: calc(10px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .text-\[11px\] {
+    font-size: calc(11px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .text-\[12px\] {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .text-\[13px\] {
+    font-size: calc(13px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .text-base {
+    font-size: calc(13px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(16px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .text-sm {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(15px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .text-xs {
+    font-size: calc(11px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(14px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .uid-text,
+  [data-page="inquiry-details"] .uid-link {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .service-provider-allocation-legend {
+    font-size: calc(10px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(14px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace .text-base {
+    font-size: calc(13px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(16px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace .text-sm {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(15px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace .text-xs {
+    font-size: calc(11px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(14px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace .type-subheadline {
+    font-size: calc(14px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(16px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace .type-subheadline-2 {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(14px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace .type-label {
+    font-size: calc(11px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(14px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace input,
+  [data-page="inquiry-details"] .inquiry-details-workspace select,
+  [data-page="inquiry-details"] .inquiry-details-workspace textarea {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace table th,
+  [data-page="inquiry-details"] .inquiry-details-workspace table td {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace [data-job-section="job-section-appointment"] .rounded-lg.border.border-slate-200.bg-white.p-4,
+  [data-page="inquiry-details"] .inquiry-details-workspace [data-section="uploads"] .rounded-lg.border.border-slate-200.bg-white.p-4,
+  [data-page="inquiry-details"] .inquiry-details-workspace [data-job-section="job-section-property"] .rounded-lg.border.border-slate-200.bg-white.p-4 {
+    padding: 0.75rem;
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace [data-job-section="job-section-appointment"] table {
+    min-width: 1280px;
+  }
+
+  [data-page="inquiry-details"] .inquiry-details-workspace [data-section="uploads"] table {
+    min-width: 980px;
   }
 }

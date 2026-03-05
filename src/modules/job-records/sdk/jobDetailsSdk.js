@@ -1,7 +1,7 @@
 import {
   extractFromPayload,
   fetchDirectWithTimeout,
-} from "../../dashboard/sdk/dashboardCore.js";
+} from "@shared/sdk/dashboardCore.js";
 import {
   createJobUploadFromFile,
   createPropertyRecord,
@@ -13,14 +13,14 @@ import {
   fetchTasksByJobId,
   updatePropertyRecord,
   updateTaskRecord,
-} from "@modules/job-workspace/sdk/core/runtime.js";
+} from "@modules/job-workspace/public/sdk.js";
 import {
   extractCancellationMessage,
   extractMutationErrorMessage,
   extractStatusFailure,
   isPersistedId,
   normalizeObjectList,
-} from "@modules/job-workspace/sdk/utils/sdkResponseUtils.js";
+} from "@modules/job-workspace/public/sdk.js";
 
 function toText(value) {
   return String(value ?? "").trim();
@@ -144,7 +144,27 @@ function mapInquiryRecord(raw = null) {
     client_notes: toText(raw.client_notes || raw.Client_Notes),
     deal_name: toText(raw.deal_name || raw.Deal_Name),
     deal_value: toText(raw.deal_value || raw.Deal_Value),
+    sales_stage: toText(raw.sales_stage || raw.Sales_Stage),
+    expected_win: toText(raw.expected_win || raw.Expected_Win),
+    expected_close_date: toText(raw.expected_close_date || raw.Expected_Close_Date),
+    actual_close_date: toText(raw.actual_close_date || raw.Actual_Close_Date),
+    weighted_value: toText(raw.weighted_value || raw.Weighted_Value),
+    service_inquiry_id: toText(raw.service_inquiry_id || raw.Service_Inquiry_ID),
     service_provider_id: normalizeId(raw.service_provider_id || raw.Service_Provider_ID),
+    company_id: normalizeId(raw.company_id || raw.Company_ID),
+    primary_contact_id: normalizeId(raw.primary_contact_id || raw.Primary_Contact_ID),
+    noise_signs_options_as_text: toText(
+      raw.noise_signs_options_as_text || raw.Noise_Signs_Options_As_Text
+    ),
+    pest_active_times_options_as_text: toText(
+      raw.pest_active_times_options_as_text || raw.Pest_Active_Times_Options_As_Text
+    ),
+    pest_location_options_as_text: toText(
+      raw.pest_location_options_as_text || raw.Pest_Location_Options_As_Text
+    ),
+    renovations: toText(raw.renovations || raw.Renovations),
+    resident_availability: toText(raw.resident_availability || raw.Resident_Availability),
+    date_job_required_by: toText(raw.date_job_required_by || raw.Date_Job_Required_By),
     quote_record_id: normalizeId(
       raw.quote_record_id || raw.Quote_Record_ID || raw.Quote_record_ID
     ),
@@ -225,15 +245,29 @@ function buildInquiryBaseQuery(plugin) {
       "created_at",
       "property_id",
       "account_type",
+      "primary_contact_id",
+      "company_id",
       "inquiry_source",
       "type",
       "how_did_you_hear",
       "how_can_we_help",
       "other",
+      "noise_signs_options_as_text",
+      "pest_active_times_options_as_text",
+      "pest_location_options_as_text",
+      "renovations",
+      "resident_availability",
+      "date_job_required_by",
       "admin_notes",
       "client_notes",
       "deal_name",
       "deal_value",
+      "sales_stage",
+      "expected_win",
+      "expected_close_date",
+      "actual_close_date",
+      "weighted_value",
+      "service_inquiry_id",
       "service_provider_id",
       "quote_record_id",
       "inquiry_for_job_id",
@@ -332,7 +366,7 @@ function buildInquiryBaseQuery(plugin) {
         .deSelectAll()
         .select(["id"])
         .include("Contact_Information", (sq2) =>
-          sq2.deSelectAll().select(["first_name", "last_name", "email"])
+          sq2.deSelectAll().select(["first_name", "last_name", "email", "sms_number"])
         )
     );
 }

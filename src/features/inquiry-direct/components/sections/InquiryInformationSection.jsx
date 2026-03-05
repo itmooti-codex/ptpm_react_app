@@ -11,14 +11,14 @@ import {
   ColorMappedSelectInput,
   SearchDropdownInput,
   SelectInput,
-} from "@modules/job-workspace/components/sections/job-information/JobInfoFormFields.jsx";
-import { AppointmentTabSection } from "@modules/job-workspace/components/sections/job-information/AppointmentTabSection.jsx";
-import { PropertyTabSection } from "@modules/job-workspace/components/sections/job-information/PropertyTabSection.jsx";
-import { ServiceProviderTabSection } from "@modules/job-workspace/components/sections/job-information/ServiceProviderTabSection.jsx";
-import { useLinkedPropertiesData } from "@modules/job-workspace/components/sections/job-information/useLinkedPropertiesData.js";
-import { normalizePropertyId } from "@modules/job-workspace/components/sections/job-information/jobInfoUtils.js";
-import { useContactEntityLookupData } from "@modules/job-workspace/hooks/useContactEntityLookupData.js";
-import { usePropertyLookupData } from "@modules/job-workspace/hooks/usePropertyLookupData.js";
+} from "@modules/job-workspace/public/components.js";
+import { AppointmentTabSection } from "@modules/job-workspace/public/components.js";
+import { PropertyTabSection } from "@modules/job-workspace/public/components.js";
+import { ServiceProviderTabSection } from "@modules/job-workspace/public/components.js";
+import { useLinkedPropertiesData } from "@modules/job-workspace/public/components.js";
+import { normalizePropertyId } from "@modules/job-workspace/public/components.js";
+import { useContactEntityLookupData } from "@modules/job-workspace/public/hooks.js";
+import { usePropertyLookupData } from "@modules/job-workspace/public/hooks.js";
 import {
   createCompanyRecord,
   createContactRecord,
@@ -26,8 +26,8 @@ import {
   fetchServicesForActivities,
   updateContactRecord,
   updatePropertyRecord,
-} from "@modules/job-workspace/sdk/core/runtime.js";
-import { extractRecords } from "@modules/job-workspace/sdk/utils/sdkResponseUtils.js";
+} from "@modules/job-workspace/public/sdk.js";
+import { extractRecords } from "@modules/job-workspace/public/sdk.js";
 import { buildLookupDisplayLabel } from "../../../../shared/utils/lookupLabel.js";
 import {
   getInquiryFlowRule,
@@ -230,13 +230,19 @@ export function InquiryInformationSection({
     companies,
     addContact,
     addCompany,
+    searchContacts,
+    searchCompanies,
     isLookupLoading: isContactCompanyLoading,
   } = useContactEntityLookupData(plugin, {
     initialContacts: preloadedLookupData?.contacts || [],
     initialCompanies: preloadedLookupData?.companies || [],
     skipInitialFetch: true,
   });
-  const { properties: lookupProperties, addProperty } = usePropertyLookupData(plugin, {
+  const {
+    properties: lookupProperties,
+    addProperty,
+    searchProperties,
+  } = usePropertyLookupData(plugin, {
     initialProperties: preloadedLookupData?.properties || [],
     skipInitialFetch: true,
   });
@@ -836,6 +842,7 @@ export function InquiryInformationSection({
                 placeholder="Search company"
                 items={companyItems}
                 onValueChange={setCompanySearch}
+                onSearchQueryChange={searchCompanies}
                 onSelect={(item) => {
                   const nextId = toText(item?.id);
                   setForm((prev) => ({
@@ -860,6 +867,7 @@ export function InquiryInformationSection({
                 placeholder="Search contact"
                 items={contactItems}
                 onValueChange={setContactSearch}
+                onSearchQueryChange={searchContacts}
                 onSelect={(item) => {
                   const nextId = toText(item?.id);
                   setForm((prev) => ({
@@ -1249,6 +1257,7 @@ export function InquiryInformationSection({
       propertySearchValue={propertySearchQuery}
       propertySearchItems={propertySearchItems}
       onPropertySearchValueChange={setPropertySearchQuery}
+      onPropertySearchQueryChange={searchProperties}
       onSelectPropertyFromSearch={(item) => {
         const nextId = normalizePropertyId(item?.id);
         if (!nextId) return;

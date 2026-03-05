@@ -16,6 +16,23 @@ function prepareContactMutationPayload(payload = {}) {
   return source;
 }
 
+function prepareCompanyMutationPayload(payload = {}) {
+  const source = payload && typeof payload === "object" ? { ...payload } : {};
+  delete source.id;
+  delete source.ID;
+  delete source.Company_ID;
+
+  if (source.Primary_Person && typeof source.Primary_Person === "object") {
+    const primaryPerson = { ...source.Primary_Person };
+    delete primaryPerson.id;
+    delete primaryPerson.ID;
+    delete primaryPerson.Contact_ID;
+    source.Primary_Person = primaryPerson;
+  }
+
+  return source;
+}
+
 export async function createContactRecord({ plugin, payload } = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
   if (!resolvedPlugin?.switchTo) {
@@ -89,7 +106,7 @@ export async function createCompanyRecord({ plugin, payload } = {}) {
   }
 
   const mutation = await companyModel.mutation();
-  mutation.createOne(payload || {});
+  mutation.createOne(prepareCompanyMutationPayload(payload || {}));
   const result = await mutation.execute(true).toPromise();
   const { record: createdRecord, id: resolvedId } = parseCompanyCreateMutationResult(result);
 

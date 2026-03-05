@@ -85,6 +85,8 @@ export function UploadsSection({
   inquiryUid = "",
   linkedJobId = "",
   highlightUploadId = "",
+  layoutMode = "split",
+  onRequestAddUpload = null,
 }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
@@ -113,6 +115,11 @@ export function UploadsSection({
     [additionalCreatePayload]
   );
   const mode = String(uploadsMode || "job").trim().toLowerCase() === "inquiry" ? "inquiry" : "job";
+  const resolvedLayoutMode = String(layoutMode || "split").trim().toLowerCase();
+  const isTableOnlyLayout = resolvedLayoutMode === "table";
+  const isFormOnlyLayout = resolvedLayoutMode === "form";
+  const showUploadComposer = !isTableOnlyLayout;
+  const showExistingUploads = !isFormOnlyLayout;
   const isInquiryMode = mode === "inquiry";
   const targetRecordId = isInquiryMode ? normalizedInquiryId : jobId;
   const normalizedHighlightUploadId = normalizeRecordId(highlightUploadId);
@@ -426,8 +433,13 @@ export function UploadsSection({
     <section
       ref={sectionRef}
       data-section="uploads"
-      className="grid grid-cols-1 gap-4 xl:grid-cols-[480px_1fr]"
+      className={
+        showUploadComposer && showExistingUploads
+          ? "grid grid-cols-1 gap-4 xl:grid-cols-[480px_1fr]"
+          : "space-y-4"
+      }
     >
+      {showUploadComposer ? (
       <Card className="space-y-4">
         <h3 className="type-subheadline text-slate-800">Upload Files</h3>
         <div
@@ -542,10 +554,24 @@ export function UploadsSection({
           ) : null}
         </div>
       </Card>
+      ) : null}
 
+      {showExistingUploads ? (
       <Card className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="type-subheadline text-slate-800">Existing Uploads</h3>
+          {isTableOnlyLayout && typeof onRequestAddUpload === "function" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              className="h-8 whitespace-nowrap px-3 text-xs"
+              onClick={() => onRequestAddUpload()}
+              disabled={!targetRecordId}
+            >
+              Add Upload
+            </Button>
+          ) : null}
         </div>
 
         {!targetRecordId ? (
@@ -654,6 +680,7 @@ export function UploadsSection({
           </>
         ) : null}
       </Card>
+      ) : null}
 
       <Modal
         open={Boolean(deleteTarget)}

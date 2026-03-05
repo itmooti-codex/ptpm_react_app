@@ -8,7 +8,6 @@ import { useContactEntityLookupData } from "../../hooks/useContactEntityLookupDa
 import {
   createCompanyRecord,
   createContactRecord,
-  updateContactRecord,
 } from "../../sdk/core/runtime.js";
 
 function normalizeText(value) {
@@ -34,6 +33,40 @@ function buildContactLabel(contact = {}) {
   return fullName || contact.email || contact.sms_number || contact.id || "";
 }
 
+function createContactRecordKey(contact = {}) {
+  const id = String(contact?.id || contact?.ID || "").trim();
+  if (id) return `contact:${id}`;
+  return [
+    "contact",
+    normalizeText(contact?.first_name),
+    normalizeText(contact?.last_name),
+    normalizeText(contact?.email),
+    normalizeText(contact?.sms_number),
+    normalizeText(contact?.label),
+  ].join("|");
+}
+
+function createCompanyRecordKey(company = {}) {
+  const id = String(company?.id || company?.ID || "").trim();
+  if (id) return `company:${id}`;
+  return [
+    "company",
+    normalizeText(company?.name),
+    normalizeText(company?.account_type),
+    normalizeText(company?.label),
+  ].join("|");
+}
+
+function dedupeLookupRecords(records = [], createKey) {
+  const map = new Map();
+  (Array.isArray(records) ? records : []).forEach((record) => {
+    const key = createKey(record);
+    if (!key || map.has(key)) return;
+    map.set(key, record);
+  });
+  return Array.from(map.values());
+}
+
 function extractRoleFlags(role = "") {
   const normalizedRole = normalizeText(role);
   return {
@@ -44,6 +77,10 @@ function extractRoleFlags(role = "") {
   };
 }
 
+function isPersistedRecordId(value) {
+  return /^\d+$/.test(String(value || "").trim());
+}
+
 function SearchLookupInput({
   label,
   value,
@@ -52,12 +89,16 @@ function SearchLookupInput({
   onValueChange,
   onSelect,
   onAdd,
+  onSearchQueryChange = null,
+  searchDebounceMs = 250,
+  minSearchLength = 2,
   addLabel,
   emptyText,
   disabled = false,
 }) {
   const rootRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
+  const hasValue = Boolean(String(value || "").trim());
 
   const filteredItems = useMemo(() => {
     const query = String(value || "");
@@ -94,6 +135,28 @@ function SearchLookupInput({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || disabled) return undefined;
+    if (typeof onSearchQueryChange !== "function") return undefined;
+    const normalizedQuery = String(value || "").trim();
+    if (normalizedQuery.length < Math.max(0, Number(minSearchLength) || 0)) {
+      return undefined;
+    }
+    const timeoutId = window.setTimeout(() => {
+      Promise.resolve(onSearchQueryChange(normalizedQuery)).catch((searchError) => {
+        console.error("[JobDirect] Affiliation lookup search failed", searchError);
+      });
+    }, Math.max(0, Number(searchDebounceMs) || 0));
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    disabled,
+    isOpen,
+    minSearchLength,
+    onSearchQueryChange,
+    searchDebounceMs,
+    value,
+  ]);
+
   return (
     <div ref={rootRef} className="w-full">
       <div className="mb-1 text-sm font-medium leading-4 text-neutral-700">{label}</div>
@@ -110,8 +173,30 @@ function SearchLookupInput({
             if (!disabled) setIsOpen(true);
           }}
           disabled={disabled}
-          className="w-full rounded border border-slate-300 bg-white px-2.5 py-2 pr-9 text-sm text-slate-700 outline-none focus:border-slate-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+          className="w-full rounded border border-slate-300 bg-white px-2.5 py-2 pr-14 text-sm text-slate-700 outline-none focus:border-slate-400 disabled:cursor-not-allowed disabled:bg-slate-100"
         />
+        {hasValue ? (
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              onValueChange("");
+              if (!disabled) setIsOpen(true);
+            }}
+            disabled={disabled}
+            className="absolute inset-y-0 right-7 inline-flex items-center px-1 text-slate-400 hover:text-slate-600 disabled:opacity-40"
+            aria-label={`Clear ${label} search`}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => {
@@ -245,36 +330,76 @@ export function PropertyAffiliationModal({
   onOpenContactDetailsModal,
 }) {
   const { success, error } = useToast();
-  const { contacts, companies, addContact, addCompany } = useContactEntityLookupData(plugin);
+  const {
+    contacts,
+    companies,
+    addContact,
+    addCompany,
+    searchContacts,
+    searchCompanies,
+  } = useContactEntityLookupData(plugin);
   const [form, setForm] = useState(mapInitialForm(initialData));
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [searchedContacts, setSearchedContacts] = useState([]);
+  const [searchedCompanies, setSearchedCompanies] = useState([]);
 
   useEffect(() => {
     if (!open) return;
     setForm(mapInitialForm(initialData));
     setIsSaving(false);
     setSaveError("");
+    setSearchedContacts([]);
+    setSearchedCompanies([]);
   }, [open, initialData]);
+
+  const mergedContacts = useMemo(
+    () => dedupeLookupRecords([...(searchedContacts || []), ...(contacts || [])], createContactRecordKey),
+    [contacts, searchedContacts]
+  );
+  const mergedCompanies = useMemo(
+    () => dedupeLookupRecords([...(searchedCompanies || []), ...(companies || [])], createCompanyRecordKey),
+    [companies, searchedCompanies]
+  );
+
+  const handleSearchContacts = async (query) => {
+    const normalized = await searchContacts(query);
+    if (Array.isArray(normalized) && normalized.length) {
+      setSearchedContacts((previous) =>
+        dedupeLookupRecords([...(normalized || []), ...(previous || [])], createContactRecordKey)
+      );
+    }
+    return normalized;
+  };
+
+  const handleSearchCompanies = async (query) => {
+    const normalized = await searchCompanies(query);
+    if (Array.isArray(normalized) && normalized.length) {
+      setSearchedCompanies((previous) =>
+        dedupeLookupRecords([...(normalized || []), ...(previous || [])], createCompanyRecordKey)
+      );
+    }
+    return normalized;
+  };
 
   const contactItems = useMemo(
     () =>
-      contacts.map((item) => ({
+      mergedContacts.map((item) => ({
         id: item.id,
         label: item.label || item.id,
         meta: [item.email, item.sms_number].filter(Boolean).join(" | "),
       })),
-    [contacts]
+    [mergedContacts]
   );
 
   const companyItems = useMemo(
     () =>
-      companies.map((item) => ({
+      mergedCompanies.map((item) => ({
         id: item.id,
         label: item.name || item.id,
         meta: [item.account_type, item.primary?.email].filter(Boolean).join(" | "),
       })),
-    [companies]
+    [mergedCompanies]
   );
 
   const handleAddLookupRecord = (mode) => {
@@ -290,6 +415,35 @@ export function PropertyAffiliationModal({
           const companyName = String(draftRecord?.name || "").trim();
           if (!companyName) {
             throw new Error("Company name is required.");
+          }
+          const existingCompanyId = String(
+            draftRecord?.id || draftRecord?.ID || draftRecord?.Company_ID || ""
+          ).trim();
+          const isPersistedCompanyId = isPersistedRecordId(existingCompanyId);
+          if (isPersistedCompanyId) {
+            const normalizedCompany = addCompany({
+              ...draftRecord,
+              id: existingCompanyId,
+              name: companyName,
+            });
+            setForm((previous) => {
+              const next = {
+                ...previous,
+                company_id: normalizedCompany.id || existingCompanyId,
+                company_label: normalizedCompany.name || companyName,
+              };
+              if (previous.same_as_company) {
+                next.company_as_accounts_contact_id = normalizedCompany.id || existingCompanyId;
+                next.company_as_accounts_contact_label = normalizedCompany.name || companyName;
+              }
+              return next;
+            });
+            success("Company selected", "Existing company was selected.");
+            return {
+              ...draftRecord,
+              id: existingCompanyId,
+              name: companyName,
+            };
           }
           const createdCompany = await createCompanyRecord({
             plugin,
@@ -322,16 +476,26 @@ export function PropertyAffiliationModal({
         const existingContactId = String(
           draftRecord?.id || draftRecord?.ID || draftRecord?.Contact_ID || ""
         ).trim();
-        const savedContact = existingContactId
-          ? await updateContactRecord({
-              plugin,
-              id: existingContactId,
-              payload: draftRecord,
-            })
-          : await createContactRecord({
-              plugin,
-              payload: draftRecord,
-            });
+        if (isPersistedRecordId(existingContactId)) {
+          const normalizedContact = addContact({
+            ...draftRecord,
+            id: existingContactId,
+          });
+          setForm((previous) => ({
+            ...previous,
+            contact_id: normalizedContact.id || existingContactId,
+            contact_label: normalizedContact.label || previous.contact_label,
+          }));
+          success("Contact selected", "Existing contact was selected.");
+          return {
+            ...draftRecord,
+            id: existingContactId,
+          };
+        }
+        const savedContact = await createContactRecord({
+          plugin,
+          payload: draftRecord,
+        });
         const normalizedContact = addContact(savedContact);
         setForm((previous) => ({
           ...previous,
@@ -339,8 +503,8 @@ export function PropertyAffiliationModal({
           contact_label: normalizedContact.label || "",
         }));
         success(
-          existingContactId ? "Contact updated" : "Contact created",
-          existingContactId ? "Existing contact was updated." : "New contact was saved."
+          "Contact created",
+          "New contact was saved."
         );
         return savedContact;
       },
@@ -446,6 +610,7 @@ export function PropertyAffiliationModal({
           value={form.contact_label}
           placeholder="Search contact"
           items={contactItems}
+          onSearchQueryChange={handleSearchContacts}
           onValueChange={(nextValue) =>
             setForm((previous) => ({
               ...previous,
@@ -470,6 +635,7 @@ export function PropertyAffiliationModal({
           value={form.company_label}
           placeholder="Search company"
           items={companyItems}
+          onSearchQueryChange={handleSearchCompanies}
           onValueChange={(nextValue) =>
             setForm((previous) => ({
               ...previous,
@@ -533,6 +699,7 @@ export function PropertyAffiliationModal({
               value={form.company_as_accounts_contact_label}
               placeholder="Search company"
               items={companyItems}
+              onSearchQueryChange={handleSearchCompanies}
               onValueChange={(nextValue) =>
                 setForm((previous) => ({
                   ...previous,

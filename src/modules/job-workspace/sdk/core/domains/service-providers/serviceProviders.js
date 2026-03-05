@@ -2,81 +2,81 @@ import { resolvePlugin } from "../../plugin.js";
 import { fetchDirectWithTimeout, subscribeToQueryStream } from "../../transport.js";
 import { extractRecords } from "../../../utils/sdkResponseUtils.js";
 
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
 function normalizeServiceProviderRecord(rawProvider = {}) {
-  const firstName = String(
+  const firstName = normalizeText(
     rawProvider?.contact_information_first_name ||
       rawProvider?.Contact_Information_First_Name ||
       rawProvider?.Contact_Information?.first_name ||
       rawProvider?.Contact_Information?.First_Name ||
       ""
-  ).trim();
-  const lastName = String(
+  );
+  const lastName = normalizeText(
     rawProvider?.contact_information_last_name ||
       rawProvider?.Contact_Information_Last_Name ||
       rawProvider?.Contact_Information?.last_name ||
       rawProvider?.Contact_Information?.Last_Name ||
       ""
-  ).trim();
+  );
+  const workEmail = normalizeText(rawProvider?.work_email || rawProvider?.Work_Email || "");
+  const mobileNumber = normalizeText(rawProvider?.mobile_number || rawProvider?.Mobile_Number || "");
 
   return {
-    id: String(rawProvider?.id || rawProvider?.ID || "").trim(),
-    unique_id: String(rawProvider?.unique_id || rawProvider?.Unique_ID || "").trim(),
-    type: String(rawProvider?.type || rawProvider?.Type || "").trim(),
-    status: String(rawProvider?.status || rawProvider?.Status || "").trim(),
+    id: normalizeText(rawProvider?.id || rawProvider?.ID || ""),
+    unique_id: normalizeText(rawProvider?.unique_id || rawProvider?.Unique_ID || ""),
+    type: normalizeText(rawProvider?.type || rawProvider?.Type || ""),
+    status: normalizeText(rawProvider?.status || rawProvider?.Status || ""),
     first_name: firstName,
     last_name: lastName,
-    email: String(
-      rawProvider?.contact_information_email ||
-        rawProvider?.Contact_Information_Email ||
-        rawProvider?.Contact_Information?.email ||
-        rawProvider?.Contact_Information?.Email ||
-        ""
-    ).trim(),
-    sms_number: String(
-      rawProvider?.contact_information_sms_number ||
-        rawProvider?.Contact_Information_SMS_Number ||
-        rawProvider?.Contact_Information?.sms_number ||
-        rawProvider?.Contact_Information?.SMS_Number ||
-        ""
-    ).trim(),
-    profile_image: String(
+    work_email: workEmail,
+    mobile_number: mobileNumber,
+    email: workEmail,
+    sms_number: mobileNumber,
+    profile_image: normalizeText(
       rawProvider?.contact_information_profile_image ||
         rawProvider?.Contact_Information_Profile_Image ||
         rawProvider?.Contact_Information?.profile_image ||
         rawProvider?.Contact_Information?.Profile_Image ||
         ""
-    ).trim(),
+    ),
   };
 }
 
-function isActiveServiceProvider(record = {}) {
-  const type = String(record?.type || "").trim().toLowerCase();
-  const status = String(record?.status || "").trim().toLowerCase();
-  return type === "service provider" && status === "active";
+function matchesServiceProviderFilters(
+  record = {},
+  { providerType = "Service Provider", status = "Active" } = {}
+) {
+  const recordType = normalizeText(record?.type).toLowerCase();
+  const recordStatus = normalizeText(record?.status).toLowerCase();
+  const expectedType = normalizeText(providerType).toLowerCase();
+  const expectedStatus = normalizeText(status).toLowerCase();
+  if (expectedType && recordType !== expectedType) return false;
+  if (expectedStatus && recordStatus !== expectedStatus) return false;
+  return true;
 }
 
-export async function fetchServiceProvidersForSearch({ plugin } = {}) {
-  const resolvedPlugin = resolvePlugin(plugin);
-  if (!resolvedPlugin?.switchTo) return [];
-
-  const modelName = "PeterpmServiceProvider";
-
-  try {
-    const customQuery = resolvedPlugin
-      .switchTo(modelName)
-      .query()
-      .fromGraphql(`
+function buildServiceProvidersGraphql({ providerType, status }) {
+  const typeLiteral = JSON.stringify(normalizeText(providerType || "Service Provider"));
+  const statusValue = normalizeText(status);
+  const statusFilter = statusValue
+    ? `\n              { andWhere: { status: ${JSON.stringify(statusValue)} } }`
+    : "";
+  return `
         query calcServiceProviders {
           calcServiceProviders(
             query: [
-              { where: { type: "Service Provider" } }
-              { andWhere: { status: "Active" } }
+              { where: { type: ${typeLiteral} } }${statusFilter}
             ]
           ) {
             ID: field(arg: ["id"])
             Unique_ID: field(arg: ["unique_id"])
             Type: field(arg: ["type"])
             Status: field(arg: ["status"])
+            Work_Email: field(arg: ["work_email"])
+            Mobile_Number: field(arg: ["mobile_number"])
             Contact_Information_First_Name: field(arg: ["Contact_Information", "first_name"])
             Contact_Information_Last_Name: field(arg: ["Contact_Information", "last_name"])
             Contact_Information_Email: field(arg: ["Contact_Information", "email"])
@@ -84,62 +84,97 @@ export async function fetchServiceProvidersForSearch({ plugin } = {}) {
             Contact_Information_Profile_Image: field(arg: ["Contact_Information", "profile_image"])
           }
         }
-      `);
+      `;
+}
+
+export async function fetchServiceProvidersForSearch({
+  plugin,
+  providerType = "Service Provider",
+  status = "Active",
+} = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) return [];
+
+  const modelName = "PeterpmServiceProvider";
+  const typeValue = normalizeText(providerType || "Service Provider");
+  const statusValue = normalizeText(status);
+
+  try {
+    const customQuery = resolvedPlugin
+      .switchTo(modelName)
+      .query()
+      .fromGraphql(buildServiceProvidersGraphql({ providerType: typeValue, status: statusValue }));
     const response = await fetchDirectWithTimeout(customQuery);
     const records = extractRecords(response)
       .map((record) => normalizeServiceProviderRecord(record))
       .filter((record) => record.id)
-      .filter((record) => isActiveServiceProvider(record));
+      .filter((record) =>
+        matchesServiceProviderFilters(record, { providerType: typeValue, status: statusValue })
+      );
     if (records.length) return records;
   } catch (error) {
     console.warn("[JobDirect] Custom service provider query failed, using include fallback", error);
   }
 
   try {
-    const query = resolvedPlugin
+    let query = resolvedPlugin
       .switchTo(modelName)
       .query()
-      .where("type", "Service Provider")
-      .andWhere("status", "Active")
+      .where("type", typeValue)
       .deSelectAll()
-      .select(["id", "unique_id", "type", "status"])
+      .select(["id", "unique_id", "type", "status", "work_email", "mobile_number"])
       .include("Contact_Information", (contactQuery) =>
         contactQuery
           .deSelectAll()
           .select(["first_name", "last_name", "email", "sms_number", "profile_image"])
       )
       .noDestroy();
+    if (statusValue) {
+      query = query.andWhere("status", statusValue);
+    }
 
     query.getOrInitQueryCalc?.();
     const response = await fetchDirectWithTimeout(query);
     return extractRecords(response)
       .map((record) => normalizeServiceProviderRecord(record))
       .filter((record) => record.id)
-      .filter((record) => isActiveServiceProvider(record));
+      .filter((record) =>
+        matchesServiceProviderFilters(record, { providerType: typeValue, status: statusValue })
+      );
   } catch (error) {
     console.error("[JobDirect] Failed to fetch service providers", error);
     return [];
   }
 }
 
-export function subscribeServiceProvidersForSearch({ plugin, onChange, onError } = {}) {
+export function subscribeServiceProvidersForSearch({
+  plugin,
+  onChange,
+  onError,
+  providerType = "Service Provider",
+  status = "Active",
+} = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
   if (!resolvedPlugin?.switchTo) return () => {};
 
   const modelName = "PeterpmServiceProvider";
-  const query = resolvedPlugin
+  const typeValue = normalizeText(providerType || "Service Provider");
+  const statusValue = normalizeText(status);
+  let query = resolvedPlugin
     .switchTo(modelName)
     .query()
-    .where("type", "Service Provider")
-    .andWhere("status", "Active")
+    .where("type", typeValue)
     .deSelectAll()
-    .select(["id", "unique_id", "type", "status"])
+    .select(["id", "unique_id", "type", "status", "work_email", "mobile_number"])
     .include("Contact_Information", (contactQuery) =>
       contactQuery
         .deSelectAll()
         .select(["first_name", "last_name", "email", "sms_number", "profile_image"])
     )
     .noDestroy();
+  if (statusValue) {
+    query = query.andWhere("status", statusValue);
+  }
 
   query.getOrInitQueryCalc?.();
 
@@ -148,7 +183,9 @@ export function subscribeServiceProvidersForSearch({ plugin, onChange, onError }
       const records = extractRecords(payload)
         .map((record) => normalizeServiceProviderRecord(record))
         .filter((record) => record.id)
-        .filter((record) => isActiveServiceProvider(record));
+        .filter((record) =>
+          matchesServiceProviderFilters(record, { providerType: typeValue, status: statusValue })
+        );
       onChange?.(records);
     },
     onError: (error) => {

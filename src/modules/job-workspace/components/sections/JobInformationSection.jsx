@@ -112,6 +112,7 @@ export function JobInformationSection({
   const {
     properties: lookupProperties,
     addProperty,
+    searchProperties,
   } = usePropertyLookupData(plugin, {
     initialProperties: preloadedLookupData?.properties || [],
     skipInitialFetch: true,
@@ -406,6 +407,7 @@ export function JobInformationSection({
         propertySearchValue={propertySearchQuery}
         propertySearchItems={propertySearchItems}
         onPropertySearchValueChange={setPropertySearchQuery}
+        onPropertySearchQueryChange={searchProperties}
         onSelectPropertyFromSearch={(item) => {
           const nextId = normalizePropertyId(item?.id);
           if (!nextId) return;

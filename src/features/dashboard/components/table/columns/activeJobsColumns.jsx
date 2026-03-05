@@ -1,6 +1,6 @@
-import { JobDirectStatusBadge, JobDirectIconActionButton } from "@modules/job-workspace/components/primitives/JobDirectTable.jsx";
+import { JobDirectStatusBadge, JobDirectIconActionButton } from "@modules/job-workspace/public/components.js";
 import { ClientCell } from "../ClientCell.jsx";
-import { resolveStatusStyle } from "../../../constants/statusStyles.js";
+import { resolveStatusStyle } from "@shared/constants/statusStyles.js";
 
 function EyeIcon() {
   return (

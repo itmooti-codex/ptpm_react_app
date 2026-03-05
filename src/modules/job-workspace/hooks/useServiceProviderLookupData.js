@@ -9,7 +9,6 @@ import {
   useJobDirectStoreActions,
 } from "./useJobDirectStore.jsx";
 import { selectServiceProviders } from "../state/selectors.js";
-import { registerSharedLookupSubscription } from "./lookupRealtimeRegistry.js";
 
 const EMPTY_LIST = [];
 
@@ -141,26 +140,24 @@ export function useServiceProviderLookupData(
   useEffect(() => {
     if (!plugin) return undefined;
 
-    const releaseServiceProviderSubscription = registerSharedLookupSubscription({
-      key: "lookup:service-providers",
-      start: () =>
-        subscribeServiceProvidersForSearch({
-          plugin,
-          onChange: (records) => {
-            const normalized = (records || []).map((item) => normalizeServiceProvider(item));
-            actions.replaceEntityCollection(
-              "serviceProviders",
-              dedupeRecords(normalized, createServiceProviderLookupKey)
-            );
-          },
-          onError: (lookupError) => {
-            console.error("[JobDirect] Service provider lookup subscription failed", lookupError);
-          },
-        }),
+    const stopServiceProviderSubscription = subscribeServiceProvidersForSearch({
+      plugin,
+      onChange: (records) => {
+        const normalized = (records || []).map((item) => normalizeServiceProvider(item));
+        actions.replaceEntityCollection(
+          "serviceProviders",
+          dedupeRecords(normalized, createServiceProviderLookupKey)
+        );
+      },
+      onError: (lookupError) => {
+        console.error("[JobDirect] Service provider lookup subscription failed", lookupError);
+      },
     });
 
     return () => {
-      releaseServiceProviderSubscription();
+      if (typeof stopServiceProviderSubscription === "function") {
+        stopServiceProviderSubscription();
+      }
     };
   }, [actions, plugin]);
 

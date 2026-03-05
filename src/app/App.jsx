@@ -36,6 +36,11 @@ const InquiryDirectPage = lazy(() =>
     default: module.InquiryDirectPage,
   }))
 );
+const InquiryDetailsPage = lazy(() =>
+  import("../features/inquiry-details/pages/InquiryDetailsPage.jsx").then((module) => ({
+    default: module.InquiryDetailsPage,
+  }))
+);
 
 function AppRouteLoader() {
   return (
@@ -67,6 +72,7 @@ export default function App() {
         <Route path="/inquiry-direct" element={<InquiryDirectPage />} />
         <Route path="/inquiry-direct/:inquiryuid" element={<InquiryDirectPage />} />
         <Route path="/inquiry-direct/new" element={<InquiryDirectPage />} />
+        <Route path="/inquiry-details/:uid" element={<InquiryDetailsPage />} />
         <Route path="/job-details/:uid" element={<LegacyJobDetailsRedirect />} />
         <Route path="/details/:uid" element={<JobDetailsPage />} />
         <Route path="/profile" element={<ProfilePage />} />

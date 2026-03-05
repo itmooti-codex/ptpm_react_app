@@ -104,6 +104,10 @@ function trimValue(value) {
   return String(value || "").trim();
 }
 
+function normalizeWholeNumber(value) {
+  return trimValue(value).replace(/[^\d]/g, "");
+}
+
 function normalizeBuildingFeatureValue(value) {
   const raw = trimValue(value);
   if (!raw) return "";
@@ -195,7 +199,7 @@ function mapInitialDataToForm(initialData = null) {
     foundation_type: trimValue(initialData.foundation_type || initialData.Foundation_Type || ""),
     bedrooms: trimValue(initialData.bedrooms || initialData.Bedrooms || ""),
     manhole: parseBoolean(initialData.manhole || initialData.Manhole),
-    stories: trimValue(initialData.stories || initialData.Stories || ""),
+    stories: normalizeWholeNumber(initialData.stories || initialData.Stories || ""),
     building_age: trimValue(initialData.building_age || initialData.Building_Age || ""),
     building_features: normalizeFeatures(
       initialData.building_features ||
@@ -309,7 +313,11 @@ export function AddPropertyModal({ open, onClose, onSave, initialData = null, pl
   }, [open, isEditing, plugin, form.property_name]);
 
   const updateField = (field) => (event) => {
-    const nextValue = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+    const nextValue = event.target.type === "checkbox"
+      ? event.target.checked
+      : field === "stories"
+        ? normalizeWholeNumber(event.target.value)
+        : event.target.value;
     setForm((prev) => ({ ...prev, [field]: nextValue }));
   };
 
@@ -372,7 +380,7 @@ export function AddPropertyModal({ open, onClose, onSave, initialData = null, pl
       foundation_type: trimValue(form.foundation_type),
       bedrooms: trimValue(form.bedrooms),
       manhole: Boolean(form.manhole),
-      stories: trimValue(form.stories),
+      stories: normalizeWholeNumber(form.stories),
       building_age: trimValue(form.building_age),
       building_features: form.building_features,
     };
@@ -551,6 +559,10 @@ export function AddPropertyModal({ open, onClose, onSave, initialData = null, pl
               />
               <InputField
                 label="Stories"
+                type="number"
+                min="0"
+                step="1"
+                inputMode="numeric"
                 value={form.stories}
                 onChange={updateField("stories")}
                 data-property-field="stories"

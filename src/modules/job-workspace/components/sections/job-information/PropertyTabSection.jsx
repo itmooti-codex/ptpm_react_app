@@ -65,6 +65,7 @@ export function PropertyTabSection({
   propertySearchValue,
   propertySearchItems,
   onPropertySearchValueChange,
+  onPropertySearchQueryChange,
   onSelectPropertyFromSearch,
   onAddProperty,
   activeRelatedProperty,
@@ -74,6 +75,10 @@ export function PropertyTabSection({
   selectedPropertyId,
   onSelectProperty,
   onEditRelatedProperty,
+  sameAsContactLabel = "",
+  isSameAsContactChecked = false,
+  isSameAsContactDisabled = false,
+  onSameAsContactChange = null,
 }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
@@ -665,7 +670,21 @@ export function PropertyTabSection({
     >
       <div className="w-full">
         <Card className="h-fit space-y-6">
-          <div className="text-base font-bold leading-4 text-neutral-700">Property</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-base font-bold leading-4 text-neutral-700">Property</div>
+            {typeof onSameAsContactChange === "function" && String(sameAsContactLabel || "").trim() ? (
+              <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-[#003882]"
+                  checked={Boolean(isSameAsContactChecked)}
+                  disabled={Boolean(isSameAsContactDisabled)}
+                  onChange={(event) => onSameAsContactChange(Boolean(event.target.checked))}
+                />
+                <span>{sameAsContactLabel}</span>
+              </label>
+            ) : null}
+          </div>
           <SearchDropdownInput
             label="Property Search"
             field="properties"
@@ -673,6 +692,7 @@ export function PropertyTabSection({
             placeholder="Search by property name, UID, or address"
             items={propertySearchItems}
             onValueChange={onPropertySearchValueChange}
+            onSearchQueryChange={onPropertySearchQueryChange}
             onSelect={onSelectPropertyFromSearch}
             onAdd={onAddProperty}
             addButtonLabel="Add New Property"
