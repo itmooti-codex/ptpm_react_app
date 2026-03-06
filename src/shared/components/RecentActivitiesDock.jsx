@@ -2,11 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useVitalStatsPlugin } from "../../platform/vitalstats/useVitalStatsPlugin.js";
 import { APP_USER } from "../../config/userConfig.js";
+import { ANNOUNCEMENT_EMITTED_EVENT } from "../announcements/announcementEmitter.js";
 
 const STORAGE_KEY = "ptpm_admin_recent_activity_v1";
 const MAX_RECORDS = 20;
 const ACTIVITIES_UPDATED_EVENT = "ptpm-recent-activities-updated";
 const MAX_SYNC_RETRY_PER_SIGNATURE = 3;
+const ANNOUNCEMENT_ACTIVITY_ACTIONS = Object.freeze({
+  ACTIVITY_ADDED: "Created activity",
+  MATERIAL_ADDED: "Created material",
+  APPOINTMENT_SCHEDULED: "Created appointment",
+  APPOINTMENT_COMPLETED: "Updated appointment",
+  UPLOAD_ADDED: "Created upload",
+  TASK_ADDED: "Created task",
+  TASK_COMPLETED: "Updated task",
+});
 
 function toText(value) {
   return String(value ?? "").trim();
@@ -35,11 +45,17 @@ function isDeleteLikeActivityAction(action = "") {
   return normalized.includes("delete") || normalized.includes("cancel");
 }
 
+function normalizeLegacyInquiryPageType(value = "") {
+  const normalized = toText(value).toLowerCase();
+  if (normalized === "inquiry-direct") return "inquiry-details";
+  return normalized;
+}
+
 function resolvePageType(pathname = "") {
   const normalizedPath = toText(pathname).toLowerCase();
   if (!normalizedPath) return "unknown";
   if (normalizedPath.startsWith("/inquiry-details")) return "inquiry-details";
-  if (normalizedPath.startsWith("/inquiry-direct")) return "inquiry-direct";
+  if (normalizedPath.startsWith("/inquiry-direct")) return "inquiry-details";
   if (normalizedPath.startsWith("/job-direct")) return "job-direct";
   if (normalizedPath.startsWith("/details")) return "job-details";
   if (normalizedPath.startsWith("/profile")) return "profile";
@@ -50,9 +66,8 @@ function resolvePageType(pathname = "") {
 }
 
 function resolvePageName(pageType = "") {
-  const normalizedType = toText(pageType).toLowerCase();
+  const normalizedType = normalizeLegacyInquiryPageType(pageType);
   if (normalizedType === "inquiry-details") return "Inquiry Details";
-  if (normalizedType === "inquiry-direct") return "Inquiry Direct";
   if (normalizedType === "job-direct") return "Job Direct";
   if (normalizedType === "job-details") return "Job Details";
   if (normalizedType === "profile") return "Profile";
@@ -62,11 +77,46 @@ function resolvePageName(pageType = "") {
   return "App";
 }
 
+function mapAnnouncementEventToActivityRecord(detail = {}, fallbackPath = "") {
+  const eventKey = toText(detail?.eventKey);
+  if (!eventKey) return null;
+  const action = toText(detail?.action || ANNOUNCEMENT_ACTIVITY_ACTIONS[eventKey]);
+  if (!action) return null;
+  const resolvedPath = toText(detail?.path || fallbackPath);
+  const pageType = resolvePageType(resolvedPath);
+  const inquiryId = toText(detail?.inquiryId || detail?.inquiry_id);
+  const inquiryUid = toText(detail?.inquiryUid || detail?.inquiry_uid);
+  const metadata = {
+    announcement_id: toText(detail?.announcementId),
+    event_key: eventKey,
+    quote_job_id: toText(detail?.quoteJobId || detail?.quote_job_id),
+    focus_kind: toText(detail?.focusKind || detail?.focus_kind),
+    focus_id: toText(detail?.focusId || detail?.focus_id),
+    tab: toText(detail?.tab),
+  };
+  if (inquiryId) metadata.inquiry_id = inquiryId;
+  if (inquiryUid) metadata.inquiry_uid = inquiryUid;
+  const timestamp = Number(detail?.timestamp);
+  const normalizedTimestamp = Number.isFinite(timestamp) ? timestamp : Date.now();
+  return normalizeActivityRecord({
+    id: `announcement-${eventKey}-${normalizedTimestamp}-${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: normalizedTimestamp,
+    action,
+    page_type: pageType,
+    page_name: resolvePageName(pageType),
+    path: resolvedPath,
+    inquiry_id: inquiryId,
+    inquiry_uid: inquiryUid,
+    metadata,
+  });
+}
+
 function normalizeActivityRecord(record = {}) {
   const timestamp = Number(record?.timestamp);
   const normalizedTimestamp = Number.isFinite(timestamp) ? timestamp : Date.now();
   const path = toText(record?.path);
-  const pageType = toText(record?.page_type) || resolvePageType(path);
+  const pageType =
+    normalizeLegacyInquiryPageType(record?.page_type) || resolvePageType(path);
   const metadata =
     record?.metadata && typeof record.metadata === "object" ? { ...record.metadata } : {};
   const metadataInquiryId =
@@ -553,6 +603,7 @@ export function RecentActivitiesDock() {
   const syncRetryStateRef = useRef({ signature: "", attempts: 0 });
   const resolvedProviderIdRef = useRef("");
   const didHydrateFromServerRef = useRef(false);
+  const currentPathRef = useRef("");
   const configuredAdminProviderId = useMemo(
     () => toText(import.meta.env.VITE_APP_USER_ADMIN_ID),
     []
@@ -562,6 +613,10 @@ export function RecentActivitiesDock() {
     () => toText(location?.pathname).toLowerCase().startsWith("/inquiry-details"),
     [location?.pathname]
   );
+
+  useEffect(() => {
+    currentPathRef.current = `${toText(location?.pathname)}${toText(location?.search)}`;
+  }, [location?.pathname, location?.search]);
 
   const refreshActivitiesFromStorage = useCallback(() => {
     setActivities((previous) => {
@@ -584,9 +639,25 @@ export function RecentActivitiesDock() {
     };
     window.addEventListener(ACTIVITIES_UPDATED_EVENT, handleActivitiesUpdated);
     window.addEventListener("storage", handleStorage);
+    const handleAnnouncementEmitted = (event) => {
+      if (event?.detail?.recentActivityPersisted) {
+        refreshActivitiesFromStorage();
+        return;
+      }
+      const nextRecord = mapAnnouncementEventToActivityRecord(
+        event?.detail,
+        currentPathRef.current
+      );
+      if (!nextRecord) return;
+      const merged = normalizeRecords([nextRecord, ...readRecords()]);
+      writeRecords(merged);
+      setActivities(merged);
+    };
+    window.addEventListener(ANNOUNCEMENT_EMITTED_EVENT, handleAnnouncementEmitted);
     return () => {
       window.removeEventListener(ACTIVITIES_UPDATED_EVENT, handleActivitiesUpdated);
       window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(ANNOUNCEMENT_EMITTED_EVENT, handleAnnouncementEmitted);
     };
   }, [refreshActivitiesFromStorage]);
 

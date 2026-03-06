@@ -116,7 +116,7 @@ export function useRelatedRecordsData({
       })
       .catch((loadError) => {
         if (!isActive) return;
-        console.error("[InquiryDirect] Failed to fetch related inquiries", loadError);
+        console.error("[InquiryShared] Failed to fetch related inquiries", loadError);
         setRelatedDeals([]);
         errors.push(loadError?.message || "Unable to load related inquiries.");
       })
@@ -135,7 +135,7 @@ export function useRelatedRecordsData({
       })
       .catch((loadError) => {
         if (!isActive) return;
-        console.error("[InquiryDirect] Failed to fetch related jobs", loadError);
+        console.error("[InquiryShared] Failed to fetch related jobs", loadError);
         setRelatedJobs([]);
         errors.push(loadError?.message || "Unable to load related jobs.");
       })

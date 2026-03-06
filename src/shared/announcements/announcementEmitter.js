@@ -10,6 +10,36 @@ import { resolveAnnouncementRecipientContext } from "./announcementRecipientReso
 
 const DEDUPE_TTL_MS = 120000;
 const dedupeCache = new Map();
+export const ANNOUNCEMENT_EMITTED_EVENT = "ptpm-announcement-emitted";
+const RECENT_ACTIVITY_STORAGE_KEY = "ptpm_admin_recent_activity_v1";
+const RECENT_ACTIVITIES_UPDATED_EVENT = "ptpm-recent-activities-updated";
+const MAX_RECENT_ACTIVITY_RECORDS = 20;
+
+const RECENT_ACTIVITY_ACTION_BY_EVENT_KEY = Object.freeze({
+  [ANNOUNCEMENT_EVENT_KEYS.INQUIRY_ALLOCATED]: "Updated inquiry allocation",
+  [ANNOUNCEMENT_EVENT_KEYS.QUOTE_CREATED]: "Created quote/job",
+  [ANNOUNCEMENT_EVENT_KEYS.QUOTE_SENT]: "Updated quote",
+  [ANNOUNCEMENT_EVENT_KEYS.QUOTE_ACCEPTED]: "Updated quote",
+  [ANNOUNCEMENT_EVENT_KEYS.INVOICE_TRIGGERED]: "Updated invoice",
+  [ANNOUNCEMENT_EVENT_KEYS.BILL_APPROVED]: "Updated bill",
+  [ANNOUNCEMENT_EVENT_KEYS.INVOICE_SENT_TO_CUSTOMER]: "Updated invoice",
+  [ANNOUNCEMENT_EVENT_KEYS.PAYMENT_STATUS_CHANGED]: "Updated payment status",
+  [ANNOUNCEMENT_EVENT_KEYS.POST_CREATED]: "Created memo post",
+  [ANNOUNCEMENT_EVENT_KEYS.COMMENT_CREATED]: "Created memo comment",
+  [ANNOUNCEMENT_EVENT_KEYS.ACTIVITY_ADDED]: "Created activity",
+  [ANNOUNCEMENT_EVENT_KEYS.MATERIAL_ADDED]: "Created material",
+  [ANNOUNCEMENT_EVENT_KEYS.APPOINTMENT_SCHEDULED]: "Created appointment",
+  [ANNOUNCEMENT_EVENT_KEYS.APPOINTMENT_COMPLETED]: "Updated appointment",
+  [ANNOUNCEMENT_EVENT_KEYS.TASK_ADDED]: "Created task",
+  [ANNOUNCEMENT_EVENT_KEYS.TASK_COMPLETED]: "Updated task",
+  [ANNOUNCEMENT_EVENT_KEYS.UPLOAD_ADDED]: "Created upload",
+  [ANNOUNCEMENT_EVENT_KEYS.PROPERTY_CREATED]: "Created property",
+  [ANNOUNCEMENT_EVENT_KEYS.PROPERTY_UPDATED]: "Updated property",
+  [ANNOUNCEMENT_EVENT_KEYS.PROPERTY_LINKED]: "Updated property link",
+  [ANNOUNCEMENT_EVENT_KEYS.PROPERTY_AFFILIATION_ADDED]: "Created property affiliation",
+  [ANNOUNCEMENT_EVENT_KEYS.PROPERTY_AFFILIATION_UPDATED]: "Updated property affiliation",
+  [ANNOUNCEMENT_EVENT_KEYS.PROPERTY_AFFILIATION_DELETED]: "Deleted property affiliation",
+});
 
 const EVENT_CONFIG = {
   [ANNOUNCEMENT_EVENT_KEYS.INQUIRY_ALLOCATED]: {
@@ -377,6 +407,187 @@ function getEventConfig(eventKey) {
   };
 }
 
+function dispatchAnnouncementEmittedEvent(detail = {}) {
+  if (typeof window === "undefined" || typeof window.dispatchEvent !== "function") return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent(ANNOUNCEMENT_EMITTED_EVENT, {
+        detail,
+      })
+    );
+  } catch (error) {
+    console.warn("[Announcements] Failed dispatching emitted event", error);
+  }
+}
+
+function normalizeLegacyInquiryPageType(value = "") {
+  const normalized = toText(value).toLowerCase();
+  if (normalized === "inquiry-direct") return "inquiry-details";
+  return normalized;
+}
+
+function resolveRecentActivityPageType(pathname = "") {
+  const normalizedPath = toText(pathname).toLowerCase();
+  if (!normalizedPath) return "unknown";
+  if (normalizedPath.startsWith("/inquiry-details")) return "inquiry-details";
+  if (normalizedPath.startsWith("/inquiry-direct")) return "inquiry-details";
+  if (normalizedPath.startsWith("/job-direct")) return "job-direct";
+  if (normalizedPath.startsWith("/details")) return "job-details";
+  if (normalizedPath.startsWith("/profile")) return "profile";
+  if (normalizedPath.startsWith("/settings")) return "settings";
+  if (normalizedPath.startsWith("/notifications")) return "notifications";
+  if (normalizedPath === "/") return "dashboard";
+  return "app";
+}
+
+function resolveRecentActivityPageName(pageType = "") {
+  const normalizedType = normalizeLegacyInquiryPageType(pageType);
+  if (normalizedType === "inquiry-details") return "Inquiry Details";
+  if (normalizedType === "job-direct") return "Job Direct";
+  if (normalizedType === "job-details") return "Job Details";
+  if (normalizedType === "profile") return "Profile";
+  if (normalizedType === "settings") return "Settings";
+  if (normalizedType === "notifications") return "Notifications";
+  if (normalizedType === "dashboard") return "Dashboard";
+  return "App";
+}
+
+function isMajorRecentActivityAction(action = "") {
+  const normalized = toText(action).toLowerCase();
+  return (
+    normalized.includes("create") ||
+    normalized.includes("update") ||
+    normalized.includes("delete") ||
+    normalized.includes("cancel") ||
+    normalized.includes("new inquiry")
+  );
+}
+
+function normalizeRecentActivityRecord(record = {}) {
+  const timestamp = Number(record?.timestamp);
+  const normalizedTimestamp = Number.isFinite(timestamp) ? timestamp : Date.now();
+  const path = toText(record?.path);
+  const pageType =
+    normalizeLegacyInquiryPageType(record?.page_type) || resolveRecentActivityPageType(path);
+  const metadata =
+    record?.metadata && typeof record.metadata === "object" ? { ...record.metadata } : {};
+  return {
+    id:
+      toText(record?.id) ||
+      `activity-${normalizedTimestamp}-${Math.random().toString(36).slice(2, 9)}`,
+    timestamp: normalizedTimestamp,
+    action: toText(record?.action),
+    page_type: pageType,
+    page_name: toText(record?.page_name) || resolveRecentActivityPageName(pageType),
+    path,
+    inquiry_id: toText(record?.inquiry_id),
+    inquiry_uid: toText(record?.inquiry_uid),
+    metadata,
+  };
+}
+
+function finalizeRecentActivityList(records = []) {
+  const normalized = (Array.isArray(records) ? records : [])
+    .map((item) => normalizeRecentActivityRecord(item))
+    .filter((item) => isMajorRecentActivityAction(item?.action))
+    .sort((left, right) => Number(right?.timestamp || 0) - Number(left?.timestamp || 0));
+
+  const createdNewInquiryKeys = new Set(
+    normalized
+      .filter((item) => toText(item?.action).toLowerCase() === "created new inquiry")
+      .map((item) => toText(item?.inquiry_uid).toLowerCase() || toText(item?.path).toLowerCase())
+      .filter(Boolean)
+  );
+  const seen = new Set();
+  const deduped = [];
+  for (const item of normalized) {
+    const actionKey = toText(item?.action).toLowerCase();
+    const inquiryUidKey = toText(item?.inquiry_uid).toLowerCase();
+    const inquiryIdKey = toText(item?.inquiry_id).toLowerCase();
+    const pathKey = toText(item?.path);
+    const inquiryKey = inquiryUidKey || inquiryIdKey || pathKey.toLowerCase();
+
+    if (
+      actionKey === "started new inquiry" &&
+      inquiryKey &&
+      createdNewInquiryKeys.has(inquiryKey)
+    ) {
+      continue;
+    }
+
+    const dedupeKey = inquiryKey
+      ? `${actionKey}|${inquiryKey}`
+      : `${actionKey}|${pathKey.toLowerCase()}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    deduped.push(item);
+  }
+  return deduped.slice(0, MAX_RECENT_ACTIVITY_RECORDS);
+}
+
+function readRecentActivityRecordsFromStorage() {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const raw = window.localStorage.getItem(RECENT_ACTIVITY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return finalizeRecentActivityList(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentActivityRecordsToStorage(records = []) {
+  if (typeof window === "undefined" || !window.localStorage) return false;
+  try {
+    window.localStorage.setItem(
+      RECENT_ACTIVITY_STORAGE_KEY,
+      JSON.stringify(finalizeRecentActivityList(records))
+    );
+    window.dispatchEvent(new CustomEvent(RECENT_ACTIVITIES_UPDATED_EVENT));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function appendRecentActivityFromAnnouncement({
+  eventKey,
+  inquiryId,
+  quoteJobId,
+  focusKind,
+  focusId,
+  tab,
+  title,
+} = {}) {
+  if (typeof window === "undefined") return false;
+  const action = toText(RECENT_ACTIVITY_ACTION_BY_EVENT_KEY[eventKey]);
+  if (!action || !isMajorRecentActivityAction(action)) return false;
+  const path = `${toText(window.location?.pathname)}${toText(window.location?.search)}`;
+  const pageType = resolveRecentActivityPageType(path);
+  const now = Date.now();
+  const record = normalizeRecentActivityRecord({
+    id: `announcement-${toText(eventKey)}-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: now,
+    action,
+    page_type: pageType,
+    page_name: resolveRecentActivityPageName(pageType),
+    path,
+    inquiry_id: toText(inquiryId),
+    metadata: {
+      event_key: toText(eventKey),
+      quote_job_id: toText(quoteJobId),
+      focus_kind: toText(focusKind),
+      focus_id: toText(focusId),
+      tab: toText(tab),
+      title: toText(title),
+    },
+  });
+  const existing = readRecentActivityRecordsFromStorage();
+  const merged = finalizeRecentActivityList([record, ...(Array.isArray(existing) ? existing : [])]);
+  return writeRecentActivityRecordsToStorage(merged);
+}
+
 export async function emitAnnouncement({
   plugin,
   eventKey,
@@ -536,6 +747,38 @@ export async function emitAnnouncement({
       id: createdId || null,
       notifiedContactId,
       logContext,
+    });
+    const recentActivityPersisted = appendRecentActivityFromAnnouncement({
+      eventKey: toText(eventKey),
+      inquiryId: resolvedInquiryId,
+      quoteJobId: resolvedQuoteJobId,
+      focusKind: resolvedFocusKind,
+      focusId: resolvedFocusId,
+      tab: resolvedTab,
+      title: payload.title,
+    });
+    const resolvedRecentActivityAction = toText(
+      RECENT_ACTIVITY_ACTION_BY_EVENT_KEY[toText(eventKey)]
+    );
+    dispatchAnnouncementEmittedEvent({
+      eventKey: toText(eventKey),
+      announcementId: createdId || null,
+      quoteJobId: resolvedQuoteJobId,
+      inquiryId: resolvedInquiryId,
+      notifiedContactId,
+      focusKind: resolvedFocusKind,
+      focusId: resolvedFocusId,
+      focusIds: resolvedFocusIds,
+      tab: resolvedTab,
+      title: payload.title,
+      content: payload.content,
+      action: resolvedRecentActivityAction,
+      recentActivityPersisted,
+      path:
+        typeof window !== "undefined"
+          ? `${toText(window.location?.pathname)}${toText(window.location?.search)}`
+          : "",
+      timestamp: Date.now(),
     });
     return { created: true, id: createdId };
   } catch (error) {

@@ -1679,7 +1679,7 @@ export function JobDetailsPage() {
       showError("Navigation unavailable", "No linked inquiry found.");
       return;
     }
-    navigate(`/inquiry-direct/${encodeURIComponent(currentInquiryUniqueId)}`);
+    navigate(`/inquiry-details/${encodeURIComponent(currentInquiryUniqueId)}`);
   }, [isQuoteAccepted, currentJobUniqueId, currentInquiryUniqueId, navigate, showError]);
 
   const handleAddPropertySave = useCallback(

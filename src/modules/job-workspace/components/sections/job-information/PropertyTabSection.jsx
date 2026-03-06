@@ -175,6 +175,24 @@ export function PropertyTabSection({
   );
 
   const relatedPropertyMapLink = buildPropertyMapLink(activeRelatedProperty || {});
+  const linkedPropertyOptions = useMemo(() => {
+    const normalizedLinked = dedupeById(
+      (Array.isArray(linkedProperties) ? linkedProperties : []).filter(Boolean)
+    );
+    const activeId = normalizePropertyId(
+      activeRelatedProperty?.id || activeRelatedProperty?.ID || activeRelatedProperty?.Property_ID
+    );
+    if (!activeId) {
+      return normalizedLinked;
+    }
+    const hasActiveInLinked = normalizedLinked.some(
+      (property) => normalizePropertyId(property?.id || property?.ID || property?.Property_ID) === activeId
+    );
+    if (hasActiveInLinked) {
+      return normalizedLinked;
+    }
+    return dedupeById([{ ...activeRelatedProperty, id: activeId }, ...normalizedLinked]);
+  }, [activeRelatedProperty, linkedProperties]);
   const normalizedPropertyDetailsVariant = String(propertyDetailsVariant || "accordion")
     .trim()
     .toLowerCase();
@@ -791,15 +809,15 @@ export function PropertyTabSection({
             </div>
           ) : null}
 
-          {selectedAccountId && !isLoading && !loadError && !linkedProperties.length ? (
+          {selectedAccountId && !isLoading && !loadError && !linkedPropertyOptions.length ? (
             <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
               No linked properties found.
             </div>
           ) : null}
 
-          {selectedAccountId && !isLoading && !loadError && linkedProperties.length ? (
+          {selectedAccountId && !isLoading && !loadError && linkedPropertyOptions.length ? (
             <div className="space-y-2">
-              {linkedProperties.map((property, index) => {
+              {linkedPropertyOptions.map((property, index) => {
                 const propertyId = normalizePropertyId(property.id);
                 const isSelected = normalizePropertyId(selectedPropertyId) === propertyId;
                 return (

@@ -87,13 +87,13 @@ import {
 import {
   parseListSelectionValue,
   serializeListSelectionValue,
-} from "../../inquiry-direct/components/sections/inquiryInformationHelpers.js";
+} from "../../inquiry/shared/inquiryInformationHelpers.js";
 import {
   getInquiryFlowRule,
   shouldShowOtherSourceField,
-} from "../../inquiry-direct/constants/inquiryFlowRules.js";
-import { useRelatedRecordsData } from "../../inquiry-direct/hooks/useRelatedRecordsData.js";
-import { isPestServiceFlow } from "../../inquiry-direct/utils/pestRules.js";
+} from "../../inquiry/shared/inquiryFlowRules.js";
+import { useRelatedRecordsData } from "../../inquiry/shared/useRelatedRecordsData.js";
+import { isPestServiceFlow } from "../../inquiry/shared/pestRules.js";
 import {
   HOW_DID_YOU_HEAR_OPTIONS,
   INQUIRY_SOURCE_OPTIONS,
@@ -102,7 +102,7 @@ import {
   NOISE_SIGN_OPTIONS,
   PEST_ACTIVE_TIME_OPTIONS,
   PEST_LOCATION_OPTIONS,
-} from "../../inquiry-direct/components/sections/inquiryInformationConstants.js";
+} from "../../inquiry/shared/inquiryInformationConstants.js";
 
 function ChevronDownIcon() {
   return (
@@ -894,11 +894,17 @@ function isMajorRecentActivityAction(action = "") {
   );
 }
 
+function normalizeLegacyInquiryPageType(value = "") {
+  const normalized = toText(value).toLowerCase();
+  if (normalized === "inquiry-direct") return "inquiry-details";
+  return normalized;
+}
+
 function resolveActivityPageType(pathname = "") {
   const normalizedPath = toText(pathname).toLowerCase();
   if (!normalizedPath) return "unknown";
   if (normalizedPath.startsWith("/inquiry-details")) return "inquiry-details";
-  if (normalizedPath.startsWith("/inquiry-direct")) return "inquiry-direct";
+  if (normalizedPath.startsWith("/inquiry-direct")) return "inquiry-details";
   if (normalizedPath.startsWith("/job-direct")) return "job-direct";
   if (normalizedPath.startsWith("/details")) return "job-details";
   if (normalizedPath.startsWith("/profile")) return "profile";
@@ -909,9 +915,8 @@ function resolveActivityPageType(pathname = "") {
 }
 
 function resolveActivityPageName(pageType = "") {
-  const normalizedType = toText(pageType).toLowerCase();
+  const normalizedType = normalizeLegacyInquiryPageType(pageType);
   if (normalizedType === "inquiry-details") return "Inquiry Details";
-  if (normalizedType === "inquiry-direct") return "Inquiry Direct";
   if (normalizedType === "job-direct") return "Job Direct";
   if (normalizedType === "job-details") return "Job Details";
   if (normalizedType === "profile") return "Profile";
@@ -924,6 +929,9 @@ function resolveActivityPageName(pageType = "") {
 function normalizeRecentActivityRecord(record = {}) {
   const timestamp = Number(record?.timestamp);
   const normalizedTimestamp = Number.isFinite(timestamp) ? timestamp : Date.now();
+  const path = toText(record?.path);
+  const pageType =
+    normalizeLegacyInquiryPageType(record?.page_type) || resolveActivityPageType(path);
   const metadata =
     record?.metadata && typeof record.metadata === "object" ? { ...record.metadata } : {};
   const metadataInquiryId =
@@ -936,11 +944,9 @@ function normalizeRecentActivityRecord(record = {}) {
       `activity-${normalizedTimestamp}-${Math.random().toString(36).slice(2, 9)}`,
     timestamp: normalizedTimestamp,
     action: toText(record?.action),
-    page_type: toText(record?.page_type) || resolveActivityPageType(record?.path),
-    page_name:
-      toText(record?.page_name) ||
-      resolveActivityPageName(toText(record?.page_type) || resolveActivityPageType(record?.path)),
-    path: toText(record?.path),
+    page_type: pageType,
+    page_name: toText(record?.page_name) || resolveActivityPageName(pageType),
+    path,
     inquiry_id: toText(record?.inquiry_id || metadataInquiryId),
     inquiry_uid: toText(record?.inquiry_uid || metadataInquiryUid),
     metadata,
@@ -2255,10 +2261,21 @@ function QuickInquiryBookingModal({
       }
 
       let resolvedPropertyId = "";
+      let resolvedPropertyRecord = null;
       if (currentFlowRule.showPropertySearch) {
         const propertyName = toText(
           standardizedPropertyName || detailsForm.property_name || detailsForm.property_lookup
         );
+        const propertyDraft = {
+          property_name: propertyName,
+          lot_number: toText(detailsForm.property_lot_number),
+          unit_number: toText(detailsForm.property_unit_number),
+          address_1: toText(detailsForm.property_address_1 || detailsForm.property_lookup),
+          suburb_town: toText(detailsForm.property_suburb_town),
+          state: toText(detailsForm.property_state),
+          postal_code: toText(detailsForm.property_postal_code),
+          country: toText(detailsForm.property_country || "AU"),
+        };
         const matchedProperty = propertyMatchState.record;
         const comparableTargetPropertyName = normalizeComparablePropertyName(propertyName);
         const comparableMatchedPropertyName = normalizeComparablePropertyName(
@@ -2270,21 +2287,28 @@ function QuickInquiryBookingModal({
           comparableMatchedPropertyName === comparableTargetPropertyName
         ) {
           resolvedPropertyId = normalizePropertyId(matchedProperty?.id || matchedProperty?.ID);
+          resolvedPropertyRecord = normalizePropertyLookupRecord({
+            ...propertyDraft,
+            ...(matchedProperty || {}),
+            id: resolvedPropertyId || matchedProperty?.id || matchedProperty?.ID || "",
+          });
         } else if (propertyName) {
           const createdProperty = await createPropertyRecord({
             plugin,
-            payload: compactStringFields({
-              property_name: propertyName,
-              lot_number: detailsForm.property_lot_number,
-              unit_number: detailsForm.property_unit_number,
-              address_1: detailsForm.property_address_1 || detailsForm.property_lookup,
-              suburb_town: detailsForm.property_suburb_town,
-              state: detailsForm.property_state,
-              postal_code: detailsForm.property_postal_code,
-              country: detailsForm.property_country || "AU",
-            }),
+            payload: compactStringFields(propertyDraft),
           });
           resolvedPropertyId = normalizePropertyId(createdProperty?.id || createdProperty?.ID);
+          resolvedPropertyRecord = normalizePropertyLookupRecord({
+            ...propertyDraft,
+            ...(createdProperty || {}),
+            id: resolvedPropertyId || createdProperty?.id || createdProperty?.ID || "",
+          });
+        }
+        if (resolvedPropertyId && !resolvedPropertyRecord) {
+          resolvedPropertyRecord = normalizePropertyLookupRecord({
+            ...propertyDraft,
+            id: resolvedPropertyId,
+          });
         }
       }
 
@@ -2339,7 +2363,14 @@ function QuickInquiryBookingModal({
         inquiryId: normalizedInquiryId,
         payload,
       });
-      onSaved?.({ id: normalizedInquiryId });
+      onSaved?.({
+        id: normalizedInquiryId,
+        propertyId: resolvedPropertyId,
+        propertyRecord: resolvedPropertyRecord,
+        isPropertySameAsContact: Boolean(
+          currentFlowRule.showPropertySearch && isQuickPropertySameAsContact
+        ),
+      });
     } catch (saveError) {
       onError?.(saveError);
     } finally {
@@ -2397,6 +2428,7 @@ function QuickInquiryBookingModal({
     onSaved,
     plugin,
     propertyMatchState.record,
+    isQuickPropertySameAsContact,
     isQuickPestServiceSelected,
     standardizedPropertyName,
     shouldShowOtherSource,
@@ -4131,7 +4163,8 @@ export function InquiryDetailsPage() {
       const normalizedAction = toText(action);
       if (!isMajorRecentActivityAction(normalizedAction)) return;
       const resolvedPath = toText(path || currentActivityPath);
-      const resolvedPageType = toText(pageType) || resolveActivityPageType(resolvedPath);
+      const resolvedPageType =
+        normalizeLegacyInquiryPageType(pageType) || resolveActivityPageType(resolvedPath);
       const resolvedPageName = toText(pageName) || resolveActivityPageName(resolvedPageType);
       const normalizedMetadata =
         metadata && typeof metadata === "object" ? { ...metadata } : {};
@@ -4664,13 +4697,30 @@ export function InquiryDetailsPage() {
       inquiryCompany?.postal_code || inquiryCompany?.Postal_Code || inquiryCompany?.zip_code
     );
 
-    const fallbackStreet = contactStreet || companyStreet;
-    const fallbackCity = contactCity || companyCity;
-    const fallbackState = contactState || companyState;
-    const fallbackPostalCode = contactPostalCode || companyPostalCode;
+    const preferCompanyAddress = isCompanyAccount;
+    const primaryStreet = preferCompanyAddress ? companyStreet : contactStreet;
+    const primaryCity = preferCompanyAddress ? companyCity : contactCity;
+    const primaryState = preferCompanyAddress ? companyState : contactState;
+    const primaryPostalCode = preferCompanyAddress ? companyPostalCode : contactPostalCode;
+    const secondaryStreet = preferCompanyAddress ? contactStreet : companyStreet;
+    const secondaryCity = preferCompanyAddress ? contactCity : companyCity;
+    const secondaryState = preferCompanyAddress ? contactState : companyState;
+    const secondaryPostalCode = preferCompanyAddress ? contactPostalCode : companyPostalCode;
+
+    const fallbackStreet = primaryStreet || secondaryStreet;
+    const fallbackCity = primaryCity || secondaryCity;
+    const fallbackState = primaryState || secondaryState;
+    const fallbackPostalCode = primaryPostalCode || secondaryPostalCode;
+    const hasPrimaryAddress = Boolean(primaryStreet || primaryCity || primaryPostalCode);
     const formatted = joinAddress([fallbackStreet, fallbackCity, fallbackState, fallbackPostalCode]);
     return {
-      sourceType: contactStreet || contactCity ? "contact" : "company",
+      sourceType: hasPrimaryAddress
+        ? preferCompanyAddress
+          ? "company"
+          : "contact"
+        : preferCompanyAddress
+          ? "contact"
+          : "company",
       address1: fallbackStreet || formatted,
       suburbTown: fallbackCity,
       state: fallbackState,
@@ -4686,6 +4736,7 @@ export function InquiryDetailsPage() {
   }, [
     accountCompanyName,
     accountContactName,
+    isCompanyAccount,
     inquiryCompany,
     inquiryPrimaryContact,
     safeUid,
@@ -5378,9 +5429,7 @@ export function InquiryDetailsPage() {
       ) ||
       linkedPropertiesSorted.find(
         (record) => normalizePropertyId(record?.id) === normalizedSelectedPropertyId
-      ) ||
-      null;
-    if (!selectedRecord) return;
+      ) || null;
 
     const hasAddressDetails = Boolean(
       toText(
@@ -5396,7 +5445,7 @@ export function InquiryDetailsPage() {
             selectedRecord?.City
         )
     );
-    if (hasAddressDetails) return;
+    if (selectedRecord && hasAddressDetails) return;
 
     let isMounted = true;
     fetchPropertyRecordById({ plugin, propertyId: normalizedSelectedPropertyId })
@@ -6422,7 +6471,50 @@ export function InquiryDetailsPage() {
     [dismissQuickInquirySavingToast, inquiryNumericId, safeUid, toast]
   );
 
-  const handleQuickInquiryBookingSaved = useCallback(async () => {
+  const handleQuickInquiryBookingSaved = useCallback(async (savedContext = {}) => {
+    const savedPropertyId = normalizePropertyId(
+      savedContext?.propertyId || savedContext?.property_id
+    );
+    const savedPropertyRecordValue =
+      savedContext?.propertyRecord && typeof savedContext.propertyRecord === "object"
+        ? savedContext.propertyRecord
+        : savedContext?.property_record &&
+            typeof savedContext.property_record === "object"
+          ? savedContext.property_record
+          : null;
+    const savedPropertyRecord = savedPropertyRecordValue
+      ? normalizePropertyLookupRecord({
+          ...savedPropertyRecordValue,
+          id:
+            savedPropertyId ||
+            savedPropertyRecordValue?.id ||
+            savedPropertyRecordValue?.ID ||
+            "",
+        })
+      : null;
+
+    if (savedPropertyId) {
+      setSelectedPropertyId(savedPropertyId);
+    }
+    if (savedPropertyRecord) {
+      setPropertyLookupRecords((previous) =>
+        mergePropertyCollectionsIfChanged(previous, [savedPropertyRecord])
+      );
+      setLinkedProperties((previous) =>
+        mergePropertyCollectionsIfChanged(Array.isArray(previous) ? previous : [], [
+          savedPropertyRecord,
+        ])
+      );
+      const nextPropertyLabel = resolvePropertyLookupLabel(savedPropertyRecord);
+      if (nextPropertyLabel) {
+        propertySearchManualEditRef.current = false;
+        setPropertySearchQuery(nextPropertyLabel);
+      }
+    }
+    if (savedContext?.isPropertySameAsContact || savedContext?.property_same_as_contact) {
+      setIsPropertySameAsContact(true);
+    }
+
     try {
       await refreshResolvedInquiry();
       dismissQuickInquirySavingToast();
@@ -6434,7 +6526,6 @@ export function InquiryDetailsPage() {
   }, [
     dismissQuickInquirySavingToast,
     error,
-    inquiryNumericId,
     refreshResolvedInquiry,
     success,
   ]);
@@ -6475,11 +6566,6 @@ export function InquiryDetailsPage() {
     });
     navigate("/inquiry-details/new");
   }, [inquiryNumericId, navigate, safeUid, trackRecentActivity]);
-
-  const handleEditInquiry = () => {
-    if (!hasUid) return;
-    navigate(`/inquiry-direct/${encodeURIComponent(safeUid)}`);
-  };
 
   const handleCreateCallback = useCallback(async () => {
     if (isCreatingCallback) return;
@@ -7458,11 +7544,14 @@ export function InquiryDetailsPage() {
     (activity = {}) => {
       const targetPath = toText(activity?.path);
       if (!targetPath) return;
+      const targetPageType =
+        normalizeLegacyInquiryPageType(activity?.page_type) ||
+        resolveActivityPageType(targetPath);
       trackRecentActivity({
         action: "Opened recent activity",
         path: targetPath,
-        pageType: toText(activity?.page_type) || resolveActivityPageType(targetPath),
-        pageName: toText(activity?.page_name) || resolveActivityPageName(resolveActivityPageType(targetPath)),
+        pageType: targetPageType,
+        pageName: toText(activity?.page_name) || resolveActivityPageName(targetPageType),
       });
       navigate(targetPath);
     },

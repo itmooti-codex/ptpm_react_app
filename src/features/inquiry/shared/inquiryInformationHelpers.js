@@ -1,4 +1,4 @@
-import { buildLookupDisplayLabel } from "../../../../shared/utils/lookupLabel.js";
+import { buildLookupDisplayLabel } from "../../../shared/utils/lookupLabel.js";
 import {
   EMPTY_FORM,
   HOW_DID_YOU_HEAR_OPTIONS,

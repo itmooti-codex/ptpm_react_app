@@ -32,11 +32,6 @@ const JobDetailsPage = lazy(() =>
     default: module.JobDetailsPage,
   }))
 );
-const InquiryDirectPage = lazy(() =>
-  import("../features/inquiry-direct/pages/InquiryDirectPage.jsx").then((module) => ({
-    default: module.InquiryDirectPage,
-  }))
-);
 const InquiryDetailsPage = lazy(() =>
   import("../features/inquiry-details/pages/InquiryDetailsPage.jsx").then((module) => ({
     default: module.InquiryDetailsPage,
@@ -63,6 +58,15 @@ function LegacyJobDetailsRedirect() {
   return <Navigate to={`/details/${encodeURIComponent(String(uid || "").trim())}`} replace />;
 }
 
+function LegacyInquiryDirectRedirect() {
+  const { inquiryuid = "" } = useParams();
+  const safeUid = String(inquiryuid || "").trim();
+  if (!safeUid) {
+    return <Navigate to="/inquiry-details/new" replace />;
+  }
+  return <Navigate to={`/inquiry-details/${encodeURIComponent(safeUid)}`} replace />;
+}
+
 export default function App() {
   return (
     <Suspense fallback={<AppRouteLoader />}>
@@ -71,9 +75,9 @@ export default function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/job-direct" element={<JobDirectPage />} />
           <Route path="/job-direct/:jobuid" element={<JobDirectPage />} />
-          <Route path="/inquiry-direct" element={<InquiryDirectPage />} />
-          <Route path="/inquiry-direct/:inquiryuid" element={<InquiryDirectPage />} />
-          <Route path="/inquiry-direct/new" element={<InquiryDirectPage />} />
+          <Route path="/inquiry-direct" element={<Navigate to="/inquiry-details/new" replace />} />
+          <Route path="/inquiry-direct/new" element={<Navigate to="/inquiry-details/new" replace />} />
+          <Route path="/inquiry-direct/:inquiryuid" element={<LegacyInquiryDirectRedirect />} />
           <Route path="/inquiry-details/new" element={<InquiryDetailsPage />} />
           <Route path="/inquiry-details/:uid" element={<InquiryDetailsPage />} />
           <Route path="/job-details/:uid" element={<LegacyJobDetailsRedirect />} />
