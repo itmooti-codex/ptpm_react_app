@@ -1445,6 +1445,7 @@ function QuickInquiryBookingModal({
   onClose,
   plugin,
   inquiryId = "",
+  prefillContext = null,
   configuredAdminProviderId = "",
   onSavingStart = null,
   onSaved = null,
@@ -1485,6 +1486,291 @@ function QuickInquiryBookingModal({
   const contactLookupRequestRef = useRef(0);
   const companyLookupRequestRef = useRef(0);
   const propertyLookupRequestRef = useRef(0);
+  const didHydrateOnOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      didHydrateOnOpenRef.current = false;
+      return;
+    }
+    if (didHydrateOnOpenRef.current) return;
+    didHydrateOnOpenRef.current = true;
+
+    const normalizedPrefill =
+      prefillContext && typeof prefillContext === "object" ? prefillContext : null;
+    if (!normalizedPrefill) {
+      setStep(1);
+      setAccountMode("individual");
+      setShowIndividualOptional(false);
+      setShowCompanyOptional(false);
+      setIndividualForm({ ...QUICK_INQUIRY_EMPTY_INDIVIDUAL_FORM });
+      setCompanyForm({ ...QUICK_INQUIRY_EMPTY_COMPANY_FORM });
+      setDetailsForm({ ...QUICK_INQUIRY_EMPTY_DETAILS_FORM });
+      setContactMatchState({ status: "idle", message: "", record: null });
+      setCompanyMatchState({ status: "idle", message: "", record: null });
+      setPropertyMatchState({ status: "idle", message: "", record: null });
+      setIsQuickPropertySameAsContact(false);
+      return;
+    }
+
+    const resolvedAccountType = toText(
+      normalizedPrefill?.account_type || normalizedPrefill?.Account_Type
+    ).toLowerCase();
+    const nextAccountMode = resolvedAccountType === "company" ? "company" : "individual";
+    const prefillContact =
+      normalizedPrefill?.contact && typeof normalizedPrefill.contact === "object"
+        ? normalizedPrefill.contact
+        : {};
+    const prefillCompany =
+      normalizedPrefill?.company && typeof normalizedPrefill.company === "object"
+        ? normalizedPrefill.company
+        : {};
+    const prefillDetails =
+      normalizedPrefill?.details && typeof normalizedPrefill.details === "object"
+        ? normalizedPrefill.details
+        : {};
+    const prefillPropertyRecord =
+      prefillDetails?.property_record && typeof prefillDetails.property_record === "object"
+        ? prefillDetails.property_record
+        : {};
+    const prefillPropertyId = normalizePropertyId(
+      prefillDetails?.property_id ||
+        prefillPropertyRecord?.id ||
+        prefillPropertyRecord?.ID ||
+        prefillPropertyRecord?.Property_ID
+    );
+
+    const nextIndividualForm = {
+      ...QUICK_INQUIRY_EMPTY_INDIVIDUAL_FORM,
+      email: toText(prefillContact?.email || prefillContact?.Email),
+      first_name: toText(prefillContact?.first_name || prefillContact?.First_Name),
+      last_name: toText(prefillContact?.last_name || prefillContact?.Last_Name),
+      sms_number: toText(prefillContact?.sms_number || prefillContact?.SMS_Number),
+      address: toText(prefillContact?.address || prefillContact?.Address),
+      city: toText(prefillContact?.city || prefillContact?.City),
+      state: toText(prefillContact?.state || prefillContact?.State),
+      zip_code: toText(
+        prefillContact?.zip_code ||
+          prefillContact?.Zip_Code ||
+          prefillContact?.postal_code ||
+          prefillContact?.Postal_Code
+      ),
+      country: toText(prefillContact?.country || prefillContact?.Country || "AU") || "AU",
+    };
+    const nextCompanyForm = {
+      ...QUICK_INQUIRY_EMPTY_COMPANY_FORM,
+      company_name: toText(prefillCompany?.company_name || prefillCompany?.name || prefillCompany?.Name),
+      company_phone: toText(prefillCompany?.company_phone || prefillCompany?.phone || prefillCompany?.Phone),
+      company_address: toText(
+        prefillCompany?.company_address || prefillCompany?.address || prefillCompany?.Address
+      ),
+      company_city: toText(prefillCompany?.company_city || prefillCompany?.city || prefillCompany?.City),
+      company_state: toText(prefillCompany?.company_state || prefillCompany?.state || prefillCompany?.State),
+      company_postal_code: toText(
+        prefillCompany?.company_postal_code ||
+          prefillCompany?.postal_code ||
+          prefillCompany?.Postal_Code ||
+          prefillCompany?.zip_code ||
+          prefillCompany?.Zip_Code
+      ),
+      company_account_type: toText(
+        prefillCompany?.company_account_type ||
+          prefillCompany?.account_type ||
+          prefillCompany?.Account_Type
+      ),
+      primary_first_name: toText(prefillCompany?.primary_first_name || prefillCompany?.Primary_First_Name),
+      primary_last_name: toText(prefillCompany?.primary_last_name || prefillCompany?.Primary_Last_Name),
+      primary_email: toText(prefillCompany?.primary_email || prefillCompany?.Primary_Email),
+      primary_sms_number: toText(
+        prefillCompany?.primary_sms_number || prefillCompany?.Primary_SMS_Number
+      ),
+    };
+    const nextDetailsForm = {
+      ...QUICK_INQUIRY_EMPTY_DETAILS_FORM,
+      inquiry_source: toText(prefillDetails?.inquiry_source || prefillDetails?.Inquiry_Source),
+      type: toText(prefillDetails?.type || prefillDetails?.Type),
+      service_inquiry_id: normalizeServiceInquiryId(
+        prefillDetails?.service_inquiry_id || prefillDetails?.Service_Inquiry_ID
+      ),
+      how_can_we_help: toText(prefillDetails?.how_can_we_help || prefillDetails?.How_can_we_help),
+      how_did_you_hear: toText(prefillDetails?.how_did_you_hear || prefillDetails?.How_did_you_hear),
+      other: toText(prefillDetails?.other || prefillDetails?.Other),
+      noise_signs_options_as_text: toText(
+        prefillDetails?.noise_signs_options_as_text || prefillDetails?.Noise_Signs_Options_As_Text
+      ),
+      pest_active_times_options_as_text: toText(
+        prefillDetails?.pest_active_times_options_as_text ||
+          prefillDetails?.Pest_Active_Times_Options_As_Text
+      ),
+      pest_location_options_as_text: toText(
+        prefillDetails?.pest_location_options_as_text ||
+          prefillDetails?.Pest_Location_Options_As_Text
+      ),
+      property_lot_number: toText(
+        prefillDetails?.property_lot_number ||
+          prefillPropertyRecord?.lot_number ||
+          prefillPropertyRecord?.Lot_Number
+      ),
+      property_unit_number: toText(
+        prefillDetails?.property_unit_number ||
+          prefillPropertyRecord?.unit_number ||
+          prefillPropertyRecord?.Unit_Number
+      ),
+      property_lookup: toText(
+        prefillDetails?.property_lookup ||
+          joinAddress([
+            prefillPropertyRecord?.address_1 ||
+              prefillPropertyRecord?.Address_1 ||
+              prefillPropertyRecord?.address ||
+              prefillPropertyRecord?.Address,
+            prefillPropertyRecord?.suburb_town ||
+              prefillPropertyRecord?.Suburb_Town ||
+              prefillPropertyRecord?.city ||
+              prefillPropertyRecord?.City,
+            prefillPropertyRecord?.state || prefillPropertyRecord?.State,
+            prefillPropertyRecord?.postal_code ||
+              prefillPropertyRecord?.Postal_Code ||
+              prefillPropertyRecord?.zip_code ||
+              prefillPropertyRecord?.Zip_Code,
+            prefillPropertyRecord?.country || prefillPropertyRecord?.Country,
+          ])
+      ),
+      property_name: toText(
+        prefillDetails?.property_name ||
+          prefillPropertyRecord?.property_name ||
+          prefillPropertyRecord?.Property_Name
+      ),
+      property_address_1: toText(
+        prefillDetails?.property_address_1 ||
+          prefillPropertyRecord?.address_1 ||
+          prefillPropertyRecord?.Address_1 ||
+          prefillPropertyRecord?.address ||
+          prefillPropertyRecord?.Address
+      ),
+      property_suburb_town: toText(
+        prefillDetails?.property_suburb_town ||
+          prefillPropertyRecord?.suburb_town ||
+          prefillPropertyRecord?.Suburb_Town ||
+          prefillPropertyRecord?.city ||
+          prefillPropertyRecord?.City
+      ),
+      property_state: toText(
+        prefillDetails?.property_state ||
+          prefillPropertyRecord?.state ||
+          prefillPropertyRecord?.State
+      ),
+      property_postal_code: toText(
+        prefillDetails?.property_postal_code ||
+          prefillPropertyRecord?.postal_code ||
+          prefillPropertyRecord?.Postal_Code ||
+          prefillPropertyRecord?.zip_code ||
+          prefillPropertyRecord?.Zip_Code
+      ),
+      property_country:
+        toText(
+          prefillDetails?.property_country ||
+            prefillPropertyRecord?.country ||
+            prefillPropertyRecord?.Country ||
+            "AU"
+        ) || "AU",
+      admin_notes: toText(prefillDetails?.admin_notes || prefillDetails?.Admin_Notes),
+      client_notes: toText(prefillDetails?.client_notes || prefillDetails?.Client_Notes),
+    };
+
+    const contactId = resolveLookupRecordId(prefillContact, "Contact");
+    const companyId = resolveLookupRecordId(prefillCompany, "Company");
+    const hasIndividualOptional = Boolean(
+      nextIndividualForm.first_name ||
+        nextIndividualForm.last_name ||
+        nextIndividualForm.sms_number ||
+        nextIndividualForm.address ||
+        nextIndividualForm.city ||
+        nextIndividualForm.state ||
+        nextIndividualForm.zip_code
+    );
+    const hasCompanyOptional = Boolean(
+      nextCompanyForm.company_phone ||
+        nextCompanyForm.company_address ||
+        nextCompanyForm.company_city ||
+        nextCompanyForm.company_state ||
+        nextCompanyForm.company_postal_code ||
+        nextCompanyForm.company_account_type ||
+        nextCompanyForm.primary_first_name ||
+        nextCompanyForm.primary_last_name ||
+        nextCompanyForm.primary_email ||
+        nextCompanyForm.primary_sms_number
+    );
+
+    setStep(1);
+    setAccountMode(nextAccountMode);
+    setShowIndividualOptional(hasIndividualOptional);
+    setShowCompanyOptional(hasCompanyOptional);
+    setIndividualForm(nextIndividualForm);
+    setCompanyForm(nextCompanyForm);
+    setDetailsForm(nextDetailsForm);
+    setContactMatchState(
+      contactId || nextIndividualForm.email
+        ? {
+            status: "found",
+            message: "This contact already exists. Proceed with this email.",
+            record: {
+              ...prefillContact,
+              id: contactId || toText(prefillContact?.id || prefillContact?.ID),
+            },
+          }
+        : { status: "idle", message: "", record: null }
+    );
+    setCompanyMatchState(
+      companyId || nextCompanyForm.company_name
+        ? {
+            status: "found",
+            message: "This company already exists. Proceed with this company.",
+            record: {
+              ...prefillCompany,
+              id: companyId || toText(prefillCompany?.id || prefillCompany?.ID),
+              name: toText(prefillCompany?.company_name || prefillCompany?.name || prefillCompany?.Name),
+              account_type: toText(
+                prefillCompany?.company_account_type ||
+                  prefillCompany?.account_type ||
+                  prefillCompany?.Account_Type
+              ),
+              Primary_Person: {
+                first_name: toText(
+                  prefillCompany?.primary_first_name || prefillCompany?.Primary_First_Name
+                ),
+                last_name: toText(
+                  prefillCompany?.primary_last_name || prefillCompany?.Primary_Last_Name
+                ),
+                email: toText(prefillCompany?.primary_email || prefillCompany?.Primary_Email),
+                sms_number: toText(
+                  prefillCompany?.primary_sms_number || prefillCompany?.Primary_SMS_Number
+                ),
+              },
+            },
+          }
+        : { status: "idle", message: "", record: null }
+    );
+    setPropertyMatchState(
+      prefillPropertyId
+        ? {
+            status: "found",
+            message: "Property already exists and will be linked.",
+            record: {
+              ...prefillPropertyRecord,
+              id: prefillPropertyId,
+              property_name: toText(
+                nextDetailsForm.property_name || prefillPropertyRecord?.property_name
+              ),
+            },
+          }
+        : { status: "idle", message: "", record: null }
+    );
+    setIsQuickPropertySameAsContact(
+      Boolean(
+        normalizedPrefill?.isPropertySameAsContact || normalizedPrefill?.property_same_as_contact
+      )
+    );
+  }, [open, prefillContext]);
 
   const individualAddressLookupRef = useGoogleAddressLookup({
     enabled: open && accountMode === "individual" && showIndividualOptional,
@@ -5064,6 +5350,159 @@ export function InquiryDetailsPage() {
     }),
     [inquiry]
   );
+  const quickInquiryPrefillContext = useMemo(() => {
+    const hasExistingInquiryContext =
+      Boolean(toText(inquiryNumericId)) &&
+      toText(safeUid).toLowerCase() !== "new";
+    if (!hasExistingInquiryContext) return null;
+
+    const resolvedPropertyRecord = normalizePropertyLookupRecord(
+      activeRelatedProperty || inquiryPropertyRecord || {}
+    );
+    const resolvedPropertyId = normalizePropertyId(
+      resolvedPropertyRecord?.id ||
+        inquiry?.property_id ||
+        inquiry?.Property_ID ||
+        inquiryPropertyId
+    );
+
+    return {
+      account_type: inquiryAccountType || "Contact",
+      contact: {
+        id:
+          inquiryContactId ||
+          toText(inquiryPrimaryContact?.id || inquiryPrimaryContact?.ID),
+        first_name: toText(inquiryPrimaryContact?.first_name || inquiryPrimaryContact?.First_Name),
+        last_name: toText(inquiryPrimaryContact?.last_name || inquiryPrimaryContact?.Last_Name),
+        email: toText(inquiryPrimaryContact?.email || inquiryPrimaryContact?.Email),
+        sms_number: toText(inquiryPrimaryContact?.sms_number || inquiryPrimaryContact?.SMS_Number),
+        address: toText(inquiryPrimaryContact?.address || inquiryPrimaryContact?.Address),
+        city: toText(inquiryPrimaryContact?.city || inquiryPrimaryContact?.City),
+        state: toText(inquiryPrimaryContact?.state || inquiryPrimaryContact?.State),
+        zip_code: toText(
+          inquiryPrimaryContact?.zip_code ||
+            inquiryPrimaryContact?.Zip_Code ||
+            inquiryPrimaryContact?.postal_code ||
+            inquiryPrimaryContact?.Postal_Code
+        ),
+        country: toText(inquiryPrimaryContact?.country || inquiryPrimaryContact?.Country || "AU"),
+      },
+      company: {
+        id: inquiryCompanyId || toText(inquiryCompany?.id || inquiryCompany?.ID),
+        company_name: toText(inquiryCompany?.name || inquiryCompany?.Name),
+        company_phone: toText(inquiryCompany?.phone || inquiryCompany?.Phone),
+        company_address: toText(inquiryCompany?.address || inquiryCompany?.Address),
+        company_city: toText(inquiryCompany?.city || inquiryCompany?.City),
+        company_state: toText(inquiryCompany?.state || inquiryCompany?.State),
+        company_postal_code: toText(
+          inquiryCompany?.postal_code ||
+            inquiryCompany?.Postal_Code ||
+            inquiryCompany?.zip_code ||
+            inquiryCompany?.Zip_Code
+        ),
+        company_account_type: toText(
+          inquiryCompany?.account_type || inquiryCompany?.Account_Type || inquiry?.Company_Account_Type
+        ),
+        primary_first_name: toText(
+          inquiryCompanyPrimaryPerson?.first_name || inquiryCompanyPrimaryPerson?.First_Name
+        ),
+        primary_last_name: toText(
+          inquiryCompanyPrimaryPerson?.last_name || inquiryCompanyPrimaryPerson?.Last_Name
+        ),
+        primary_email: toText(
+          inquiryCompanyPrimaryPerson?.email || inquiryCompanyPrimaryPerson?.Email
+        ),
+        primary_sms_number: toText(
+          inquiryCompanyPrimaryPerson?.sms_number || inquiryCompanyPrimaryPerson?.SMS_Number
+        ),
+      },
+      details: {
+        inquiry_source: toText(inquiry?.inquiry_source || inquiry?.Inquiry_Source),
+        type: toText(inquiry?.type || inquiry?.Type),
+        service_inquiry_id: normalizeServiceInquiryId(
+          inquiry?.service_inquiry_id || inquiry?.Service_Inquiry_ID
+        ),
+        how_can_we_help: toText(inquiry?.how_can_we_help || inquiry?.How_can_we_help),
+        how_did_you_hear: toText(inquiry?.how_did_you_hear || inquiry?.How_did_you_hear),
+        other: toText(inquiry?.other || inquiry?.Other),
+        noise_signs_options_as_text: toText(
+          inquiry?.noise_signs_options_as_text || inquiry?.Noise_Signs_Options_As_Text
+        ),
+        pest_active_times_options_as_text: toText(
+          inquiry?.pest_active_times_options_as_text || inquiry?.Pest_Active_Times_Options_As_Text
+        ),
+        pest_location_options_as_text: toText(
+          inquiry?.pest_location_options_as_text || inquiry?.Pest_Location_Options_As_Text
+        ),
+        property_id: resolvedPropertyId,
+        property_name: toText(
+          resolvedPropertyRecord?.property_name || resolvedPropertyRecord?.Property_Name
+        ),
+        property_lookup: joinAddress([
+          resolvedPropertyRecord?.address_1 ||
+            resolvedPropertyRecord?.Address_1 ||
+            resolvedPropertyRecord?.address ||
+            resolvedPropertyRecord?.Address,
+          resolvedPropertyRecord?.suburb_town ||
+            resolvedPropertyRecord?.Suburb_Town ||
+            resolvedPropertyRecord?.city ||
+            resolvedPropertyRecord?.City,
+          resolvedPropertyRecord?.state || resolvedPropertyRecord?.State,
+          resolvedPropertyRecord?.postal_code ||
+            resolvedPropertyRecord?.Postal_Code ||
+            resolvedPropertyRecord?.zip_code ||
+            resolvedPropertyRecord?.Zip_Code,
+          resolvedPropertyRecord?.country || resolvedPropertyRecord?.Country,
+        ]),
+        property_lot_number: toText(
+          resolvedPropertyRecord?.lot_number || resolvedPropertyRecord?.Lot_Number
+        ),
+        property_unit_number: toText(
+          resolvedPropertyRecord?.unit_number || resolvedPropertyRecord?.Unit_Number
+        ),
+        property_address_1: toText(
+          resolvedPropertyRecord?.address_1 ||
+            resolvedPropertyRecord?.Address_1 ||
+            resolvedPropertyRecord?.address ||
+            resolvedPropertyRecord?.Address
+        ),
+        property_suburb_town: toText(
+          resolvedPropertyRecord?.suburb_town ||
+            resolvedPropertyRecord?.Suburb_Town ||
+            resolvedPropertyRecord?.city ||
+            resolvedPropertyRecord?.City
+        ),
+        property_state: toText(resolvedPropertyRecord?.state || resolvedPropertyRecord?.State),
+        property_postal_code: toText(
+          resolvedPropertyRecord?.postal_code ||
+            resolvedPropertyRecord?.Postal_Code ||
+            resolvedPropertyRecord?.zip_code ||
+            resolvedPropertyRecord?.Zip_Code
+        ),
+        property_country: toText(resolvedPropertyRecord?.country || resolvedPropertyRecord?.Country || "AU"),
+        property_record: resolvedPropertyRecord,
+        admin_notes: notesAdmin,
+        client_notes: notesClient,
+      },
+      property_same_as_contact: Boolean(isPropertySameAsContact),
+    };
+  }, [
+    activeRelatedProperty,
+    inquiry,
+    inquiryAccountType,
+    inquiryCompany,
+    inquiryCompanyId,
+    inquiryCompanyPrimaryPerson,
+    inquiryContactId,
+    inquiryNumericId,
+    inquiryPrimaryContact,
+    inquiryPropertyId,
+    inquiryPropertyRecord,
+    isPropertySameAsContact,
+    notesAdmin,
+    notesClient,
+    safeUid,
+  ]);
   const inquiryEditFlowRule = useMemo(
     () => getInquiryFlowRule(inquiryDetailsForm.type),
     [inquiryDetailsForm.type]
@@ -6720,17 +7159,17 @@ export function InquiryDetailsPage() {
 
   const handleQuickView = useCallback(() => {
     trackRecentActivity({
-      action: "Started new inquiry",
-      path: "/inquiry-details/new",
+      action: "Opened quick view",
+      path: currentActivityPath,
       pageType: "inquiry-details",
       pageName: "Inquiry Details",
       metadata: {
-        from_inquiry_id: toText(inquiryNumericId),
-        from_inquiry_uid: toText(safeUid),
+        inquiry_id: toText(inquiryNumericId),
+        inquiry_uid: toText(safeUid),
       },
     });
-    navigate("/inquiry-details/new");
-  }, [inquiryNumericId, navigate, safeUid, trackRecentActivity]);
+    setIsQuickInquiryBookingModalOpen(true);
+  }, [currentActivityPath, inquiryNumericId, safeUid, trackRecentActivity]);
 
   const handleCreateCallback = useCallback(async () => {
     if (isCreatingCallback) return;
@@ -8052,6 +8491,7 @@ export function InquiryDetailsPage() {
         onClose={handleCloseQuickInquiryBookingModal}
         plugin={plugin}
         inquiryId={inquiryNumericId}
+        prefillContext={quickInquiryPrefillContext}
         configuredAdminProviderId={configuredAdminProviderId}
         onSavingStart={handleQuickInquiryBookingSavingStart}
         onSaved={handleQuickInquiryBookingSaved}
