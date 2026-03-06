@@ -74,13 +74,13 @@ export function DashboardTable({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <JobDirectTable minWidthClass="min-w-full" className="table-auto">
+      <JobDirectTable minWidthClass="min-w-full" className="table-auto text-[12px]">
         <thead>
           <tr className="border-b border-slate-200 bg-slate-50">
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 ${col.thClass ?? ""}`}
+                className={`px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500 ${col.thClass ?? ""}`}
               >
                 {col.header}
               </th>
@@ -99,12 +99,12 @@ export function DashboardTable({
             visibleRows.map((row, i) => (
               <tr
                 key={row.id ?? i}
-                className="hover:bg-slate-50"
+                className={`${i % 2 === 0 ? "bg-white" : "bg-slate-50/55"} hover:bg-slate-100/70`}
               >
                 {columns.map((col) => (
                   <td
                     key={col.key}
-                    className={`px-3 py-2.5 align-middle text-sm ${col.tdClass ?? ""}`}
+                    className={`px-2.5 py-1.5 align-middle text-[12px] ${col.tdClass ?? ""}`}
                   >
                     {col.render(row, rowCtx)}
                   </td>

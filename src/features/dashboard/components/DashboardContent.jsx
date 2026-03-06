@@ -1,4 +1,3 @@
-import { Button } from "../../../shared/components/ui/Button.jsx";
 import { DashboardCalendar } from "./calendar/DashboardCalendar.jsx";
 import { DashboardTabsNav } from "./tabs/DashboardTabsNav.jsx";
 import { AppliedFilterChips } from "./filters/AppliedFilterChips.jsx";
@@ -6,23 +5,17 @@ import { DashboardTable } from "./table/DashboardTable.jsx";
 import { DashboardPagination } from "./pagination/DashboardPagination.jsx";
 import { CALENDAR_TABS } from "../constants/tabs.js";
 
-function FilterIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M4 6h16M7 12h10M10 18h4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 export function DashboardContent({
   activeTab,
   onTabChange,
   tabCounts,
+  onEnableBatchDelete,
+  isBatchMode,
+  batchSelectedCount = 0,
+  onBatchDeleteClick,
+  onPrintCurrentTable,
+  onExportCurrentTable,
+  onExportServiceProviders,
   calendarData,
   selectedDateFrom,
   selectedDateTo,
@@ -38,46 +31,16 @@ export function DashboardContent({
   totalCount = 0,
   totalPages = 1,
   isLoading = false,
-  isBatchMode,
   batchSelectedIds,
   onBatchSelectionChange,
   onOpenTaskModal,
   onDeleteInquiry,
   onViewInquiry,
-  sidebarOpen,
-  onToggleSidebar,
-  onCreateInquiry,
-  onCreateJob,
   sortOrder = "desc",
   onToggleSortOrder,
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Toolbar row */}
-      <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-2">
-        {!sidebarOpen && (
-          <Button variant="ghost" size="sm" onClick={onToggleSidebar} title="Show filters">
-            <FilterIcon />
-            <span>Filters</span>
-          </Button>
-        )}
-        {sidebarOpen && (
-          <Button variant="ghost" size="sm" onClick={onToggleSidebar} title="Hide filters">
-            <FilterIcon />
-            <span>Hide Filters</span>
-          </Button>
-        )}
-
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="primary" size="sm" onClick={onCreateInquiry}>
-            New Inquiry
-          </Button>
-          <Button variant="primary" size="sm" onClick={onCreateJob}>
-            New Quote/Job
-          </Button>
-        </div>
-      </div>
-
       {/* Calendar */}
       {CALENDAR_TABS.has(activeTab) && (
         <DashboardCalendar
@@ -94,6 +57,13 @@ export function DashboardContent({
         activeTab={activeTab}
         tabCounts={tabCounts}
         onTabChange={onTabChange}
+        onEnableBatchDelete={onEnableBatchDelete}
+        isBatchMode={isBatchMode}
+        batchSelectedCount={batchSelectedCount}
+        onBatchDeleteClick={onBatchDeleteClick}
+        onPrintCurrentTable={onPrintCurrentTable}
+        onExportCurrentTable={onExportCurrentTable}
+        onExportServiceProviders={onExportServiceProviders}
       />
 
       {/* Applied filter chips */}

@@ -104,13 +104,6 @@ export function getJobsColumns({
       ),
     },
     {
-      key: "jobNumber",
-      header: "Job #",
-      thClass: "w-[1%]",
-      tdClass: "whitespace-nowrap",
-      render: (row) => <span className="uid-text">{row.jobNumber ?? "—"}</span>,
-    },
-    {
       key: "status",
       header: "Status",
       thClass: "w-[1%]",
@@ -136,13 +129,26 @@ export function getJobsColumns({
       tdClass: "whitespace-nowrap text-right",
       render: (row) => (
         <div className="flex w-full items-center justify-end gap-1">
-          <JobDirectIconActionButton title="View" onClick={() => onView?.(row)}>
+          <JobDirectIconActionButton
+            className="h-6 w-6 border-0 !border-transparent !bg-transparent shadow-none hover:!border-transparent hover:!bg-transparent focus:!bg-transparent active:!bg-transparent"
+            title="View"
+            onClick={() => onView?.(row)}
+          >
             <EyeIcon />
           </JobDirectIconActionButton>
-          <JobDirectIconActionButton title="Add Task" onClick={() => onAddTask?.(row)}>
+          <JobDirectIconActionButton
+            className="h-6 w-6 border-0 !border-transparent !bg-transparent shadow-none hover:!border-transparent hover:!bg-transparent focus:!bg-transparent active:!bg-transparent"
+            title="Add Task"
+            onClick={() => onAddTask?.(row)}
+          >
             <TaskIcon />
           </JobDirectIconActionButton>
-          <JobDirectIconActionButton variant="danger" title="Delete" onClick={() => onDelete?.(row)}>
+          <JobDirectIconActionButton
+            variant="danger"
+            className="h-6 w-6 border-0 !border-transparent !bg-transparent shadow-none hover:!border-transparent hover:!bg-transparent focus:!bg-transparent active:!bg-transparent"
+            title="Delete"
+            onClick={() => onDelete?.(row)}
+          >
             <TrashIcon />
           </JobDirectIconActionButton>
         </div>

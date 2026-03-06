@@ -7143,20 +7143,6 @@ export function InquiryDetailsPage() {
     [dismissQuickInquirySavingToast, error]
   );
 
-  const handleNewInquiry = () => {
-    trackRecentActivity({
-      action: "Started new inquiry",
-      path: "/inquiry-details/new",
-      pageType: "inquiry-details",
-      pageName: "Inquiry Details",
-      metadata: {
-        from_inquiry_id: toText(inquiryNumericId),
-        from_inquiry_uid: toText(safeUid),
-      },
-    });
-    navigate("/inquiry-details/new");
-  };
-
   const handleQuickView = useCallback(() => {
     trackRecentActivity({
       action: "Opened quick view",
@@ -8407,15 +8393,6 @@ export function InquiryDetailsPage() {
                         ? "View Quote/Job"
                         : "Create Quote/Job"}
                   </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="h-8 whitespace-nowrap px-3 !text-xs"
-                    onClick={handleNewInquiry}
-                  >
-                    New Inquiry
-                  </Button>
-
                   <div className="relative" ref={moreMenuRef}>
                     <Button
                       variant="outline"

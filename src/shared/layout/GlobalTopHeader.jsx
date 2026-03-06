@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAnnouncements } from "../hooks/useAnnouncements.js";
 import { useCurrentUserProfile } from "../hooks/useCurrentUserProfile.js";
+import { useToast } from "../providers/ToastProvider.jsx";
+import { useVitalStatsPlugin } from "../../platform/vitalstats/useVitalStatsPlugin.js";
+import { createJobRecord } from "../../features/dashboard/sdk/dashboardSdk.js";
 import appLogo from "../../assets/logo.webp";
 
 function BellIcon() {
@@ -58,8 +61,11 @@ function notificationTypeClass(type) {
 export function GlobalTopHeader() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { success, error: showError } = useToast();
+  const { plugin, isReady: isSdkReady } = useVitalStatsPlugin();
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [onlyUnread, setOnlyUnread] = useState(false);
   const notifRef = useRef(null);
   const profileRef = useRef(null);
@@ -120,6 +126,29 @@ export function GlobalTopHeader() {
     await openNotification(item);
   };
 
+  const handleCreateInquiry = () => {
+    navigate("/inquiry-details/new");
+  };
+
+  const handleCreateJob = async () => {
+    if (!plugin || !isSdkReady || isCreatingJob) return;
+    setIsCreatingJob(true);
+    try {
+      const created = await createJobRecord({ plugin, payload: null });
+      const uniqueId = String(created?.unique_id || "").trim();
+      if (!uniqueId) {
+        throw new Error("Created job did not return a unique ID.");
+      }
+      success("Job created", "Opening the new job page...");
+      navigate(`/job-direct/${encodeURIComponent(uniqueId)}`);
+    } catch (createError) {
+      console.error("[GlobalTopHeader] Failed creating job", createError);
+      showError("Create failed", createError?.message || "Unable to create job.");
+    } finally {
+      setIsCreatingJob(false);
+    }
+  };
+
   const profileMenuItems = [
     { key: "profile", label: "Profile", path: "/profile" },
     { key: "settings", label: "Settings", path: "/settings" },
@@ -143,7 +172,25 @@ export function GlobalTopHeader() {
           </button>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="inline-flex h-8 items-center rounded border border-white/30 bg-white/10 px-2.5 text-xs font-semibold text-white hover:bg-white/20"
+            onClick={handleCreateInquiry}
+            title="Create a new inquiry"
+          >
+            New Inquiry
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-8 items-center rounded border border-white/30 bg-white/10 px-2.5 text-xs font-semibold text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handleCreateJob}
+            disabled={!plugin || !isSdkReady || isCreatingJob}
+            title="Create a new quote/job"
+          >
+            {isCreatingJob ? "Creating..." : "New Quote/Job"}
+          </button>
+
           <div ref={notifRef} className="relative">
             <button
               type="button"

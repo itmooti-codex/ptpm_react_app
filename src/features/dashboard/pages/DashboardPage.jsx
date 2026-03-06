@@ -17,7 +17,6 @@ import {
 } from "../sdk/dashboardSdk.js";
 import { TAB_IDS, TAB_LIST } from "../constants/tabs.js";
 import { readDashboardCache, writeDashboardCache } from "../sdk/dashboardCache.js";
-import { DashboardHeader } from "../components/DashboardHeader.jsx";
 import { DashboardSidebar } from "../components/DashboardSidebar.jsx";
 import { DashboardContent } from "../components/DashboardContent.jsx";
 import { DashboardBatchDeleteModal } from "../components/modals/DashboardBatchDeleteModal.jsx";
@@ -164,6 +163,20 @@ function getLocalDateTag(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function ChevronRightIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9 6l6 6-6 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 const DASHBOARD_UI_PREFS_KEY = "ui-prefs";
 const DASHBOARD_TAB_COUNTS_KEY = "tab-counts";
 const DASHBOARD_CALENDAR_KEY_PREFIX = "calendar";
@@ -202,14 +215,14 @@ export function DashboardPage() {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => {
-    const size = Number(initialUiPrefs.pageSize || 25);
-    return [5, 10, 25, 50].includes(size) ? size : 25;
+    const size = Number(initialUiPrefs.pageSize || 10);
+    return [5, 10, 25, 50].includes(size) ? size : 10;
   });
   const [sortOrder, setSortOrder] = useState(() => {
     return initialUiPrefs.sortOrder === "asc" ? "asc" : "desc";
   });
   const [sidebarOpen, setSidebarOpen] = useState(() => {
-    return initialUiPrefs.sidebarOpen !== false;
+    return initialUiPrefs.sidebarOpen === true;
   });
   const [tabCounts, setTabCounts] = useState(() => {
     const cached = readDashboardCache(DASHBOARD_TAB_COUNTS_KEY, {
@@ -392,6 +405,8 @@ export function DashboardPage() {
     }
   }, [plugin, deleteTarget, isDeletingInquiry, success, showError]);
 
+  // Temporary compatibility path: global header now owns create CTAs.
+  // Keep these handlers for safe transition and easy rollback if needed.
   const handleCreateJob = useCallback(async () => {
     if (!plugin || isCreatingJob) return;
     setIsCreatingJob(true);
@@ -410,6 +425,7 @@ export function DashboardPage() {
     }
   }, [plugin, isCreatingJob, success, showError, navigate]);
 
+  // Temporary compatibility path: global header now owns create CTAs.
   const handleCreateInquiry = useCallback(() => {
     navigate("/inquiry-details/new");
   }, [navigate]);
@@ -587,15 +603,6 @@ export function DashboardPage() {
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-slate-50 font-['Inter']">
       <GlobalTopHeader />
-      <DashboardHeader
-        onEnableBatchDelete={handleEnableBatchDelete}
-        isBatchMode={isBatchMode}
-        batchSelectedCount={batchSelectedIds.length}
-        onBatchDeleteClick={() => setBatchDeleteModal(true)}
-        onPrintCurrentTable={handlePrintCurrentTable}
-        onExportCurrentTable={handleExportCurrentTable}
-        onExportServiceProviders={handleExportServiceProviders}
-      />
 
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && (
@@ -618,6 +625,13 @@ export function DashboardPage() {
             activeTab={activeTab}
             onTabChange={handleTabChange}
             tabCounts={tabCounts}
+            onEnableBatchDelete={handleEnableBatchDelete}
+            isBatchMode={isBatchMode}
+            batchSelectedCount={batchSelectedIds.length}
+            onBatchDeleteClick={() => setBatchDeleteModal(true)}
+            onPrintCurrentTable={handlePrintCurrentTable}
+            onExportCurrentTable={handleExportCurrentTable}
+            onExportServiceProviders={handleExportServiceProviders}
             calendarData={calendarData}
             selectedDateFrom={currentAppliedFilters?.dateFrom || ""}
             selectedDateTo={currentAppliedFilters?.dateTo || ""}
@@ -633,21 +647,28 @@ export function DashboardPage() {
             totalCount={totalCount}
             totalPages={totalPages}
             isLoading={isLoading}
-            isBatchMode={isBatchMode}
             batchSelectedIds={batchSelectedIds}
             onBatchSelectionChange={setBatchSelectedIds}
             onOpenTaskModal={handleOpenTaskModal}
             onDeleteInquiry={handleOpenDeleteModal}
             onViewInquiry={handleViewRecord}
-            sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-            onCreateInquiry={handleCreateInquiry}
-            onCreateJob={handleCreateJob}
             sortOrder={sortOrder}
             onToggleSortOrder={handleToggleSortOrder}
           />
         </main>
       </div>
+
+      {!sidebarOpen ? (
+        <button
+          type="button"
+          className="fixed bottom-[88px] -left-3 z-[59] inline-flex h-10 w-10 items-center justify-end rounded-full border border-[#003882]/35 bg-[#003882] pr-2 text-white shadow-[0_8px_22px_rgba(0,56,130,0.28)] transition hover:bg-[#0A4A9E]"
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Open filters panel"
+          title="Open filters panel"
+        >
+          <ChevronRightIcon />
+        </button>
+      ) : null}
 
       <TasksModal
         open={taskModal.open}
