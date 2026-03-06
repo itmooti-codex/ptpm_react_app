@@ -4031,6 +4031,7 @@ export function InquiryDetailsPage() {
   const [memosError, setMemosError] = useState("");
   const [memoText, setMemoText] = useState("");
   const [isMemoChatOpen, setIsMemoChatOpen] = useState(false);
+  const [areFloatingWidgetsVisible, setAreFloatingWidgetsVisible] = useState(false);
   const [isRecentActivityPanelOpen, setIsRecentActivityPanelOpen] = useState(false);
   const [recentAdminActivities, setRecentAdminActivities] = useState(() =>
     readRecentAdminActivitiesFromStorage()
@@ -8838,7 +8839,50 @@ export function InquiryDetailsPage() {
             </div>
           </section>
       </section>
-      <div className="pointer-events-none fixed bottom-5 right-6 z-[60] flex flex-col items-end gap-3">
+      <button
+        type="button"
+        className="pointer-events-auto fixed bottom-[144px] right-[-2px] z-[61] inline-flex h-9 w-9 translate-x-1/2 items-center justify-center rounded-full border border-slate-300/90 bg-white text-slate-700 shadow-[0_8px_20px_rgba(15,23,42,0.2)] transition hover:bg-slate-50"
+        onClick={() => setAreFloatingWidgetsVisible((previous) => !previous)}
+        aria-label={areFloatingWidgetsVisible ? "Hide widgets" : "Show widgets"}
+        title={areFloatingWidgetsVisible ? "Hide widgets" : "Show widgets"}
+      >
+        {(hasPopupCommentsSection || memos.length) ? (
+          <span className="absolute -top-1 right-[20px] inline-flex h-2 w-2 rounded-full bg-red-500" />
+        ) : null}
+        <svg
+          viewBox="0 0 24 24"
+          width="14"
+          height="14"
+          fill="none"
+          aria-hidden="true"
+          className="-translate-x-[8px]"
+        >
+          {areFloatingWidgetsVisible ? (
+            <path
+              d="M9 6l6 6-6 6"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ) : (
+            <path
+              d="M15 6l-6 6 6 6"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+        </svg>
+      </button>
+      <div
+        className={`fixed bottom-5 right-6 z-[60] flex flex-col items-end gap-3 transition-all duration-200 ${
+          areFloatingWidgetsVisible
+            ? "pointer-events-auto translate-x-0 opacity-100"
+            : "pointer-events-none translate-x-4 opacity-0"
+        }`}
+      >
         <button
           type="button"
           className={`pointer-events-auto relative inline-flex h-12 w-12 items-center justify-center rounded-full border border-red-700 bg-red-600 text-white shadow-[0_10px_24px_rgba(220,38,38,0.35)] transition ${
