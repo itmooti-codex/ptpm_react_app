@@ -7,16 +7,21 @@ import { AnnouncementsProvider } from "./shared/providers/AnnouncementsProvider.
 import { CurrentUserProfileProvider } from "./shared/providers/CurrentUserProfileProvider.jsx";
 import "./index.css";
 
+const appTree = (
+  <BrowserRouter>
+    <ToastProvider>
+      <CurrentUserProfileProvider>
+        <AnnouncementsProvider>
+          <App />
+        </AnnouncementsProvider>
+      </CurrentUserProfileProvider>
+    </ToastProvider>
+  </BrowserRouter>
+);
+
+const strictModeFlag = String(import.meta.env.VITE_ENABLE_STRICT_MODE || "").trim().toLowerCase();
+const shouldUseStrictMode = import.meta.env.PROD || strictModeFlag === "true";
+
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <ToastProvider>
-        <CurrentUserProfileProvider>
-          <AnnouncementsProvider>
-            <App />
-          </AnnouncementsProvider>
-        </CurrentUserProfileProvider>
-      </ToastProvider>
-    </BrowserRouter>
-  </React.StrictMode>
+  shouldUseStrictMode ? <React.StrictMode>{appTree}</React.StrictMode> : appTree
 );

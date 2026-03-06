@@ -56,6 +56,50 @@ function dedupeTasksById(records = []) {
   });
 }
 
+const TASKS_CACHE_TTL_MS = 2 * 60 * 1000;
+const tasksCacheByContext = new Map();
+
+function buildTasksCacheKey({
+  contextType = "",
+  contextId = "",
+  resolvedJobId = "",
+  resolvedDealId = "",
+  jobUid = "",
+} = {}) {
+  return [
+    toString(contextType) || "job",
+    toString(contextId),
+    toString(resolvedJobId),
+    toString(resolvedDealId),
+    toString(jobUid).toLowerCase(),
+  ].join("|");
+}
+
+function readTasksFromCache(cacheKey = "") {
+  const key = toString(cacheKey);
+  if (!key) return null;
+  const cached = tasksCacheByContext.get(key);
+  if (!cached || typeof cached !== "object") return null;
+  const cachedAt = Number(cached.cachedAt || 0);
+  if (!Number.isFinite(cachedAt) || Date.now() - cachedAt > TASKS_CACHE_TTL_MS) {
+    tasksCacheByContext.delete(key);
+    return null;
+  }
+  return {
+    cachedAt,
+    records: Array.isArray(cached.records) ? cached.records : [],
+  };
+}
+
+function writeTasksToCache(cacheKey = "", records = []) {
+  const key = toString(cacheKey);
+  if (!key) return;
+  tasksCacheByContext.set(key, {
+    cachedAt: Date.now(),
+    records: Array.isArray(records) ? records : [],
+  });
+}
+
 function normalizeAssignees(rawAssignees) {
   const source = Array.isArray(rawAssignees)
     ? rawAssignees
@@ -344,6 +388,23 @@ export function TasksModal({
   const [taskFilter, setTaskFilter] = useState("all");
   const [form, setForm] = useState(emptyFormState);
   const onTasksChangedRef = useRef(onTasksChanged);
+  const tasksCacheKey = useMemo(
+    () =>
+      buildTasksCacheKey({
+        contextType: normalizedContextType,
+        contextId: contextIdText,
+        resolvedJobId,
+        resolvedDealId,
+        jobUid: jobUniqueIdCandidate,
+      }),
+    [
+      normalizedContextType,
+      contextIdText,
+      resolvedJobId,
+      resolvedDealId,
+      jobUniqueIdCandidate,
+    ]
+  );
 
   useEffect(() => {
     onTasksChangedRef.current = onTasksChanged;
@@ -395,13 +456,15 @@ export function TasksModal({
     setForm(emptyFormState());
   }, []);
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async ({ showLoading = true } = {}) => {
     if (!plugin || (!resolvedJobId && !resolvedDealId)) {
       setTasks([]);
       return [];
     }
 
-    setIsLoadingTasks(true);
+    if (showLoading) {
+      setIsLoadingTasks(true);
+    }
     try {
       const [jobTasks, dealTasks] = await Promise.all([
         resolvedJobId ? fetchTasksByJobId({ plugin, jobId: resolvedJobId }) : Promise.resolve([]),
@@ -414,23 +477,24 @@ export function TasksModal({
         ...(Array.isArray(dealTasks) ? dealTasks : []),
       ]).filter(hasMeaningfulTaskData);
       setTasks(normalized);
+      writeTasksToCache(tasksCacheKey, normalized);
       if (typeof onTasksChangedRef.current === "function") {
         onTasksChangedRef.current(normalized);
       }
       return normalized;
     } catch (loadError) {
       console.error("[JobDirect] Failed loading tasks", loadError);
-      setTasks([]);
       return [];
     } finally {
-      setIsLoadingTasks(false);
+      if (showLoading) {
+        setIsLoadingTasks(false);
+      }
     }
-  }, [plugin, resolvedJobId, resolvedDealId]);
+  }, [plugin, resolvedJobId, resolvedDealId, tasksCacheKey]);
 
   useEffect(() => {
     if (!open) {
       resetForm();
-      setTasks([]);
       setActiveTaskId("");
       setIsSubmitting(false);
       setIsLoadingTasks(false);
@@ -440,8 +504,20 @@ export function TasksModal({
 
   useEffect(() => {
     if (!open) return;
-    loadTasks();
-  }, [open, loadTasks]);
+    const cached = readTasksFromCache(tasksCacheKey);
+    if (cached?.records) {
+      setTasks(cached.records);
+      if (typeof onTasksChangedRef.current === "function") {
+        onTasksChangedRef.current(cached.records);
+      }
+      setIsLoadingTasks(false);
+      const isFresh = Date.now() - Number(cached.cachedAt || 0) <= TASKS_CACHE_TTL_MS;
+      if (isFresh) return;
+      loadTasks({ showLoading: false });
+      return;
+    }
+    loadTasks({ showLoading: true });
+  }, [open, loadTasks, tasksCacheKey]);
 
   const getAssigneeName = useCallback(
     (task) => {

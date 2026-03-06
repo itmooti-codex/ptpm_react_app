@@ -39,6 +39,10 @@ function normalizeId(value) {
   return text;
 }
 
+function isTimeoutError(error) {
+  return /timed out/i.test(String(error?.message || ""));
+}
+
 function normalizeDateInputToIso(value) {
   const text = toText(value);
   if (!text) return "";
@@ -941,7 +945,7 @@ async function syncInquiryLinkedRecordsToQuoteJob({ plugin, inquiryId, inquiryUi
       console.warn("[jobDetailsSdk] Failed loading tasks for job link sync", error);
       return [];
     }),
-    fetchMemosForDetails({ plugin, inquiryId: normalizedInquiryId, limit: 500 }).catch((error) => {
+    fetchMemosForDetails({ plugin, inquiryId: normalizedInquiryId, limit: 120 }).catch((error) => {
       console.warn("[jobDetailsSdk] Failed loading memo posts for job link sync", error);
       return [];
     }),
@@ -958,7 +962,7 @@ async function syncInquiryLinkedRecordsToQuoteJob({ plugin, inquiryId, inquiryUi
         plugin,
         modelName: "PeterpmAppointment",
         inquiryId: normalizedInquiryId,
-        inquiryFieldAliases: ["inquiry_id", "Inquiry_ID"],
+        inquiryFieldAliases: ["inquiry_id"],
         fetchErrorLabel: "appointments",
       });
   const uploadIdsFallback = uploadIds.length
@@ -967,7 +971,7 @@ async function syncInquiryLinkedRecordsToQuoteJob({ plugin, inquiryId, inquiryUi
         plugin,
         modelName: "PeterpmUpload",
         inquiryId: normalizedInquiryId,
-        inquiryFieldAliases: ["inquiry_id", "Inquiry_ID"],
+        inquiryFieldAliases: ["inquiry_id"],
         fetchErrorLabel: "uploads",
       });
   const taskIdsFallback = taskIds.length
@@ -976,7 +980,7 @@ async function syncInquiryLinkedRecordsToQuoteJob({ plugin, inquiryId, inquiryUi
         plugin,
         modelName: "PeterpmTask",
         inquiryId: normalizedInquiryId,
-        inquiryFieldAliases: ["Deal_id", "deal_id", "Deal_ID"],
+        inquiryFieldAliases: ["Deal_id"],
         fetchErrorLabel: "tasks",
       });
   const memoIdsFallback = memoPostIds.length
@@ -985,7 +989,7 @@ async function syncInquiryLinkedRecordsToQuoteJob({ plugin, inquiryId, inquiryUi
         plugin,
         modelName: "PeterpmForumPost",
         inquiryId: normalizedInquiryId,
-        inquiryFieldAliases: ["related_inquiry_id", "Related_Inquiry_ID"],
+        inquiryFieldAliases: ["related_inquiry_id"],
         fetchErrorLabel: "memo posts",
       });
 
@@ -1773,12 +1777,16 @@ export async function fetchMemosForDetails({
   if (!plugin?.switchTo) return [];
   try {
     const query = buildForumPostQuery(plugin, { inquiryId, jobId, limit });
-    const payload = await fetchDirectWithTimeout(query, null, 30000);
+    const payload = await fetchDirectWithTimeout(query, null, 20000);
     const rows = extractRowsFromPayload(payload, "calcForumPosts");
     const normalized = normalizeForumPosts(rows);
     return hydrateForumPostsWithComments({ plugin, posts: normalized });
   } catch (error) {
-    console.error("[jobDetailsSdk] fetchMemosForDetails failed", error);
+    if (isTimeoutError(error)) {
+      console.warn("[jobDetailsSdk] fetchMemosForDetails timed out.");
+    } else {
+      console.error("[jobDetailsSdk] fetchMemosForDetails failed", error);
+    }
     return [];
   }
 }

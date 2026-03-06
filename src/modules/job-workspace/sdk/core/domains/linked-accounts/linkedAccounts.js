@@ -72,11 +72,13 @@ async function fetchDealsByAccountId({ plugin, accountType, accountId } = {}) {
     );
     return customDeals;
   } catch (customError) {
-    console.error("[JobDirect] Failed to fetch linked deals", {
-      accountType,
-      accountId,
-      customError,
-    });
+    if (!isTimeoutError(customError)) {
+      console.error("[JobDirect] Failed to fetch linked deals", {
+        accountType,
+        accountId,
+        customError,
+      });
+    }
     return [];
   }
 }
@@ -144,11 +146,13 @@ async function fetchJobsByAccountId({ plugin, accountType, accountId } = {}) {
     );
     return customJobs;
   } catch (customError) {
-    console.error("[JobDirect] Failed to fetch linked jobs", {
-      accountType,
-      accountId,
-      customError,
-    });
+    if (!isTimeoutError(customError)) {
+      console.error("[JobDirect] Failed to fetch linked jobs", {
+        accountType,
+        accountId,
+        customError,
+      });
+    }
     return [];
   }
 }
@@ -223,11 +227,13 @@ export async function fetchLinkedPropertiesByAccount({ plugin, accountType, acco
     );
     return customProperties;
   } catch (customError) {
-    console.error("[JobDirect] Failed to fetch linked properties", {
-      accountType: resolvedType,
-      accountId: normalizedId,
-      customError,
-    });
+    if (!isTimeoutError(customError)) {
+      console.error("[JobDirect] Failed to fetch linked properties", {
+        accountType: resolvedType,
+        accountId: normalizedId,
+        customError,
+      });
+    }
     return [];
   }
 }

@@ -102,6 +102,8 @@ function FormTileIcon() {
 }
 
 const UPLOAD_FILTER_TABS = ["all", "photo", "file", "forms"];
+const UPLOADS_CACHE_TTL_MS = 5 * 60 * 1000;
+const UPLOADS_CACHE_KEY_PREFIX = "ptpm:uploads-section:v1:";
 const PRESTART_FORM_KIND = "prestart";
 const PCA_FORM_KIND = "pca";
 const PRESTART_ACTIVITY_OPTIONS = [
@@ -403,6 +405,57 @@ function dedupeUploadRecords(records = []) {
   return Array.from(map.values());
 }
 
+function canUseLocalStorage() {
+  return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+function buildUploadsCacheKey(mode = "job", targetRecordId = "") {
+  const normalizedMode = String(mode || "job").trim().toLowerCase();
+  const normalizedTarget = normalizeRecordId(targetRecordId);
+  if (!normalizedTarget) return "";
+  return `${UPLOADS_CACHE_KEY_PREFIX}${normalizedMode}:${normalizedTarget}`;
+}
+
+function readUploadsCache(mode = "job", targetRecordId = "") {
+  if (!canUseLocalStorage()) return null;
+  const key = buildUploadsCacheKey(mode, targetRecordId);
+  if (!key) return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const cachedAt = Number(parsed?.cachedAt || 0);
+    if (!Number.isFinite(cachedAt) || Date.now() - cachedAt > UPLOADS_CACHE_TTL_MS) {
+      return null;
+    }
+    return {
+      cachedAt,
+      records: dedupeUploadRecords(parsed?.records || []),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeUploadsCache(mode = "job", targetRecordId = "", records = []) {
+  if (!canUseLocalStorage()) return false;
+  const key = buildUploadsCacheKey(mode, targetRecordId);
+  if (!key) return false;
+  try {
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        cachedAt: Date.now(),
+        records: dedupeUploadRecords(records || []),
+      })
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveUploadPreviewUrl(record = null) {
   return String(
     record?.url || record?.link || record?.file_url || record?.preview_url || ""
@@ -526,6 +579,7 @@ export function UploadsSection({
   const showExistingUploads = !isFormOnlyLayout;
   const isInquiryMode = mode === "inquiry";
   const targetRecordId = isInquiryMode ? normalizedInquiryId : jobId;
+  const uploadsCacheMode = isInquiryMode ? "inquiry" : "job";
   const normalizedHighlightUploadId = normalizeRecordId(highlightUploadId);
   const announcementInquiryId = isInquiryMode ? normalizedInquiryId : inquiryIdFromPayload;
   const announcementJobId = isInquiryMode ? normalizedLinkedJobId : jobId;
@@ -596,8 +650,16 @@ export function UploadsSection({
       return undefined;
     }
 
-    setIsLoading(true);
-    setLoadError("");
+    const cachedUploads = readUploadsCache(uploadsCacheMode, targetRecordId);
+    if (cachedUploads) {
+      storeActions.replaceEntityCollection("jobUploads", cachedUploads.records || []);
+      setIsLoading(false);
+      setLoadError("");
+    } else {
+      setIsLoading(true);
+      setLoadError("");
+    }
+
     const fetchPromise = isInquiryMode
       ? fetchInquiryUploads({ plugin, inquiryId: normalizedInquiryId })
       : fetchJobUploads({ plugin, jobId });
@@ -605,23 +667,37 @@ export function UploadsSection({
     fetchPromise
       .then((records) => {
         if (!isActive) return;
-        storeActions.replaceEntityCollection("jobUploads", records || []);
+        const normalizedRecords = dedupeUploadRecords(records || []);
+        storeActions.replaceEntityCollection("jobUploads", normalizedRecords);
+        writeUploadsCache(uploadsCacheMode, targetRecordId, normalizedRecords);
       })
       .catch((fetchError) => {
         if (!isActive) return;
         console.error("[JobDirect] Failed loading job uploads", fetchError);
-        storeActions.replaceEntityCollection("jobUploads", []);
-        setLoadError("Unable to load uploads.");
+        if (!cachedUploads) {
+          storeActions.replaceEntityCollection("jobUploads", []);
+          setLoadError("Unable to load uploads.");
+        }
       })
       .finally(() => {
         if (!isActive) return;
-        setIsLoading(false);
+        if (!cachedUploads) {
+          setIsLoading(false);
+        }
       });
 
     return () => {
       isActive = false;
     };
-  }, [plugin, targetRecordId, isInquiryMode, normalizedInquiryId, jobId, storeActions]);
+  }, [
+    plugin,
+    targetRecordId,
+    isInquiryMode,
+    normalizedInquiryId,
+    jobId,
+    storeActions,
+    uploadsCacheMode,
+  ]);
 
   useEffect(() => {
     pendingUploadsRef.current = pendingUploads;

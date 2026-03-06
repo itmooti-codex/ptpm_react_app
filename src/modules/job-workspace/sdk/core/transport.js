@@ -34,7 +34,7 @@ export function toPromiseLike(result) {
   return Promise.resolve(result);
 }
 
-export async function fetchDirectWithTimeout(query, options = null, timeoutMs = 10000) {
+export async function fetchDirectWithTimeout(query, options = null, timeoutMs = 30000) {
   const request = options ? query.fetchDirect(options) : query.fetchDirect();
   const requestPromise = toPromiseLike(request);
 

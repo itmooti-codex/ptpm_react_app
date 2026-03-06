@@ -1,6 +1,6 @@
 import { VITAL_STATS_CONFIG } from "@platform/vitalstats/config.js";
 import { resolvePlugin } from "../../plugin.js";
-import { fetchDirectWithTimeout, subscribeToQueryStream } from "../../transport.js";
+import { fetchDirectWithTimeout, isTimeoutError, subscribeToQueryStream } from "../../transport.js";
 import {
   extractRecords,
   sanitizeUploadPath,
@@ -106,14 +106,15 @@ export async function fetchUploadsByField({
     );
     const response = await fetchDirectWithTimeout(customQuery, {
       variables: { [variableName]: normalizedId },
-    });
-    const records = extractRecords(response).map((item) => normalizeUploadRecord(item));
-    if (records.length) return records;
+    }, 20000);
+    return extractRecords(response).map((item) => normalizeUploadRecord(item));
   } catch (error) {
-    console.warn(
-      `[JobDirect] Custom ${fetchErrorLabel} query failed, using model fallback`,
-      error
-    );
+    if (!isTimeoutError(error)) {
+      console.warn(
+        `[JobDirect] Custom ${fetchErrorLabel} query failed, using model fallback`,
+        error
+      );
+    }
   }
 
   try {
@@ -124,10 +125,12 @@ export async function fetchUploadsByField({
       .select(UPLOAD_RECORD_SELECT_FIELDS)
       .noDestroy();
     query.getOrInitQueryCalc?.();
-    const response = await fetchDirectWithTimeout(query);
+    const response = await fetchDirectWithTimeout(query, null, 20000);
     return extractRecords(response).map((item) => normalizeUploadRecord(item));
   } catch (error) {
-    console.error(`[JobDirect] Failed to fetch ${fetchErrorLabel}`, error);
+    if (!isTimeoutError(error)) {
+      console.error(`[JobDirect] Failed to fetch ${fetchErrorLabel}`, error);
+    }
     return [];
   }
 }

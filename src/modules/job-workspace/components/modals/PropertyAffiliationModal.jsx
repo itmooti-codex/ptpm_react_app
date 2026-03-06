@@ -337,7 +337,10 @@ export function PropertyAffiliationModal({
     addCompany,
     searchContacts,
     searchCompanies,
-  } = useContactEntityLookupData(plugin);
+  } = useContactEntityLookupData(plugin, {
+    skipInitialFetch: true,
+    skipSubscriptions: !open,
+  });
   const [form, setForm] = useState(mapInitialForm(initialData));
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");

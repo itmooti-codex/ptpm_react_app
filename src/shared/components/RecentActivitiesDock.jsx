@@ -282,9 +282,6 @@ async function fetchServiceProviderRecentActivityRecordsFromServer({
       }
     }
   `);
-  console.log("[RecentActivitySync][Dock] Hydration query start", {
-    serviceProviderId: normalizedProviderId,
-  });
   const result = await toPromiseLike(
     query.fetchDirect({
       variables: {
@@ -292,10 +289,6 @@ async function fetchServiceProviderRecentActivityRecordsFromServer({
       },
     })
   );
-  console.log("[RecentActivitySync][Dock] Hydration query response", {
-    serviceProviderId: normalizedProviderId,
-    hasData: Boolean(result),
-  });
   const record = extractFirstRecord(result);
   const rawPayload = toText(record?.Recent_Activity_Json_Data || record?._data?.Recent_Activity_Json_Data);
   return parseServerRecentActivityRecords(rawPayload);
@@ -399,11 +392,6 @@ async function updateServiceProviderRecentActivityJsonData({
   for (const [whereField, whereValue] of wherePairs) {
     for (const payloadField of payloadFields) {
       try {
-        console.log("[RecentActivitySync][Dock] Executing SDK mutation update", {
-          serviceProviderId: providerId,
-          whereField,
-          payloadField,
-        });
         await executeUpdate(whereField, whereValue, payloadField);
         const didPersist = await wasPayloadPersisted(whereField, whereValue, payloadField);
         if (didPersist) {
@@ -714,11 +702,6 @@ export function RecentActivitiesDock() {
     if (syncRetryStateRef.current.attempts >= MAX_SYNC_RETRY_PER_SIGNATURE) {
       return;
     }
-    console.log("[RecentActivitySync][Dock] Sync scheduled", {
-      records: activities.length,
-      configuredProviderId: configuredAdminProviderId,
-      currentUserContactId,
-    });
     if (syncTimerRef.current) {
       window.clearTimeout(syncTimerRef.current);
     }
@@ -738,11 +721,6 @@ export function RecentActivitiesDock() {
           throw new Error("Service provider ID is missing for recent activities sync.");
         }
         const jsonPayload = createRecentActivityJsonData(activities, resolvedProviderId);
-        console.log("[RecentActivitySync][Dock] Updating service provider", {
-          resolvedProviderId,
-          payloadLength: jsonPayload.length,
-          records: activities.length,
-        });
         const didUpdate = await updateServiceProviderRecentActivityJsonData({
           plugin,
           serviceProviderId: resolvedProviderId,
@@ -751,10 +729,6 @@ export function RecentActivitiesDock() {
         if (!didUpdate) {
           throw new Error("Recent activities update did not return success.");
         }
-        console.log("[RecentActivitySync][Dock] Sync success", {
-          resolvedProviderId,
-          records: activities.length,
-        });
         if (syncRetryTimerRef.current) {
           window.clearTimeout(syncRetryTimerRef.current);
           syncRetryTimerRef.current = null;
@@ -777,9 +751,8 @@ export function RecentActivitiesDock() {
             setSyncRetryTick((previous) => previous + 1);
           }, 1800);
         } else {
-          console.error("[RecentActivitySync][Dock] Retry limit reached for current payload signature", {
+          console.error("[RecentActivitiesDock] Retry limit reached for current payload signature", {
             attempts: nextAttempts,
-            records: activities.length,
           });
           syncRetryTimerRef.current = null;
         }

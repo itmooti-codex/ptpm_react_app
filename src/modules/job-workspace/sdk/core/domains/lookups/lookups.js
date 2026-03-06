@@ -136,7 +136,11 @@ export async function findContactByEmail({ plugin, email } = {}) {
   }
 
   try {
-    const contacts = await fetchContactsForSearch({ plugin: resolvedPlugin });
+    const contacts = await searchContactsForLookup({
+      plugin: resolvedPlugin,
+      query: targetEmail,
+      limit: 80,
+    });
     const match = (Array.isArray(contacts) ? contacts : []).find(
       (item) => normalizeSearchEmail(item?.email || item?.Email) === targetEmail
     );
@@ -153,7 +157,7 @@ export async function findContactByEmail({ plugin, email } = {}) {
       .limit(1)
       .noDestroy();
     detailQuery.getOrInitQueryCalc?.();
-    const detailResponse = await fetchDirectWithTimeout(detailQuery, null, 10000);
+    const detailResponse = await fetchDirectWithTimeout(detailQuery, null, 15000);
     return extractFirstRecord(detailResponse) || match;
   } catch (error) {
     console.error("[JobDirect] Contact duplicate lookup failed", error);
@@ -377,7 +381,11 @@ export async function findPropertyByName({ plugin, propertyName } = {}) {
   }
 
   try {
-    const properties = await fetchPropertiesForSearch({ plugin: resolvedPlugin });
+    const properties = await searchPropertiesForLookup({
+      plugin: resolvedPlugin,
+      query: targetName,
+      limit: 80,
+    });
     const match = (Array.isArray(properties) ? properties : []).find((item) => {
       const candidates = [
         item?.property_name,

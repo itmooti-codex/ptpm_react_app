@@ -9,8 +9,8 @@ export function resolveLinkedAccountModelName(accountType) {
     : "PeterpmContact";
 }
 
-export const LINKED_ACCOUNT_INCLUDE_TIMEOUT_MS = 7000;
-export const LINKED_ACCOUNT_CUSTOM_FALLBACK_TIMEOUT_MS = 4500;
+export const LINKED_ACCOUNT_INCLUDE_TIMEOUT_MS = 20000;
+export const LINKED_ACCOUNT_CUSTOM_FALLBACK_TIMEOUT_MS = 15000;
 
 export function buildLinkedDealsFallbackQuery(accountType) {
   const resolvedType = resolveLinkedAccountType(accountType);

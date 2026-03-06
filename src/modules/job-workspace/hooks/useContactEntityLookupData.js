@@ -120,6 +120,7 @@ export function useContactEntityLookupData(
     initialContacts = EMPTY_LIST,
     initialCompanies = EMPTY_LIST,
     skipInitialFetch = false,
+    skipSubscriptions = false,
   } = {}
 ) {
   const actions = useJobDirectStoreActions();
@@ -171,6 +172,7 @@ export function useContactEntityLookupData(
   }, [actions, companies, normalizedInitialCompanies]);
 
   useEffect(() => {
+    if (skipSubscriptions) return undefined;
     if (!plugin) return undefined;
 
     const stopContactsSubscription = subscribeContactsForSearch({
@@ -208,7 +210,7 @@ export function useContactEntityLookupData(
         stopCompaniesSubscription();
       }
     };
-  }, [actions, plugin]);
+  }, [actions, plugin, skipSubscriptions]);
 
   useEffect(() => {
     let isActive = true;

@@ -173,7 +173,7 @@ export async function fetchPropertyRecordById({ plugin, propertyId } = {}) {
     );
 
   query.getOrInitQueryCalc?.();
-  const response = await fetchDirectWithTimeout(query);
+  const response = await fetchDirectWithTimeout(query, null, 25000);
   const record = extractFirstRecord(response);
   if (!record) return null;
   return normalizePropertyRecord(record);
@@ -203,7 +203,7 @@ export async function fetchPropertyRecordByUniqueId({ plugin, uniqueId } = {}) {
     );
 
   query.getOrInitQueryCalc?.();
-  const response = await fetchDirectWithTimeout(query);
+  const response = await fetchDirectWithTimeout(query, null, 25000);
   const record = extractFirstRecord(response);
   if (!record) return null;
   return normalizePropertyRecord(record);

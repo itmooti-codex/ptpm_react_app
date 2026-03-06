@@ -882,6 +882,108 @@ function SectionLoadingState({
 const RECENT_ADMIN_ACTIVITY_STORAGE_KEY = "ptpm_admin_recent_activity_v1";
 const MAX_RECENT_ADMIN_ACTIVITY_RECORDS = 20;
 const RECENT_ACTIVITIES_UPDATED_EVENT = "ptpm-recent-activities-updated";
+const INQUIRY_WORKSPACE_UI_CACHE_KEY_PREFIX = "ptpm:inquiry-details:workspace-ui:v1:";
+const INQUIRY_WORKSPACE_PROPERTY_CACHE_KEY_PREFIX =
+  "ptpm:inquiry-details:workspace-property-cache:v1:";
+const INQUIRY_WORKSPACE_UI_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const INQUIRY_WORKSPACE_PROPERTY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function canUseLocalStorage() {
+  return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+function readJsonStorageItem(storageKey = "") {
+  if (!canUseLocalStorage()) return null;
+  const key = toText(storageKey);
+  if (!key) return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function writeJsonStorageItem(storageKey = "", value = null) {
+  if (!canUseLocalStorage()) return false;
+  const key = toText(storageKey);
+  if (!key) return false;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildInquiryWorkspaceUiCacheKey(inquiryUid = "") {
+  const normalizedUid = toText(inquiryUid);
+  if (!normalizedUid) return "";
+  return `${INQUIRY_WORKSPACE_UI_CACHE_KEY_PREFIX}${normalizedUid.toLowerCase()}`;
+}
+
+function readInquiryWorkspaceUiCache(inquiryUid = "") {
+  const storageKey = buildInquiryWorkspaceUiCacheKey(inquiryUid);
+  if (!storageKey) return null;
+  const parsed = readJsonStorageItem(storageKey);
+  if (!parsed || typeof parsed !== "object") return null;
+  const cachedAt = Number(parsed?.cachedAt || 0);
+  if (!cachedAt || Date.now() - cachedAt > INQUIRY_WORKSPACE_UI_CACHE_TTL_MS) {
+    return null;
+  }
+  return parsed;
+}
+
+function writeInquiryWorkspaceUiCache(inquiryUid = "", value = {}) {
+  const storageKey = buildInquiryWorkspaceUiCacheKey(inquiryUid);
+  if (!storageKey) return false;
+  return writeJsonStorageItem(storageKey, {
+    cachedAt: Date.now(),
+    selectedPropertyId: normalizePropertyId(value?.selectedPropertyId || ""),
+    isPropertySameAsContact: Boolean(value?.isPropertySameAsContact),
+  });
+}
+
+function buildInquiryWorkspacePropertyCacheKey(accountType = "", accountId = "") {
+  const normalizedId = toText(accountId);
+  if (!normalizedId) return "";
+  const normalizedType = toText(accountType).toLowerCase() === "company" ? "company" : "contact";
+  return `${INQUIRY_WORKSPACE_PROPERTY_CACHE_KEY_PREFIX}${normalizedType}:${normalizedId}`;
+}
+
+function readInquiryWorkspacePropertyCache({
+  accountType = "",
+  accountId = "",
+} = {}) {
+  const storageKey = buildInquiryWorkspacePropertyCacheKey(accountType, accountId);
+  if (!storageKey) return null;
+  const parsed = readJsonStorageItem(storageKey);
+  if (!parsed || typeof parsed !== "object") return null;
+  const cachedAt = Number(parsed?.cachedAt || 0);
+  if (!cachedAt || Date.now() - cachedAt > INQUIRY_WORKSPACE_PROPERTY_CACHE_TTL_MS) {
+    return null;
+  }
+  return {
+    linkedProperties: dedupePropertyLookupRecords(parsed?.linkedProperties || []),
+    propertyLookupRecords: dedupePropertyLookupRecords(parsed?.propertyLookupRecords || []),
+  };
+}
+
+function writeInquiryWorkspacePropertyCache({
+  accountType = "",
+  accountId = "",
+  linkedProperties = [],
+  propertyLookupRecords = [],
+} = {}) {
+  const storageKey = buildInquiryWorkspacePropertyCacheKey(accountType, accountId);
+  if (!storageKey) return false;
+  return writeJsonStorageItem(storageKey, {
+    cachedAt: Date.now(),
+    linkedProperties: dedupePropertyLookupRecords(linkedProperties || []),
+    propertyLookupRecords: dedupePropertyLookupRecords(propertyLookupRecords || []),
+  });
+}
 
 function isMajorRecentActivityAction(action = "") {
   const normalized = toText(action).toLowerCase();
@@ -1213,11 +1315,6 @@ async function updateServiceProviderRecentActivityJsonData({
   for (const [whereField, whereValue] of wherePairs) {
     for (const payloadField of payloadFields) {
       try {
-        console.log("[RecentActivitySync][InquiryDetails] Executing SDK mutation update", {
-          serviceProviderId: normalizedProviderId,
-          whereField,
-          payloadField,
-        });
         await executeUpdate(whereField, whereValue, payloadField);
         const didPersist = await wasPayloadPersisted(whereField, whereValue, payloadField);
         if (didPersist) {
@@ -3153,6 +3250,15 @@ const INQUIRY_WORKSPACE_TABS = [
   { id: "appointments", label: "Appointments" },
 ];
 
+function WorkspaceTabPanel({ isMounted = false, isActive = false, children }) {
+  if (!isMounted) return null;
+  return (
+    <div className={isActive ? "block" : "hidden"} aria-hidden={!isActive}>
+      {children}
+    </div>
+  );
+}
+
 function InquiryEditTextArea({
   label,
   field,
@@ -4041,6 +4147,7 @@ export function InquiryDetailsPage() {
   const [removingListTagKeys, setRemovingListTagKeys] = useState({});
   const [optimisticListSelectionByField, setOptimisticListSelectionByField] = useState({});
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState("related-records");
+  const [mountedWorkspaceTabs, setMountedWorkspaceTabs] = useState({});
   const [propertyLookupRecords, setPropertyLookupRecords] = useState([]);
   const [linkedProperties, setLinkedProperties] = useState([]);
   const [isLinkedPropertiesLoading, setIsLinkedPropertiesLoading] = useState(false);
@@ -4225,32 +4332,6 @@ export function InquiryDetailsPage() {
       recentAdminActivitiesRef.current = nextRecords;
       writeRecentAdminActivitiesToStorage(nextRecords);
       setRecentAdminActivities(nextRecords);
-      console.log("[RecentActivitySync][InquiryDetails] Tracked activity", {
-        action: nextRecord?.action,
-        inquiry_uid: nextRecord?.inquiry_uid,
-        inquiry_id: nextRecord?.inquiry_id,
-        records: nextRecords.length,
-      });
-
-      if (
-        normalizeRecentActivityAction(nextRecord?.action) === "created new inquiry" &&
-        Array.isArray(nextRecords) &&
-        nextRecords.length
-      ) {
-        const syncFn = syncRecentActivityFileRef.current;
-        if (typeof syncFn === "function") {
-          void syncFn(nextRecords)
-            .then((didSync) => {
-              if (didSync) {
-                lastSyncedRecentActivityHashRef.current = buildRecentActivitySignature(nextRecords);
-              }
-            })
-            .catch((syncError) => {
-              console.warn("[InquiryDetails] Failed immediate recent activity sync", syncError);
-              recentActivityProviderIdRef.current = "";
-            });
-        }
-      }
     },
     [currentActivityPath, inquiryNumericId, safeUid]
   );
@@ -4266,11 +4347,6 @@ export function InquiryDetailsPage() {
         .sort((left, right) => Number(right?.timestamp || 0) - Number(left?.timestamp || 0))
         .slice(0, MAX_RECENT_ADMIN_ACTIVITY_RECORDS);
       if (!normalizedRecords.length) return false;
-      console.log("[RecentActivitySync][InquiryDetails] Sync start", {
-        records: normalizedRecords.length,
-        configuredProviderId: configuredId,
-        currentAdminContactId,
-      });
 
       let resolvedProviderId = toText(recentActivityProviderIdRef.current);
       if (!recentActivityProviderIdRef.current) {
@@ -4290,10 +4366,6 @@ export function InquiryDetailsPage() {
       }
 
       const jsonPayload = createRecentActivityJsonData(normalizedRecords, resolvedProviderId);
-      console.log("[RecentActivitySync][InquiryDetails] Updating service provider", {
-        resolvedProviderId,
-        payloadLength: jsonPayload.length,
-      });
       const didUpdate = await updateServiceProviderRecentActivityJsonData({
         plugin,
         serviceProviderId: resolvedProviderId,
@@ -4302,10 +4374,6 @@ export function InquiryDetailsPage() {
       if (!didUpdate) {
         throw new Error("Recent activity JSON update was not acknowledged.");
       }
-      console.log("[RecentActivitySync][InquiryDetails] Sync success", {
-        resolvedProviderId,
-        records: normalizedRecords.length,
-      });
       return true;
     },
     [configuredAdminProviderId, currentAdminContactId, plugin]
@@ -4916,6 +4984,41 @@ export function InquiryDetailsPage() {
     setActiveWorkspaceTab(firstVisibleTabId);
   }, [activeWorkspaceTab, visibleWorkspaceTabs, visibleWorkspaceTabsKey]);
 
+  useEffect(() => {
+    const normalizedActiveTab = toText(activeWorkspaceTab);
+    if (!normalizedActiveTab) return;
+    setMountedWorkspaceTabs((previous) => {
+      if (previous[normalizedActiveTab]) return previous;
+      return {
+        ...previous,
+        [normalizedActiveTab]: true,
+      };
+    });
+  }, [activeWorkspaceTab]);
+
+  useEffect(() => {
+    if (!visibleWorkspaceTabs.length) return;
+    const visibleIds = visibleWorkspaceTabs.map((tab) => tab.id);
+    const firstVisibleTabId = visibleIds[0];
+    setMountedWorkspaceTabs((previous) => {
+      const next = {};
+      visibleIds.forEach((tabId) => {
+        if (previous[tabId] || tabId === activeWorkspaceTab || tabId === firstVisibleTabId) {
+          next[tabId] = true;
+        }
+      });
+      const previousKeys = Object.keys(previous).filter((key) => previous[key]);
+      const nextKeys = Object.keys(next).filter((key) => next[key]);
+      if (
+        previousKeys.length === nextKeys.length &&
+        previousKeys.every((key) => next[key])
+      ) {
+        return previous;
+      }
+      return next;
+    });
+  }, [activeWorkspaceTab, visibleWorkspaceTabs]);
+
   const notesAdmin = toText(inquiry?.admin_notes || inquiry?.Admin_Notes);
   const notesClient = toText(inquiry?.client_notes || inquiry?.Client_Notes);
   const isInquiryInitialLoadInProgress =
@@ -5217,20 +5320,6 @@ export function InquiryDetailsPage() {
             inquiry_uid: nextUid,
           },
         });
-        const latestRecentActivities = readRecentAdminActivitiesFromStorage();
-        if (Array.isArray(latestRecentActivities) && latestRecentActivities.length) {
-          void syncRecentActivityFile(latestRecentActivities)
-            .then((didSync) => {
-              if (didSync) {
-                lastSyncedRecentActivityHashRef.current =
-                  buildRecentActivitySignature(latestRecentActivities);
-              }
-            })
-            .catch((syncError) => {
-              console.warn("[InquiryDetails] Failed post-create recent activity sync", syncError);
-              recentActivityProviderIdRef.current = "";
-            });
-        }
         navigate(`/inquiry-details/${encodeURIComponent(nextUid)}`, { replace: true });
       })
       .catch((provisionError) => {
@@ -5250,7 +5339,6 @@ export function InquiryDetailsPage() {
     isSdkReady,
     navigate,
     plugin,
-    syncRecentActivityFile,
     trackRecentActivity,
   ]);
 
@@ -5269,6 +5357,8 @@ export function InquiryDetailsPage() {
   useEffect(() => {
     previousVisibleWorkspaceTabsKeyRef.current = "";
     previousAccountBindingKeyRef.current = "";
+    setMountedWorkspaceTabs({});
+    setActiveWorkspaceTab("");
   }, [safeUid]);
 
   useEffect(() => {
@@ -5289,6 +5379,33 @@ export function InquiryDetailsPage() {
   }, [safeUid]);
 
   useEffect(() => {
+    if (!hasUid) return;
+    const cachedUi = readInquiryWorkspaceUiCache(safeUid);
+    if (!cachedUi || typeof cachedUi !== "object") return;
+    const cachedPropertyId = normalizePropertyId(cachedUi?.selectedPropertyId || "");
+    if (cachedPropertyId) {
+      setSelectedPropertyId(cachedPropertyId);
+    }
+    if (typeof cachedUi?.isPropertySameAsContact === "boolean") {
+      setIsPropertySameAsContact(cachedUi.isPropertySameAsContact);
+    }
+  }, [hasUid, safeUid]);
+
+  useEffect(() => {
+    if (!hasUid) return;
+    writeInquiryWorkspaceUiCache(safeUid, {
+      selectedPropertyId: normalizedSelectedPropertyId || selectedPropertyId,
+      isPropertySameAsContact,
+    });
+  }, [
+    hasUid,
+    isPropertySameAsContact,
+    normalizedSelectedPropertyId,
+    safeUid,
+    selectedPropertyId,
+  ]);
+
+  useEffect(() => {
     if (!plugin || !relatedRecordsAccountId || !inquiryDisplayFlowRule.showPropertySearch) {
       setLinkedProperties([]);
       setLinkedPropertiesError("");
@@ -5297,8 +5414,29 @@ export function InquiryDetailsPage() {
     }
 
     let isMounted = true;
-    setIsLinkedPropertiesLoading(true);
     setLinkedPropertiesError("");
+    const cachedPropertyData = readInquiryWorkspacePropertyCache({
+      accountType: relatedRecordsAccountType,
+      accountId: relatedRecordsAccountId,
+    });
+    if (cachedPropertyData) {
+      const cachedLinked = dedupePropertyLookupRecords(cachedPropertyData.linkedProperties || []);
+      const cachedLookup = dedupePropertyLookupRecords(
+        cachedPropertyData.propertyLookupRecords || []
+      );
+      setLinkedProperties((previous) =>
+        arePropertyRecordCollectionsEqual(previous, cachedLinked) ? previous : cachedLinked
+      );
+      setPropertyLookupRecords((previous) =>
+        mergePropertyCollectionsIfChanged(previous, cachedLookup)
+      );
+      setIsLinkedPropertiesLoading(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setIsLinkedPropertiesLoading(true);
     fetchLinkedPropertiesByAccount({
       plugin,
       accountType: relatedRecordsAccountType,
@@ -5315,6 +5453,12 @@ export function InquiryDetailsPage() {
         setPropertyLookupRecords((previous) =>
           mergePropertyCollectionsIfChanged(previous, normalizedRecords)
         );
+        writeInquiryWorkspacePropertyCache({
+          accountType: relatedRecordsAccountType,
+          accountId: relatedRecordsAccountId,
+          linkedProperties: normalizedRecords,
+          propertyLookupRecords: normalizedRecords,
+        });
       })
       .catch((loadError) => {
         if (!isMounted) return;
@@ -5333,6 +5477,23 @@ export function InquiryDetailsPage() {
   }, [inquiryDisplayFlowRule.showPropertySearch, plugin, relatedRecordsAccountId, relatedRecordsAccountType]);
 
   useEffect(() => {
+    if (!relatedRecordsAccountId || !inquiryDisplayFlowRule.showPropertySearch) return;
+    if (!linkedProperties.length && !propertyLookupRecords.length) return;
+    writeInquiryWorkspacePropertyCache({
+      accountType: relatedRecordsAccountType,
+      accountId: relatedRecordsAccountId,
+      linkedProperties,
+      propertyLookupRecords,
+    });
+  }, [
+    inquiryDisplayFlowRule.showPropertySearch,
+    linkedProperties,
+    propertyLookupRecords,
+    relatedRecordsAccountId,
+    relatedRecordsAccountType,
+  ]);
+
+  useEffect(() => {
     if (!inquiryPropertyId && !resolvePropertyLookupLabel(inquiryPropertyRecord)) return;
     setPropertyLookupRecords((previous) =>
       mergePropertyCollectionsIfChanged(previous, [inquiryPropertyRecord])
@@ -5340,6 +5501,8 @@ export function InquiryDetailsPage() {
   }, [inquiryPropertyId, inquiryPropertyRecord]);
 
   useEffect(() => {
+    const shouldPreloadAllProperties = toText(import.meta.env.VITE_PRELOAD_ALL_PROPERTIES).toLowerCase() === "true";
+    if (!shouldPreloadAllProperties) return;
     if (!plugin || !shouldShowPropertiesTab) return;
 
     let isMounted = true;
@@ -5461,7 +5624,9 @@ export function InquiryDetailsPage() {
       })
       .catch((fetchError) => {
         if (!isMounted) return;
-        console.error("[InquiryDetails] Failed hydrating selected property details", fetchError);
+        if (!/timed out/i.test(String(fetchError?.message || ""))) {
+          console.error("[InquiryDetails] Failed hydrating selected property details", fetchError);
+        }
       });
 
     return () => {
@@ -8721,210 +8886,233 @@ export function InquiryDetailsPage() {
                 />
               ) : (
                 <>
-                  {shouldShowRelatedRecordsTab && activeWorkspaceTab === "related-records" ? (
-                !relatedRecordsAccountId ? (
-                  <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    Link a contact/company on this inquiry to load related records.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {isRelatedRecordsLoading && !filteredRelatedDeals.length && !relatedJobs.length ? (
-                      <div className="text-[11px] text-slate-500">Loading related inquiries and jobs...</div>
-                    ) : null}
-                    {relatedRecordsError ? (
-                      <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
-                        {relatedRecordsError}
+                  <WorkspaceTabPanel
+                    isMounted={
+                      shouldShowRelatedRecordsTab &&
+                      Boolean(mountedWorkspaceTabs["related-records"])
+                    }
+                    isActive={activeWorkspaceTab === "related-records"}
+                  >
+                    {!relatedRecordsAccountId ? (
+                      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        Link a contact/company on this inquiry to load related records.
                       </div>
-                    ) : null}
-
-                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2">
-                        <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">
-                          Related Inquiries
-                        </div>
-                        {filteredRelatedDeals.length ? (
-                          <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
-                            {filteredRelatedDeals.slice(0, 12).map((deal) => {
-                              const dealUid = toText(deal?.unique_id);
-                              const dealName = toText(deal?.deal_name);
-                              const fallbackId = toText(deal?.id);
-                              const dealIdentifier = dealUid || fallbackId;
-                              if (!dealIdentifier && !dealName) return null;
-                              return (
-                                <button
-                                  key={dealUid || fallbackId || dealName}
-                                  type="button"
-                                  className="w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-left hover:border-slate-300"
-                                  onClick={() => openRelatedRecord(dealUid)}
-                                  disabled={!dealUid}
-                                >
-                                  <div className="truncate text-[11px] font-semibold text-sky-700 underline">
-                                    {dealIdentifier}
-                                  </div>
-                                  {dealName ? (
-                                    <div className="truncate text-[11px] text-slate-600">{dealName}</div>
-                                  ) : null}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : (
+                    ) : (
+                      <div className="space-y-2">
+                        {isRelatedRecordsLoading &&
+                        !filteredRelatedDeals.length &&
+                        !relatedJobs.length ? (
                           <div className="text-[11px] text-slate-500">
-                            {isRelatedRecordsLoading
-                              ? "Loading related inquiries..."
-                              : "No related inquiries found."}
+                            Loading related inquiries and jobs...
                           </div>
-                        )}
-                      </div>
+                        ) : null}
+                        {relatedRecordsError ? (
+                          <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+                            {relatedRecordsError}
+                          </div>
+                        ) : null}
 
-                      <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2">
-                        <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">
-                          Related Jobs
-                        </div>
-                        {relatedJobs.length ? (
-                          <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
-                            {relatedJobs.slice(0, 12).map((job) => {
-                              const jobId = toText(job?.id || job?.ID);
-                              const jobUid = toText(job?.unique_id || job?.Unique_ID);
-                              const jobIdentifier = jobUid || jobId;
-                              const resolvedJobId = jobId || toText(relatedJobIdByUid[jobUid]);
-                              const propertyName = toText(job?.property_name);
-                              if (!jobIdentifier && !propertyName) return null;
-                              const isSelected =
-                                Boolean(selectedRelatedJobId) &&
-                                (selectedRelatedJobId === resolvedJobId ||
-                                  selectedRelatedJobId === jobUid);
-                              return (
-                                <div
-                                  key={jobUid || jobId || propertyName}
-                                  className={`rounded border bg-white px-2 py-1.5 ${
-                                    isSelected ? "border-sky-400" : "border-slate-200"
-                                  }`}
-                                >
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0">
-                                      <button
-                                        type="button"
-                                        className="truncate text-[11px] font-semibold text-sky-700 underline"
-                                        onClick={() => openRelatedRecord(jobUid)}
-                                        disabled={!jobUid}
-                                      >
-                                        {jobIdentifier}
-                                      </button>
-                                      {propertyName ? (
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                          <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2">
+                            <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">
+                              Related Inquiries
+                            </div>
+                            {filteredRelatedDeals.length ? (
+                              <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
+                                {filteredRelatedDeals.slice(0, 12).map((deal) => {
+                                  const dealUid = toText(deal?.unique_id);
+                                  const dealName = toText(deal?.deal_name);
+                                  const fallbackId = toText(deal?.id);
+                                  const dealIdentifier = dealUid || fallbackId;
+                                  if (!dealIdentifier && !dealName) return null;
+                                  return (
+                                    <button
+                                      key={dealUid || fallbackId || dealName}
+                                      type="button"
+                                      className="w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-left hover:border-slate-300"
+                                      onClick={() => openRelatedRecord(dealUid)}
+                                      disabled={!dealUid}
+                                    >
+                                      <div className="truncate text-[11px] font-semibold text-sky-700 underline">
+                                        {dealIdentifier}
+                                      </div>
+                                      {dealName ? (
                                         <div className="truncate text-[11px] text-slate-600">
-                                          {propertyName}
+                                          {dealName}
                                         </div>
                                       ) : null}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-slate-500">
+                                {isRelatedRecordsLoading
+                                  ? "Loading related inquiries..."
+                                  : "No related inquiries found."}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2">
+                            <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">
+                              Related Jobs
+                            </div>
+                            {relatedJobs.length ? (
+                              <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
+                                {relatedJobs.slice(0, 12).map((job) => {
+                                  const jobId = toText(job?.id || job?.ID);
+                                  const jobUid = toText(job?.unique_id || job?.Unique_ID);
+                                  const jobIdentifier = jobUid || jobId;
+                                  const resolvedJobId = jobId || toText(relatedJobIdByUid[jobUid]);
+                                  const propertyName = toText(job?.property_name);
+                                  if (!jobIdentifier && !propertyName) return null;
+                                  const isSelected =
+                                    Boolean(selectedRelatedJobId) &&
+                                    (selectedRelatedJobId === resolvedJobId ||
+                                      selectedRelatedJobId === jobUid);
+                                  return (
+                                    <div
+                                      key={jobUid || jobId || propertyName}
+                                      className={`rounded border bg-white px-2 py-1.5 ${
+                                        isSelected ? "border-sky-400" : "border-slate-200"
+                                      }`}
+                                    >
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <button
+                                            type="button"
+                                            className="truncate text-[11px] font-semibold text-sky-700 underline"
+                                            onClick={() => openRelatedRecord(jobUid)}
+                                            disabled={!jobUid}
+                                          >
+                                            {jobIdentifier}
+                                          </button>
+                                          {propertyName ? (
+                                            <div className="truncate text-[11px] text-slate-600">
+                                              {propertyName}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                        <input
+                                          type="checkbox"
+                                          className="h-3.5 w-3.5 shrink-0 accent-[#003882]"
+                                          checked={isSelected}
+                                          disabled={(!resolvedJobId && !jobUid) || isSavingLinkedJob}
+                                          onChange={() => handleToggleRelatedJobLink(job)}
+                                          aria-label={`Link inquiry to job ${jobUid || jobId || ""}`}
+                                        />
+                                      </div>
                                     </div>
-                                    <input
-                                      type="checkbox"
-                                      className="h-3.5 w-3.5 shrink-0 accent-[#003882]"
-                                      checked={isSelected}
-                                      disabled={(!resolvedJobId && !jobUid) || isSavingLinkedJob}
-                                      onChange={() => handleToggleRelatedJobLink(job)}
-                                      aria-label={`Link inquiry to job ${jobUid || jobId || ""}`}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-slate-500">
+                                {isRelatedRecordsLoading
+                                  ? "Loading related jobs..."
+                                  : "No related jobs found."}
+                              </div>
+                            )}
                           </div>
-                        ) : (
-                          <div className="text-[11px] text-slate-500">
-                            {isRelatedRecordsLoading ? "Loading related jobs..." : "No related jobs found."}
-                          </div>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                )
-                  ) : null}
-
-                  {shouldShowPropertiesTab && activeWorkspaceTab === "properties" ? (
-                  <PropertyTabSection
-                    plugin={plugin}
-                    preloadedLookupData={workspaceLookupData}
-                    quoteJobId={linkedInquiryJobIdFromRecord}
-                    inquiryId={inquiryNumericId}
-                    currentPropertyId={normalizePropertyId(
-                      activeRelatedProperty?.id || selectedPropertyId
                     )}
-                    onOpenContactDetailsModal={openContactDetailsModal}
-                    accountType={relatedRecordsAccountType}
-                    selectedAccountId={relatedRecordsAccountId}
-                    propertySearchValue={propertySearchQuery}
-                    propertySearchItems={propertySearchItems}
-                    onPropertySearchValueChange={handlePropertySearchValueChange}
-                    onPropertySearchQueryChange={handlePropertySearchQueryChange}
-                    onSelectPropertyFromSearch={handleSelectPropertyFromSearch}
-                    onAddProperty={handleOpenAddPropertyModal}
-                    activeRelatedProperty={activeRelatedProperty}
-                    linkedProperties={linkedPropertiesSorted}
-                    isLoading={isLinkedPropertiesLoading}
-                    loadError={linkedPropertiesError}
-                    selectedPropertyId={normalizePropertyId(
-                      activeRelatedProperty?.id || selectedPropertyId
+                  </WorkspaceTabPanel>
+
+                  <WorkspaceTabPanel
+                    isMounted={shouldShowPropertiesTab && Boolean(mountedWorkspaceTabs.properties)}
+                    isActive={activeWorkspaceTab === "properties"}
+                  >
+                    <PropertyTabSection
+                      plugin={plugin}
+                      preloadedLookupData={workspaceLookupData}
+                      quoteJobId={linkedInquiryJobIdFromRecord}
+                      inquiryId={inquiryNumericId}
+                      currentPropertyId={normalizePropertyId(
+                        activeRelatedProperty?.id || selectedPropertyId
+                      )}
+                      onOpenContactDetailsModal={openContactDetailsModal}
+                      accountType={relatedRecordsAccountType}
+                      selectedAccountId={relatedRecordsAccountId}
+                      propertySearchValue={propertySearchQuery}
+                      propertySearchItems={propertySearchItems}
+                      onPropertySearchValueChange={handlePropertySearchValueChange}
+                      onPropertySearchQueryChange={handlePropertySearchQueryChange}
+                      onSelectPropertyFromSearch={handleSelectPropertyFromSearch}
+                      onAddProperty={handleOpenAddPropertyModal}
+                      activeRelatedProperty={activeRelatedProperty}
+                      linkedProperties={linkedPropertiesSorted}
+                      isLoading={isLinkedPropertiesLoading}
+                      loadError={linkedPropertiesError}
+                      selectedPropertyId={normalizePropertyId(
+                        activeRelatedProperty?.id || selectedPropertyId
+                      )}
+                      onSelectProperty={setSelectedPropertyId}
+                      onEditRelatedProperty={handleOpenEditPropertyModal}
+                      sameAsContactLabel={
+                        isApplyingSameAsContactProperty ? "Applying..." : "Same as contact"
+                      }
+                      isSameAsContactChecked={isPropertySameAsContact}
+                      isSameAsContactDisabled={
+                        isApplyingSameAsContactProperty || !inquiryNumericId || !plugin
+                      }
+                      onSameAsContactChange={handleSameAsContactPropertyChange}
+                      showPropertyUploadsSection={false}
+                      propertyDetailsVariant="cards"
+                    />
+                  </WorkspaceTabPanel>
+
+                  <WorkspaceTabPanel
+                    isMounted={Boolean(mountedWorkspaceTabs.uploads)}
+                    isActive={activeWorkspaceTab === "uploads"}
+                  >
+                    {inquiryNumericId ? (
+                      <UploadsSection
+                        plugin={plugin}
+                        jobData={{ id: linkedInquiryJobIdFromRecord, ID: linkedInquiryJobIdFromRecord }}
+                        uploadsMode="inquiry"
+                        inquiryId={inquiryNumericId}
+                        inquiryUid={safeUid}
+                        linkedJobId={linkedInquiryJobIdFromRecord}
+                        additionalCreatePayload={{
+                          inquiry_id: inquiryNumericId,
+                          Inquiry_ID: inquiryNumericId,
+                          inquiry_record_id: inquiryNumericId,
+                          Inquiry_Record_ID: inquiryNumericId,
+                          job_id: linkedInquiryJobIdFromRecord || null,
+                          Job_ID: linkedInquiryJobIdFromRecord || null,
+                          ...(uploadsPropertyId ? { property_name_id: uploadsPropertyId } : {}),
+                        }}
+                        layoutMode="table"
+                        existingUploadsView="tiles"
+                        onRequestAddUpload={handleOpenUploadModal}
+                        enableFormUploads
+                      />
+                    ) : (
+                      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        Inquiry record ID is required to load uploads.
+                      </div>
                     )}
-                    onSelectProperty={setSelectedPropertyId}
-                    onEditRelatedProperty={handleOpenEditPropertyModal}
-                    sameAsContactLabel={
-                      isApplyingSameAsContactProperty ? "Applying..." : "Same as contact"
-                    }
-                    isSameAsContactChecked={isPropertySameAsContact}
-                    isSameAsContactDisabled={
-                      isApplyingSameAsContactProperty || !inquiryNumericId || !plugin
-                    }
-                    onSameAsContactChange={handleSameAsContactPropertyChange}
-                    showPropertyUploadsSection={false}
-                    propertyDetailsVariant="cards"
-                  />
-                  ) : null}
+                  </WorkspaceTabPanel>
 
-                  {activeWorkspaceTab === "uploads" ? (
-                inquiryNumericId ? (
-                  <UploadsSection
-                    plugin={plugin}
-                    jobData={{ id: linkedInquiryJobIdFromRecord, ID: linkedInquiryJobIdFromRecord }}
-                    uploadsMode="inquiry"
-                    inquiryId={inquiryNumericId}
-                    inquiryUid={safeUid}
-                    linkedJobId={linkedInquiryJobIdFromRecord}
-                    additionalCreatePayload={{
-                      inquiry_id: inquiryNumericId,
-                      Inquiry_ID: inquiryNumericId,
-                      inquiry_record_id: inquiryNumericId,
-                      Inquiry_Record_ID: inquiryNumericId,
-                      job_id: linkedInquiryJobIdFromRecord || null,
-                      Job_ID: linkedInquiryJobIdFromRecord || null,
-                      ...(uploadsPropertyId ? { property_name_id: uploadsPropertyId } : {}),
-                    }}
-                    layoutMode="table"
-                    existingUploadsView="tiles"
-                    onRequestAddUpload={handleOpenUploadModal}
-                    enableFormUploads
-                  />
-                ) : (
-                  <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    Inquiry record ID is required to load uploads.
-                  </div>
-                )
-                  ) : null}
-
-                  {activeWorkspaceTab === "appointments" ? (
-                <AppointmentTabSection
-                  plugin={plugin}
-                  jobData={{ id: linkedInquiryJobIdFromRecord, ID: linkedInquiryJobIdFromRecord }}
-                  preloadedLookupData={workspaceLookupData}
-                  inquiryRecordId={inquiryNumericId}
-                  inquiryUid={safeUid}
-                  prefillContext={inquiryAppointmentPrefillContext}
-                  layoutMode="table"
-                  eventRowTintOpacity={0.4}
-                  onRequestCreate={handleOpenCreateAppointmentModal}
-                  onRequestEdit={handleOpenEditAppointmentModal}
-                />
-                  ) : null}
+                  <WorkspaceTabPanel
+                    isMounted={Boolean(mountedWorkspaceTabs.appointments)}
+                    isActive={activeWorkspaceTab === "appointments"}
+                  >
+                    <AppointmentTabSection
+                      plugin={plugin}
+                      jobData={{ id: linkedInquiryJobIdFromRecord, ID: linkedInquiryJobIdFromRecord }}
+                      preloadedLookupData={workspaceLookupData}
+                      inquiryRecordId={inquiryNumericId}
+                      inquiryUid={safeUid}
+                      prefillContext={inquiryAppointmentPrefillContext}
+                      layoutMode="table"
+                      eventRowTintOpacity={0.4}
+                      onRequestCreate={handleOpenCreateAppointmentModal}
+                      onRequestEdit={handleOpenEditAppointmentModal}
+                    />
+                  </WorkspaceTabPanel>
                 </>
               )}
             </div>

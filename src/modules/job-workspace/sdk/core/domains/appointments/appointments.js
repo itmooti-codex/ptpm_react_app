@@ -1,5 +1,5 @@
 import { resolvePlugin } from "../../plugin.js";
-import { fetchDirectWithTimeout, subscribeToQueryStream } from "../../transport.js";
+import { fetchDirectWithTimeout, isTimeoutError, subscribeToQueryStream } from "../../transport.js";
 import {
   extractRecords,
 } from "../../../utils/sdkResponseUtils.js";
@@ -8,6 +8,7 @@ import {
   APPOINTMENT_JOB_SELECT_FIELDS,
   APPOINTMENT_INQUIRY_SELECT_FIELDS,
   applyAppointmentIncludes,
+  buildJobAppointmentsFallbackQuery,
   buildInquiryAppointmentsFallbackQuery,
 } from "./appointmentsQueryHelpers.js";
 import {
@@ -60,10 +61,31 @@ export async function fetchAppointmentsByJobId({ plugin, jobId } = {}) {
 
   const normalizedJobId = normalizeIdentifier(jobId);
   if (!normalizedJobId) return [];
+  const appointmentModel = resolvedPlugin.switchTo("PeterpmAppointment");
+  if (!appointmentModel?.query) return [];
 
   try {
-    const query = resolvedPlugin
-      .switchTo("PeterpmAppointment")
+    const customQuery = appointmentModel
+      .query()
+      .fromGraphql(buildJobAppointmentsFallbackQuery());
+
+    const response = await fetchDirectWithTimeout(customQuery, {
+      variables: { jobid: normalizedJobId },
+    }, 20000);
+    return extractRecords(response)
+      .map((record) => normalizeAppointmentRecord(record))
+      .filter((record) => record.id);
+  } catch (error) {
+    if (!isTimeoutError(error)) {
+      console.warn(
+        "[JobDirect] Custom job appointments query failed, using model fallback",
+        error
+      );
+    }
+  }
+
+  try {
+    const query = appointmentModel
       .query()
       .where("job_id", normalizedJobId)
       .deSelectAll()
@@ -73,12 +95,14 @@ export async function fetchAppointmentsByJobId({ plugin, jobId } = {}) {
     query.noDestroy();
 
     query.getOrInitQueryCalc?.();
-    const response = await fetchDirectWithTimeout(query);
+    const response = await fetchDirectWithTimeout(query, null, 20000);
     return extractRecords(response)
       .map((record) => normalizeAppointmentRecord(record))
       .filter((record) => record.id);
   } catch (error) {
-    console.error("[JobDirect] Failed to fetch appointments", error);
+    if (!isTimeoutError(error)) {
+      console.error("[JobDirect] Failed to fetch appointments", error);
+    }
     return [];
   }
 }
@@ -100,16 +124,17 @@ export async function fetchAppointmentsByInquiryUid({ plugin, inquiryUid } = {})
 
     const response = await fetchDirectWithTimeout(customQuery, {
       variables: { unique_id: normalizedInquiryUid },
-    });
-    const records = extractRecords(response)
+    }, 20000);
+    return extractRecords(response)
       .map((record) => normalizeAppointmentRecord(record))
       .filter((record) => record.id);
-    if (records.length) return records;
   } catch (error) {
-    console.warn(
-      "[JobDirect] Custom inquiry appointments query failed, using model fallback",
-      error
-    );
+    if (!isTimeoutError(error)) {
+      console.warn(
+        "[JobDirect] Custom inquiry appointments query failed, using model fallback",
+        error
+      );
+    }
   }
 
   try {
@@ -125,12 +150,14 @@ export async function fetchAppointmentsByInquiryUid({ plugin, inquiryUid } = {})
     query.noDestroy();
 
     query.getOrInitQueryCalc?.();
-    const response = await fetchDirectWithTimeout(query);
+    const response = await fetchDirectWithTimeout(query, null, 20000);
     return extractRecords(response)
       .map((record) => normalizeAppointmentRecord(record))
       .filter((record) => record.id);
   } catch (error) {
-    console.error("[JobDirect] Failed to fetch inquiry appointments", error);
+    if (!isTimeoutError(error)) {
+      console.error("[JobDirect] Failed to fetch inquiry appointments", error);
+    }
     return [];
   }
 }

@@ -80,3 +80,38 @@ export function buildInquiryAppointmentsFallbackQuery() {
     }
   `;
 }
+
+export function buildJobAppointmentsFallbackQuery() {
+  return `
+    query calcAppointments($jobid: PeterpmJobID!) {
+      calcAppointments(
+        query: [{ where: { job_id: $jobid } }]
+      ) {
+        ID: field(arg: ["id"])
+        Status: field(arg: ["status"])
+        Type: field(arg: ["type"])
+        Title: field(arg: ["title"])
+        Description: field(arg: ["description"])
+        Start_Time: field(arg: ["start_time"])
+        End_Time: field(arg: ["end_time"])
+        Duration_Hours: field(arg: ["duration_hours"])
+        Duration_Minutes: field(arg: ["duration_minutes"])
+        Event_Colour: field(arg: ["event_colour"])
+        Job_ID: field(arg: ["job_id"])
+        Inquiry_ID: field(arg: ["inquiry_id"])
+        Location_ID: field(arg: ["location_id"])
+        Host_ID: field(arg: ["host_id"])
+        Primary_Guest_ID: field(arg: ["primary_guest_id"])
+        Location_Property_Name: field(arg: ["Location", "property_name"])
+        Host_Contact_Information_First_Name: field(
+          arg: ["Host", "Contact_Information", "first_name"]
+        )
+        Host_Contact_Information_Last_Name: field(
+          arg: ["Host", "Contact_Information", "last_name"]
+        )
+        Primary_Guest_First_Name: field(arg: ["Primary_Guest", "first_name"])
+        Primary_Guest_Last_Name: field(arg: ["Primary_Guest", "last_name"])
+      }
+    }
+  `;
+}

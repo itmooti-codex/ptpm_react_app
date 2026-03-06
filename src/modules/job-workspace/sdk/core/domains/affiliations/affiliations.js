@@ -1,5 +1,5 @@
 import { resolvePlugin } from "../../plugin.js";
-import { fetchDirectWithTimeout, subscribeToQueryStream } from "../../transport.js";
+import { fetchDirectWithTimeout, isTimeoutError, subscribeToQueryStream } from "../../transport.js";
 import {
   extractRecords,
 } from "../../../utils/sdkResponseUtils.js";
@@ -40,11 +40,13 @@ export async function fetchPropertyAffiliationsByPropertyId({ plugin, propertyId
       )
       .noDestroy();
     query.getOrInitQueryCalc?.();
-    const response = await fetchDirectWithTimeout(query);
+    const response = await fetchDirectWithTimeout(query, null, 20000);
     const records = extractRecords(response).map((item) => normalizeAffiliationRecord(item));
     return dedupeAffiliations(records);
   } catch (error) {
-    console.error("[JobDirect] Failed to fetch property affiliations", error);
+    if (!isTimeoutError(error)) {
+      console.error("[JobDirect] Failed to fetch property affiliations", error);
+    }
     return [];
   }
 }
