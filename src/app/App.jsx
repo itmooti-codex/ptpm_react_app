@@ -1,5 +1,6 @@
 import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { RecentActivitiesDock } from "../shared/components/RecentActivitiesDock.jsx";
 
 const JobDirectPage = lazy(() =>
   import("../features/job-direct/pages/JobDirectPage.jsx").then((module) => ({
@@ -65,20 +66,24 @@ function LegacyJobDetailsRedirect() {
 export default function App() {
   return (
     <Suspense fallback={<AppRouteLoader />}>
-      <Routes>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/job-direct" element={<JobDirectPage />} />
-        <Route path="/job-direct/:jobuid" element={<JobDirectPage />} />
-        <Route path="/inquiry-direct" element={<InquiryDirectPage />} />
-        <Route path="/inquiry-direct/:inquiryuid" element={<InquiryDirectPage />} />
-        <Route path="/inquiry-direct/new" element={<InquiryDirectPage />} />
-        <Route path="/inquiry-details/:uid" element={<InquiryDetailsPage />} />
-        <Route path="/job-details/:uid" element={<LegacyJobDetailsRedirect />} />
-        <Route path="/details/:uid" element={<JobDetailsPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
-      </Routes>
+      <>
+        <Routes>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/job-direct" element={<JobDirectPage />} />
+          <Route path="/job-direct/:jobuid" element={<JobDirectPage />} />
+          <Route path="/inquiry-direct" element={<InquiryDirectPage />} />
+          <Route path="/inquiry-direct/:inquiryuid" element={<InquiryDirectPage />} />
+          <Route path="/inquiry-direct/new" element={<InquiryDirectPage />} />
+          <Route path="/inquiry-details/new" element={<InquiryDetailsPage />} />
+          <Route path="/inquiry-details/:uid" element={<InquiryDetailsPage />} />
+          <Route path="/job-details/:uid" element={<LegacyJobDetailsRedirect />} />
+          <Route path="/details/:uid" element={<JobDetailsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+        </Routes>
+        <RecentActivitiesDock />
+      </>
     </Suspense>
   );
 }

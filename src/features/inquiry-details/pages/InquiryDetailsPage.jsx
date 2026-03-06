@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../../shared/components/ui/Button.jsx";
 import { InputField } from "../../../shared/components/ui/InputField.jsx";
 import { Modal } from "../../../shared/components/ui/Modal.jsx";
 import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
+import { useGoogleAddressLookup } from "../../../shared/hooks/useGoogleAddressLookup.js";
 import { TasksModal } from "../../../modules/job-workspace/components/modals/TasksModal.jsx";
 import { ContactDetailsModal } from "../../../modules/job-workspace/components/modals/ContactDetailsModal.jsx";
 import { JobDirectStoreProvider } from "../../../modules/job-workspace/hooks/useJobDirectStore.jsx";
@@ -32,11 +33,17 @@ import {
   createCompanyRecord,
   createContactRecord,
   createPropertyRecord,
+  findContactByEmail,
+  findPropertyByName,
+  fetchLinkedDealsByAccount,
+  fetchLinkedJobsByAccount,
   fetchPropertyRecordById,
   fetchPropertiesForSearch,
   fetchLinkedPropertiesByAccount,
   fetchServicesForActivities,
   fetchServiceProvidersForSearch,
+  searchContactsForLookup,
+  searchCompaniesForLookup,
   searchPropertiesForLookup,
   uploadMaterialFile,
   updateContactRecord,
@@ -55,6 +62,12 @@ import {
   TitleBackIcon,
   UploadsSection,
 } from "@modules/job-workspace/public/components.js";
+import {
+  extractMutationErrorMessage,
+  extractStatusFailure,
+  isPersistedId,
+  normalizeObjectList,
+} from "@modules/job-workspace/public/sdk.js";
 import {
   formatDate,
   formatFileSize,
@@ -866,6 +879,2223 @@ function SectionLoadingState({
   );
 }
 
+const RECENT_ADMIN_ACTIVITY_STORAGE_KEY = "ptpm_admin_recent_activity_v1";
+const MAX_RECENT_ADMIN_ACTIVITY_RECORDS = 20;
+const RECENT_ACTIVITIES_UPDATED_EVENT = "ptpm-recent-activities-updated";
+
+function isMajorRecentActivityAction(action = "") {
+  const normalized = toText(action).toLowerCase();
+  return (
+    normalized.includes("create") ||
+    normalized.includes("update") ||
+    normalized.includes("delete") ||
+    normalized.includes("cancel") ||
+    normalized.includes("new inquiry")
+  );
+}
+
+function resolveActivityPageType(pathname = "") {
+  const normalizedPath = toText(pathname).toLowerCase();
+  if (!normalizedPath) return "unknown";
+  if (normalizedPath.startsWith("/inquiry-details")) return "inquiry-details";
+  if (normalizedPath.startsWith("/inquiry-direct")) return "inquiry-direct";
+  if (normalizedPath.startsWith("/job-direct")) return "job-direct";
+  if (normalizedPath.startsWith("/details")) return "job-details";
+  if (normalizedPath.startsWith("/profile")) return "profile";
+  if (normalizedPath.startsWith("/settings")) return "settings";
+  if (normalizedPath.startsWith("/notifications")) return "notifications";
+  if (normalizedPath === "/") return "dashboard";
+  return "app";
+}
+
+function resolveActivityPageName(pageType = "") {
+  const normalizedType = toText(pageType).toLowerCase();
+  if (normalizedType === "inquiry-details") return "Inquiry Details";
+  if (normalizedType === "inquiry-direct") return "Inquiry Direct";
+  if (normalizedType === "job-direct") return "Job Direct";
+  if (normalizedType === "job-details") return "Job Details";
+  if (normalizedType === "profile") return "Profile";
+  if (normalizedType === "settings") return "Settings";
+  if (normalizedType === "notifications") return "Notifications";
+  if (normalizedType === "dashboard") return "Dashboard";
+  return "App";
+}
+
+function normalizeRecentActivityRecord(record = {}) {
+  const timestamp = Number(record?.timestamp);
+  const normalizedTimestamp = Number.isFinite(timestamp) ? timestamp : Date.now();
+  const metadata =
+    record?.metadata && typeof record.metadata === "object" ? { ...record.metadata } : {};
+  const metadataInquiryId =
+    toText(metadata?.inquiry_id) || toText(metadata?.inquiryId) || toText(metadata?.deal_id);
+  const metadataInquiryUid =
+    toText(metadata?.inquiry_uid) || toText(metadata?.inquiryUid) || toText(metadata?.deal_uid);
+  return {
+    id:
+      toText(record?.id) ||
+      `activity-${normalizedTimestamp}-${Math.random().toString(36).slice(2, 9)}`,
+    timestamp: normalizedTimestamp,
+    action: toText(record?.action),
+    page_type: toText(record?.page_type) || resolveActivityPageType(record?.path),
+    page_name:
+      toText(record?.page_name) ||
+      resolveActivityPageName(toText(record?.page_type) || resolveActivityPageType(record?.path)),
+    path: toText(record?.path),
+    inquiry_id: toText(record?.inquiry_id || metadataInquiryId),
+    inquiry_uid: toText(record?.inquiry_uid || metadataInquiryUid),
+    metadata,
+  };
+}
+
+function normalizeRecentActivityAction(value = "") {
+  return toText(value).toLowerCase();
+}
+
+function finalizeRecentActivityList(records = []) {
+  const normalized = (Array.isArray(records) ? records : [])
+    .map((item) => normalizeRecentActivityRecord(item))
+    .filter((item) => isMajorRecentActivityAction(item?.action))
+    .sort((left, right) => Number(right?.timestamp || 0) - Number(left?.timestamp || 0));
+
+  const createdNewInquiryKeys = new Set(
+    normalized
+      .filter((item) => normalizeRecentActivityAction(item?.action) === "created new inquiry")
+      .map((item) => toText(item?.inquiry_uid).toLowerCase() || toText(item?.path).toLowerCase())
+      .filter(Boolean)
+  );
+  const seen = new Set();
+  const deduped = [];
+  for (const item of normalized) {
+    const actionKey = normalizeRecentActivityAction(item?.action);
+    const inquiryUidKey = toText(item?.inquiry_uid).toLowerCase();
+    const inquiryIdKey = toText(item?.inquiry_id).toLowerCase();
+    const pathKey = toText(item?.path);
+    const inquiryKey = inquiryUidKey || inquiryIdKey || pathKey.toLowerCase();
+
+    if (
+      actionKey === "started new inquiry" &&
+      inquiryKey &&
+      createdNewInquiryKeys.has(inquiryKey)
+    ) {
+      continue;
+    }
+
+    const key = inquiryKey ? `${actionKey}|${inquiryKey}` : `${actionKey}|${pathKey.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+  return deduped.slice(0, MAX_RECENT_ADMIN_ACTIVITY_RECORDS);
+}
+
+function buildRecentActivitySignature(records = []) {
+  const toSignatureJson = (value) => {
+    const seen = new WeakSet();
+    try {
+      return (
+        JSON.stringify(value, (_key, current) => {
+          if (typeof current === "bigint") return current.toString();
+          if (
+            typeof current === "function" ||
+            typeof current === "symbol" ||
+            typeof current === "undefined"
+          ) {
+            return undefined;
+          }
+          if (current && typeof current === "object") {
+            if (seen.has(current)) return undefined;
+            seen.add(current);
+          }
+          return current;
+        }) || ""
+      );
+    } catch {
+      return "";
+    }
+  };
+  return JSON.stringify(
+    finalizeRecentActivityList(records).map((item) => ({
+      id: toText(item?.id),
+      timestamp: Number(item?.timestamp || 0),
+      action: toText(item?.action),
+      page_type: toText(item?.page_type),
+      page_name: toText(item?.page_name),
+      path: toText(item?.path),
+      inquiry_id: toText(item?.inquiry_id),
+      inquiry_uid: toText(item?.inquiry_uid),
+      metadata: toSignatureJson(item?.metadata && typeof item.metadata === "object" ? item.metadata : {}),
+    }))
+  );
+}
+
+function readRecentAdminActivitiesFromStorage() {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const raw = window.localStorage.getItem(RECENT_ADMIN_ACTIVITY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return finalizeRecentActivityList(parsed);
+  } catch (storageError) {
+    console.warn("[InquiryDetails] Failed reading recent admin activity from storage", storageError);
+    return [];
+  }
+}
+
+function writeRecentAdminActivitiesToStorage(records = []) {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    const normalized = finalizeRecentActivityList(records);
+    window.localStorage.setItem(RECENT_ADMIN_ACTIVITY_STORAGE_KEY, JSON.stringify(normalized));
+    window.dispatchEvent(new CustomEvent(RECENT_ACTIVITIES_UPDATED_EVENT));
+  } catch (storageError) {
+    console.warn("[InquiryDetails] Failed writing recent admin activity to storage", storageError);
+  }
+}
+
+function createRecentActivityJsonData(records = [], adminProviderId = "") {
+  const normalizedRecords = finalizeRecentActivityList(records);
+  const normalizedAdminProviderId = toText(adminProviderId);
+  const payload = {
+    service_provider_id: normalizedAdminProviderId || null,
+    record_count: normalizedRecords.length,
+    records: normalizedRecords.map((item) => ({
+      id: toText(item?.id),
+      timestamp: Number(item?.timestamp || 0),
+      action: toText(item?.action),
+      page_type: toText(item?.page_type),
+      page_name: toText(item?.page_name),
+      path: toText(item?.path),
+      inquiry_id: toText(item?.inquiry_id),
+      inquiry_uid: toText(item?.inquiry_uid),
+      metadata: item?.metadata && typeof item.metadata === "object" ? item.metadata : {},
+    })),
+  };
+
+  const seen = new WeakSet();
+  try {
+    return JSON.stringify(payload, (_key, value) => {
+      if (typeof value === "bigint") return value.toString();
+      if (
+        typeof value === "function" ||
+        typeof value === "symbol" ||
+        typeof value === "undefined"
+      ) {
+        return undefined;
+      }
+      if (value && typeof value === "object") {
+        if (seen.has(value)) return undefined;
+        seen.add(value);
+      }
+      return value;
+    });
+  } catch {
+    return JSON.stringify({
+      service_provider_id: normalizedAdminProviderId || null,
+      record_count: normalizedRecords.length,
+      records: normalizedRecords.map((item) => ({
+        id: toText(item?.id),
+        timestamp: Number(item?.timestamp || 0),
+        action: toText(item?.action),
+        page_type: toText(item?.page_type),
+        page_name: toText(item?.page_name),
+        path: toText(item?.path),
+        inquiry_id: toText(item?.inquiry_id),
+        inquiry_uid: toText(item?.inquiry_uid),
+      })),
+    });
+  }
+}
+
+async function updateServiceProviderRecentActivityJsonData({
+  plugin,
+  serviceProviderId,
+  jsonPayload,
+} = {}) {
+  const normalizedProviderId = toText(serviceProviderId);
+  if (!plugin?.switchTo || !normalizedProviderId) {
+    throw new Error("Service provider context is not ready.");
+  }
+  const normalizedPayload = toText(jsonPayload);
+  if (!normalizedPayload) {
+    throw new Error("Recent activity JSON payload is missing.");
+  }
+
+  const providerModel = plugin.switchTo("PeterpmServiceProvider");
+  if (!providerModel?.mutation) {
+    throw new Error("Service provider model is unavailable.");
+  }
+  const normalizedProviderLookupId = /^\d+$/.test(normalizedProviderId)
+    ? Number.parseInt(normalizedProviderId, 10)
+    : normalizedProviderId;
+  const whereCandidates = [
+    ["id", normalizedProviderLookupId],
+    ["id", normalizedProviderId],
+    ["unique_id", normalizedProviderId],
+    ["unique_id", normalizedProviderLookupId],
+  ];
+  const wherePairs = [];
+  const seenWherePairs = new Set();
+  for (const [whereField, whereValue] of whereCandidates) {
+    const normalizedWhereValue = toText(whereValue);
+    if (!normalizedWhereValue) continue;
+    const key = `${whereField}:${normalizedWhereValue}`;
+    if (seenWherePairs.has(key)) continue;
+    seenWherePairs.add(key);
+    wherePairs.push([whereField, whereValue]);
+  }
+  const payloadFields = [
+    "recent_activity_json_data",
+    "Recent_Activity_Json_Data",
+    "recent_activity",
+    "Recent_Activity",
+  ];
+  const normalizePayloadForCompare = (value) => {
+    const text = toText(value);
+    if (!text) return "";
+    try {
+      return JSON.stringify(JSON.parse(text));
+    } catch {
+      return text;
+    }
+  };
+  const expectedPayloadNormalized = normalizePayloadForCompare(normalizedPayload);
+  const wasPayloadPersisted = async (whereField, whereValue, payloadField) => {
+    if (!providerModel?.query) return false;
+    try {
+      const query = providerModel
+        .query()
+        .where(whereField, whereValue)
+        .deSelectAll()
+        .select(["id", "unique_id", payloadField])
+        .limit(1)
+        .noDestroy();
+      query.getOrInitQueryCalc?.();
+      const result = await toPromiseLike(query.fetchDirect());
+      const record = extractFirstRecord(result);
+      if (!record) return false;
+      const persistedPayload = normalizePayloadForCompare(
+        record?.[payloadField] ?? record?._data?.[payloadField]
+      );
+      return persistedPayload === expectedPayloadNormalized;
+    } catch {
+      return false;
+    }
+  };
+
+  const executeUpdate = async (whereField, whereValue, payloadField) => {
+    const mutation = await providerModel.mutation();
+    mutation.update((query) =>
+      query.where(whereField, whereValue).set({
+        [payloadField]: normalizedPayload,
+      })
+    );
+    const result = await toPromiseLike(mutation.execute(true));
+    if (!result || result?.isCancelling) {
+      throw new Error("Recent activity JSON update was cancelled.");
+    }
+    const failure = extractStatusFailure(result);
+    if (failure) {
+      throw new Error(
+        extractMutationErrorMessage(failure.statusMessage) ||
+          "Unable to update service provider recent activity JSON data."
+      );
+    }
+    return true;
+  };
+  let lastError = null;
+  for (const [whereField, whereValue] of wherePairs) {
+    for (const payloadField of payloadFields) {
+      try {
+        console.log("[RecentActivitySync][InquiryDetails] Executing SDK mutation update", {
+          serviceProviderId: normalizedProviderId,
+          whereField,
+          payloadField,
+        });
+        await executeUpdate(whereField, whereValue, payloadField);
+        const didPersist = await wasPayloadPersisted(whereField, whereValue, payloadField);
+        if (didPersist) {
+          return true;
+        }
+        lastError = new Error(
+          `Recent activity payload was not persisted for ${whereField} (${toText(whereValue)}) using ${payloadField}.`
+        );
+      } catch (updateError) {
+        lastError = updateError;
+      }
+    }
+  }
+  if (lastError) throw lastError;
+  return false;
+}
+
+const QUICK_INQUIRY_EMPTY_INDIVIDUAL_FORM = {
+  email: "",
+  first_name: "",
+  last_name: "",
+  sms_number: "",
+  address: "",
+  city: "",
+  state: "",
+  zip_code: "",
+  country: "AU",
+};
+
+const QUICK_INQUIRY_EMPTY_COMPANY_FORM = {
+  company_name: "",
+  company_phone: "",
+  company_address: "",
+  company_city: "",
+  company_state: "",
+  company_postal_code: "",
+  company_account_type: "",
+  primary_first_name: "",
+  primary_last_name: "",
+  primary_email: "",
+  primary_sms_number: "",
+};
+
+const QUICK_INQUIRY_EMPTY_DETAILS_FORM = {
+  inquiry_source: "",
+  type: "",
+  service_inquiry_id: "",
+  how_can_we_help: "",
+  how_did_you_hear: "",
+  other: "",
+  noise_signs_options_as_text: "",
+  pest_active_times_options_as_text: "",
+  pest_location_options_as_text: "",
+  property_lot_number: "",
+  property_unit_number: "",
+  property_lookup: "",
+  property_name: "",
+  property_address_1: "",
+  property_suburb_town: "",
+  property_state: "",
+  property_postal_code: "",
+  property_country: "AU",
+  admin_notes: "",
+  client_notes: "",
+};
+
+function normalizeComparablePropertyName(value) {
+  return toText(value)
+    .toLowerCase()
+    .replace(/[\s,]+/g, " ")
+    .trim();
+}
+
+function normalizeComparableText(value) {
+  return toText(value)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveLookupRecordId(record = null, accountType = "Contact") {
+  if (!record || typeof record !== "object") return "";
+  const candidates =
+    String(accountType || "").toLowerCase() === "company"
+      ? [
+          record?.id,
+          record?.ID,
+          record?.company_id,
+          record?.Company_ID,
+          record?.CompanyID,
+        ]
+      : [
+          record?.id,
+          record?.ID,
+          record?.contact_id,
+          record?.Contact_ID,
+          record?.ContactID,
+          record?.primary_contact_id,
+          record?.Primary_Contact_ID,
+        ];
+  for (const candidate of candidates) {
+    const normalized = toText(candidate);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function buildStandardPropertyName({
+  lot_number = "",
+  unit_number = "",
+  address_1 = "",
+  suburb_town = "",
+  state = "",
+  postal_code = "",
+  country = "",
+} = {}) {
+  const lotUnit = [toText(lot_number), toText(unit_number)].filter(Boolean).join(" ");
+  const suburbStatePostcode = [toText(suburb_town), toText(state), toText(postal_code)]
+    .filter(Boolean)
+    .join(" ");
+  return [lotUnit, toText(address_1), suburbStatePostcode, toText(country)]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function QuickInquiryBookingModal({
+  open,
+  onClose,
+  plugin,
+  inquiryId = "",
+  configuredAdminProviderId = "",
+  onSavingStart = null,
+  onSaved = null,
+  onError = null,
+}) {
+  const [step, setStep] = useState(1);
+  const [accountMode, setAccountMode] = useState("individual");
+  const [showIndividualOptional, setShowIndividualOptional] = useState(false);
+  const [showCompanyOptional, setShowCompanyOptional] = useState(false);
+  const [individualForm, setIndividualForm] = useState({ ...QUICK_INQUIRY_EMPTY_INDIVIDUAL_FORM });
+  const [companyForm, setCompanyForm] = useState({ ...QUICK_INQUIRY_EMPTY_COMPANY_FORM });
+  const [detailsForm, setDetailsForm] = useState({ ...QUICK_INQUIRY_EMPTY_DETAILS_FORM });
+  const [contactMatchState, setContactMatchState] = useState({
+    status: "idle",
+    message: "",
+    record: null,
+  });
+  const [companyMatchState, setCompanyMatchState] = useState({
+    status: "idle",
+    message: "",
+    record: null,
+  });
+  const [propertyMatchState, setPropertyMatchState] = useState({
+    status: "idle",
+    message: "",
+    record: null,
+  });
+  const [serviceOptions, setServiceOptions] = useState([]);
+  const [isServiceOptionsLoading, setIsServiceOptionsLoading] = useState(false);
+  const [isCreatingInquiry, setIsCreatingInquiry] = useState(false);
+  const [relatedInquiries, setRelatedInquiries] = useState([]);
+  const [relatedJobs, setRelatedJobs] = useState([]);
+  const [isRelatedLoading, setIsRelatedLoading] = useState(false);
+  const [relatedError, setRelatedError] = useState("");
+  const [isQuickPropertySameAsContact, setIsQuickPropertySameAsContact] = useState(false);
+  const [isApplyingQuickSameAsContactProperty, setIsApplyingQuickSameAsContactProperty] =
+    useState(false);
+  const contactLookupRequestRef = useRef(0);
+  const companyLookupRequestRef = useRef(0);
+  const propertyLookupRequestRef = useRef(0);
+
+  const individualAddressLookupRef = useGoogleAddressLookup({
+    enabled: open && accountMode === "individual" && showIndividualOptional,
+    country: "au",
+    onAddressSelected: (parsed) => {
+      setIndividualForm((previous) => ({
+        ...previous,
+        address: toText(parsed?.address || parsed?.formatted_address || previous.address),
+        city: toText(parsed?.city || previous.city),
+        state: toText(parsed?.state || previous.state),
+        zip_code: toText(parsed?.zip_code || previous.zip_code),
+        country: toText(parsed?.country || previous.country || "AU"),
+      }));
+    },
+  });
+
+  const companyAddressLookupRef = useGoogleAddressLookup({
+    enabled: open && accountMode === "company" && showCompanyOptional,
+    country: "au",
+    onAddressSelected: (parsed) => {
+      setCompanyForm((previous) => ({
+        ...previous,
+        company_address: toText(parsed?.address || parsed?.formatted_address || previous.company_address),
+        company_city: toText(parsed?.city || previous.company_city),
+        company_state: toText(parsed?.state || previous.company_state),
+        company_postal_code: toText(parsed?.zip_code || previous.company_postal_code),
+      }));
+    },
+  });
+
+  const propertyLookupRef = useGoogleAddressLookup({
+    enabled: open && step === 2 && getInquiryFlowRule(detailsForm.type).showPropertySearch,
+    country: "au",
+    onAddressSelected: (parsed) => {
+      const lookupLabel = toText(parsed?.formatted_address || parsed?.address);
+      const lotNumber = toText(parsed?.lot_number);
+      const unitNumber = toText(parsed?.unit_number);
+      const address1 = toText(parsed?.address || lookupLabel);
+      const suburbTown = toText(parsed?.city);
+      const state = toText(parsed?.state);
+      const postalCode = toText(parsed?.zip_code);
+      const country = toText(parsed?.country || "AU");
+      const propertyName = buildStandardPropertyName({
+        lot_number: lotNumber,
+        unit_number: unitNumber,
+        address_1: address1,
+        suburb_town: suburbTown,
+        state,
+        postal_code: postalCode,
+        country,
+      });
+      setDetailsForm((previous) => ({
+        ...previous,
+        property_lookup: lookupLabel || previous.property_lookup,
+        property_lot_number: lotNumber || previous.property_lot_number,
+        property_unit_number: unitNumber || previous.property_unit_number,
+        property_name: propertyName || previous.property_name,
+        property_address_1: address1 || previous.property_address_1,
+        property_suburb_town: suburbTown || previous.property_suburb_town,
+        property_state: state || previous.property_state,
+        property_postal_code: postalCode || previous.property_postal_code,
+        property_country: country || previous.property_country || "AU",
+      }));
+    },
+  });
+
+  const inquiryFlowRule = useMemo(() => getInquiryFlowRule(detailsForm.type), [detailsForm.type]);
+  const standardizedPropertyName = useMemo(
+    () =>
+      buildStandardPropertyName({
+        lot_number: detailsForm.property_lot_number,
+        unit_number: detailsForm.property_unit_number,
+        address_1: detailsForm.property_address_1 || detailsForm.property_lookup,
+        suburb_town: detailsForm.property_suburb_town,
+        state: detailsForm.property_state,
+        postal_code: detailsForm.property_postal_code,
+        country: detailsForm.property_country || "AU",
+      }),
+    [
+      detailsForm.property_address_1,
+      detailsForm.property_country,
+      detailsForm.property_lookup,
+      detailsForm.property_lot_number,
+      detailsForm.property_postal_code,
+      detailsForm.property_state,
+      detailsForm.property_suburb_town,
+      detailsForm.property_unit_number,
+    ]
+  );
+  const shouldShowOtherSource = useMemo(
+    () => shouldShowOtherSourceField(detailsForm.how_did_you_hear),
+    [detailsForm.how_did_you_hear]
+  );
+  const currentAccountType = accountMode === "company" ? "Company" : "Contact";
+  const currentMatchedAccountId = useMemo(
+    () =>
+      accountMode === "company"
+        ? resolveLookupRecordId(companyMatchState.record, "Company")
+        : resolveLookupRecordId(contactMatchState.record, "Contact"),
+    [accountMode, companyMatchState.record, contactMatchState.record]
+  );
+  const serviceNameById = useMemo(
+    () =>
+      Object.fromEntries(
+        (Array.isArray(serviceOptions) ? serviceOptions : []).map((option) => [
+          toText(option?.value),
+          toText(option?.label),
+        ])
+      ),
+    [serviceOptions]
+  );
+  const selectedQuickServiceInquiryLabel = useMemo(() => {
+    const selectedServiceId = normalizeServiceInquiryId(detailsForm.service_inquiry_id);
+    if (!selectedServiceId) return "";
+    return toText(
+      serviceNameById[selectedServiceId] ||
+        (Array.isArray(serviceOptions)
+          ? serviceOptions.find((option) => toText(option?.value) === selectedServiceId)?.label
+          : "")
+    );
+  }, [detailsForm.service_inquiry_id, serviceNameById, serviceOptions]);
+  const isQuickPestServiceSelected = useMemo(
+    () => isPestServiceFlow(selectedQuickServiceInquiryLabel),
+    [selectedQuickServiceInquiryLabel]
+  );
+  const canProceedStepOne =
+    accountMode === "company"
+      ? Boolean(toText(companyForm.company_name))
+      : Boolean(toText(individualForm.email));
+  const isInquiryReady = Boolean(toText(inquiryId));
+  const canCreateInquiry =
+    isInquiryReady &&
+    Boolean(toText(detailsForm.inquiry_source)) &&
+    Boolean(toText(detailsForm.type)) &&
+    !isApplyingQuickSameAsContactProperty &&
+    !isCreatingInquiry;
+  const quickSameAsContactPropertySource = useMemo(() => {
+    if (accountMode === "company") {
+      const matchedRecord = companyMatchState.record || {};
+      const address1 = toText(
+        companyForm.company_address || matchedRecord?.address || matchedRecord?.Address
+      );
+      const suburbTown = toText(
+        companyForm.company_city || matchedRecord?.city || matchedRecord?.City
+      );
+      const state = toText(
+        companyForm.company_state || matchedRecord?.state || matchedRecord?.State
+      );
+      const postalCode = toText(
+        companyForm.company_postal_code ||
+          matchedRecord?.postal_code ||
+          matchedRecord?.Postal_Code ||
+          matchedRecord?.zip_code ||
+          matchedRecord?.Zip_Code
+      );
+      const country = toText(matchedRecord?.country || matchedRecord?.Country || "AU") || "AU";
+      const searchText = joinAddress([address1, suburbTown, state, postalCode]);
+      return {
+        address1,
+        suburbTown,
+        state,
+        postalCode,
+        country,
+        searchText,
+      };
+    }
+    const matchedRecord = contactMatchState.record || {};
+    const address1 = toText(individualForm.address || matchedRecord?.address || matchedRecord?.Address);
+    const suburbTown = toText(individualForm.city || matchedRecord?.city || matchedRecord?.City);
+    const state = toText(individualForm.state || matchedRecord?.state || matchedRecord?.State);
+    const postalCode = toText(
+      individualForm.zip_code ||
+        matchedRecord?.zip_code ||
+        matchedRecord?.Zip_Code ||
+        matchedRecord?.postal_code ||
+        matchedRecord?.Postal_Code
+    );
+    const country = toText(
+      individualForm.country || matchedRecord?.country || matchedRecord?.Country || "AU"
+    ) || "AU";
+    const searchText = joinAddress([address1, suburbTown, state, postalCode]);
+    return {
+      address1,
+      suburbTown,
+      state,
+      postalCode,
+      country,
+      searchText,
+    };
+  }, [
+    accountMode,
+    companyForm.company_address,
+    companyForm.company_city,
+    companyForm.company_postal_code,
+    companyForm.company_state,
+    companyMatchState.record,
+    contactMatchState.record,
+    individualForm.address,
+    individualForm.city,
+    individualForm.country,
+    individualForm.state,
+    individualForm.zip_code,
+  ]);
+
+  const handleQuickSameAsContactPropertyChange = useCallback(
+    async (checked) => {
+      setIsQuickPropertySameAsContact(Boolean(checked));
+      if (!checked) return;
+
+      const sourceAddress = toText(quickSameAsContactPropertySource?.address1);
+      const sourceSuburb = toText(quickSameAsContactPropertySource?.suburbTown);
+      const sourceState = toText(quickSameAsContactPropertySource?.state);
+      const sourcePostal = toText(quickSameAsContactPropertySource?.postalCode);
+      const sourceCountry = toText(quickSameAsContactPropertySource?.country || "AU") || "AU";
+      const concatenatedSourceAddress = toText(
+        quickSameAsContactPropertySource?.searchText ||
+          joinAddress([sourceAddress, sourceSuburb, sourceState, sourcePostal])
+      );
+
+      if (!concatenatedSourceAddress) {
+        setIsQuickPropertySameAsContact(false);
+        onError?.(new Error("No address is available on the current account."));
+        return;
+      }
+
+      setIsApplyingQuickSameAsContactProperty(true);
+      try {
+        const googleResolvedAddress = await resolveAddressFromGoogleLookup(concatenatedSourceAddress);
+        const derivedAddress1 = toText(
+          googleResolvedAddress?.address || sourceAddress || concatenatedSourceAddress
+        );
+        const derivedSuburb = toText(googleResolvedAddress?.city || sourceSuburb);
+        const derivedState = toText(googleResolvedAddress?.state || sourceState);
+        const derivedPostal = toText(googleResolvedAddress?.zip_code || sourcePostal);
+        const derivedCountry = toText(googleResolvedAddress?.country || sourceCountry) || sourceCountry;
+        const derivedLot = toText(googleResolvedAddress?.lot_number);
+        const derivedUnit = toText(googleResolvedAddress?.unit_number);
+        const searchText = toText(
+          googleResolvedAddress?.formatted_address ||
+            joinAddress([derivedAddress1, derivedSuburb, derivedState, derivedPostal]) ||
+            concatenatedSourceAddress
+        );
+
+        if (!derivedAddress1 && !searchText) {
+          throw new Error("No address is available on the current account.");
+        }
+
+        let matchedExistingProperty = null;
+        if (plugin?.switchTo) {
+          const searchedRecords = await searchPropertiesForLookup({
+            plugin,
+            query: searchText,
+            limit: 25,
+          });
+          const normalizedSearchedRecords = dedupePropertyLookupRecords(searchedRecords || []);
+          const targetComparableAddress = normalizeAddressText(
+            joinAddress([derivedAddress1, derivedSuburb, derivedState, derivedPostal]) || searchText
+          );
+          matchedExistingProperty =
+            normalizedSearchedRecords.find(
+              (record) => buildComparablePropertyAddress(record) === targetComparableAddress
+            ) ||
+            normalizedSearchedRecords.find((record) => {
+              const comparable = buildComparablePropertyAddress(record);
+              return Boolean(
+                comparable &&
+                  targetComparableAddress &&
+                  comparable.includes(targetComparableAddress)
+              );
+            }) ||
+            null;
+        }
+
+        const normalizedMatchedProperty = normalizePropertyLookupRecord(matchedExistingProperty || {});
+        const nextLot = toText(normalizedMatchedProperty?.lot_number || derivedLot);
+        const nextUnit = toText(normalizedMatchedProperty?.unit_number || derivedUnit);
+        const nextAddress1 = toText(
+          normalizedMatchedProperty?.address_1 ||
+            normalizedMatchedProperty?.address ||
+            derivedAddress1
+        );
+        const nextSuburb = toText(
+          normalizedMatchedProperty?.suburb_town ||
+            normalizedMatchedProperty?.city ||
+            derivedSuburb
+        );
+        const nextState = toText(normalizedMatchedProperty?.state || derivedState);
+        const nextPostal = toText(
+          normalizedMatchedProperty?.postal_code ||
+            normalizedMatchedProperty?.zip_code ||
+            derivedPostal
+        );
+        const nextCountry = toText(normalizedMatchedProperty?.country || derivedCountry || "AU") || "AU";
+        const matchedPropertyName = toText(normalizedMatchedProperty?.property_name);
+        const nextPropertyName =
+          matchedPropertyName ||
+          buildStandardPropertyName({
+            lot_number: nextLot,
+            unit_number: nextUnit,
+            address_1: nextAddress1,
+            suburb_town: nextSuburb,
+            state: nextState,
+            postal_code: nextPostal,
+            country: nextCountry,
+          }) ||
+          searchText;
+        const nextLookup = toText(googleResolvedAddress?.formatted_address || searchText || nextAddress1);
+
+        setDetailsForm((previous) => ({
+          ...previous,
+          property_lookup: nextLookup,
+          property_lot_number: nextLot,
+          property_unit_number: nextUnit,
+          property_name: nextPropertyName,
+          property_address_1: nextAddress1,
+          property_suburb_town: nextSuburb,
+          property_state: nextState,
+          property_postal_code: nextPostal,
+          property_country: nextCountry,
+        }));
+
+        if (matchedExistingProperty) {
+          setPropertyMatchState({
+            status: "found",
+            message: "Property already exists and will be linked.",
+            record: normalizedMatchedProperty,
+          });
+        }
+      } catch (applyError) {
+        console.error("[QuickInquiry] Failed same-as-contact property flow", applyError);
+        setIsQuickPropertySameAsContact(false);
+        onError?.(new Error(applyError?.message || "Unable to apply contact address to property."));
+      } finally {
+        setIsApplyingQuickSameAsContactProperty(false);
+      }
+    },
+    [onError, plugin, quickSameAsContactPropertySource]
+  );
+
+  useEffect(() => {
+    if (!open || !plugin) return;
+
+    let cancelled = false;
+    setIsServiceOptionsLoading(true);
+    fetchServicesForActivities({ plugin })
+      .then((records) => {
+        if (cancelled) return;
+        const mapped = (Array.isArray(records) ? records : [])
+          .map((record) => ({
+            value: toText(record?.id || record?.ID),
+            label: toText(record?.service_name || record?.Service_Name),
+            type: toText(record?.service_type || record?.Service_Type),
+          }))
+          .filter((record) => record.value && record.label)
+          .sort((left, right) => left.label.localeCompare(right.label));
+        setServiceOptions(mapped);
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        console.error("[QuickInquiry] Failed loading service options", loadError);
+        setServiceOptions([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsServiceOptionsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, plugin]);
+
+  useEffect(() => {
+    if (!open || !plugin || accountMode !== "individual") {
+      setContactMatchState({ status: "idle", message: "", record: null });
+      return;
+    }
+    const email = toText(individualForm.email);
+    if (!email) {
+      setContactMatchState({ status: "idle", message: "", record: null });
+      return;
+    }
+    if (!isLikelyEmailValue(email)) {
+      setContactMatchState({
+        status: "invalid",
+        message: "Enter a valid email format to run a duplicate check.",
+        record: null,
+      });
+      return;
+    }
+
+    const requestId = ++contactLookupRequestRef.current;
+    setContactMatchState({
+      status: "checking",
+      message: "Checking for existing contact...",
+      record: null,
+    });
+    const timeoutId = window.setTimeout(() => {
+      fetchContactByExactEmail({ plugin, email })
+        .then((matchedRecord) => {
+          if (requestId !== contactLookupRequestRef.current) return;
+          if (!matchedRecord) {
+            setContactMatchState({
+              status: "not-found",
+              message: "No contact found with this email. Proceed to create a new contact.",
+              record: null,
+            });
+            return;
+          }
+          setContactMatchState({
+            status: "found",
+            message: "This contact already exists. Proceed with this email.",
+            record: matchedRecord,
+          });
+          setIndividualForm((previous) => ({
+            ...previous,
+            first_name: toText(
+              matchedRecord?.first_name || matchedRecord?.First_Name || previous.first_name
+            ),
+            last_name: toText(
+              matchedRecord?.last_name || matchedRecord?.Last_Name || previous.last_name
+            ),
+            sms_number: toText(
+              matchedRecord?.sms_number || matchedRecord?.SMS_Number || previous.sms_number
+            ),
+            address: toText(matchedRecord?.address || matchedRecord?.Address || previous.address),
+            city: toText(matchedRecord?.city || matchedRecord?.City || previous.city),
+            state: toText(matchedRecord?.state || matchedRecord?.State || previous.state),
+            zip_code: toText(matchedRecord?.zip_code || matchedRecord?.Zip_Code || previous.zip_code),
+            country: toText(matchedRecord?.country || matchedRecord?.Country || previous.country || "AU"),
+          }));
+        })
+        .catch((lookupError) => {
+          if (requestId !== contactLookupRequestRef.current) return;
+          console.error("[QuickInquiry] Contact lookup failed", lookupError);
+          setContactMatchState({
+            status: "error",
+            message: lookupError?.message || "Unable to verify contact email.",
+            record: null,
+          });
+        });
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [accountMode, individualForm.email, open, plugin]);
+
+  useEffect(() => {
+    if (!open || !plugin || accountMode !== "company") {
+      setCompanyMatchState({ status: "idle", message: "", record: null });
+      return;
+    }
+    const companyName = toText(companyForm.company_name);
+    if (!companyName) {
+      setCompanyMatchState({ status: "idle", message: "", record: null });
+      return;
+    }
+
+    const requestId = ++companyLookupRequestRef.current;
+    setCompanyMatchState({
+      status: "checking",
+      message: "Checking for existing company...",
+      record: null,
+    });
+    const timeoutId = window.setTimeout(() => {
+      fetchCompanyByExactName({ plugin, companyName })
+        .then((matchedRecord) => {
+          if (requestId !== companyLookupRequestRef.current) return;
+          if (!matchedRecord) {
+            setCompanyMatchState({
+              status: "not-found",
+              message: "No company found with this name. Proceed to create a new company.",
+              record: null,
+            });
+            return;
+          }
+          setCompanyMatchState({
+            status: "found",
+            message: "This company already exists. Proceed with this company.",
+            record: matchedRecord,
+          });
+          const primaryPerson = normalizeRelationRecord(
+            matchedRecord?.Primary_Person || matchedRecord?.primary_person
+          );
+          setCompanyForm((previous) => ({
+            ...previous,
+            company_phone: toText(matchedRecord?.phone || matchedRecord?.Phone || previous.company_phone),
+            company_address: toText(
+              matchedRecord?.address || matchedRecord?.Address || previous.company_address
+            ),
+            company_city: toText(matchedRecord?.city || matchedRecord?.City || previous.company_city),
+            company_state: toText(
+              matchedRecord?.state || matchedRecord?.State || previous.company_state
+            ),
+            company_postal_code: toText(
+              matchedRecord?.postal_code ||
+                matchedRecord?.Postal_Code ||
+                previous.company_postal_code
+            ),
+            company_account_type: toText(
+              matchedRecord?.account_type ||
+                matchedRecord?.Account_Type ||
+                previous.company_account_type
+            ),
+            primary_first_name: toText(
+              primaryPerson?.first_name || primaryPerson?.First_Name || previous.primary_first_name
+            ),
+            primary_last_name: toText(
+              primaryPerson?.last_name || primaryPerson?.Last_Name || previous.primary_last_name
+            ),
+            primary_email: toText(
+              primaryPerson?.email || primaryPerson?.Email || previous.primary_email
+            ),
+            primary_sms_number: toText(
+              primaryPerson?.sms_number || primaryPerson?.SMS_Number || previous.primary_sms_number
+            ),
+          }));
+        })
+        .catch((lookupError) => {
+          if (requestId !== companyLookupRequestRef.current) return;
+          console.error("[QuickInquiry] Company lookup failed", lookupError);
+          setCompanyMatchState({
+            status: "error",
+            message: lookupError?.message || "Unable to verify company name.",
+            record: null,
+          });
+        });
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [accountMode, companyForm.company_name, open, plugin]);
+
+  useEffect(() => {
+    if (!open || !plugin || !inquiryFlowRule.showPropertySearch) {
+      setPropertyMatchState({ status: "idle", message: "", record: null });
+      return;
+    }
+    const propertyNameToMatch = toText(
+      standardizedPropertyName || detailsForm.property_name || detailsForm.property_lookup
+    );
+    if (!propertyNameToMatch) {
+      setPropertyMatchState({ status: "idle", message: "", record: null });
+      return;
+    }
+    const comparableTarget = normalizeComparablePropertyName(propertyNameToMatch);
+
+    const requestId = ++propertyLookupRequestRef.current;
+    setPropertyMatchState({
+      status: "checking",
+      message: "Checking for existing property...",
+      record: null,
+    });
+    const timeoutId = window.setTimeout(() => {
+      findPropertyByName({ plugin, propertyName: propertyNameToMatch })
+        .then((matchedRecord) => {
+          if (requestId !== propertyLookupRequestRef.current) return;
+          const comparableFound = normalizeComparablePropertyName(
+            matchedRecord?.property_name || matchedRecord?.Property_Name
+          );
+          const hasExactMatch =
+            Boolean(matchedRecord) &&
+            Boolean(comparableTarget) &&
+            comparableFound === comparableTarget;
+          if (!hasExactMatch) {
+            setPropertyMatchState({
+              status: "not-found",
+              message:
+                "No exact property-name match found. A new property will be created on save.",
+              record: null,
+            });
+            return;
+          }
+          setPropertyMatchState({
+            status: "found",
+            message: "Property already exists and will be linked.",
+            record: matchedRecord,
+          });
+        })
+        .catch((lookupError) => {
+          if (requestId !== propertyLookupRequestRef.current) return;
+          console.error("[QuickInquiry] Property lookup failed", lookupError);
+          setPropertyMatchState({
+            status: "error",
+            message: lookupError?.message || "Unable to verify property name.",
+            record: null,
+          });
+        });
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    detailsForm.property_lookup,
+    detailsForm.property_name,
+    inquiryFlowRule.showPropertySearch,
+    open,
+    plugin,
+    standardizedPropertyName,
+  ]);
+
+  useEffect(() => {
+    if (!open || !plugin || !currentMatchedAccountId) {
+      setRelatedInquiries([]);
+      setRelatedJobs([]);
+      setRelatedError("");
+      setIsRelatedLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIsRelatedLoading(true);
+    setRelatedError("");
+
+    Promise.all([
+      fetchQuickRelatedInquiriesByAccount({
+        plugin,
+        accountType: currentAccountType,
+        accountId: currentMatchedAccountId,
+      }),
+      fetchQuickRelatedJobsByAccount({
+        plugin,
+        accountType: currentAccountType,
+        accountId: currentMatchedAccountId,
+      }),
+    ])
+      .then(([inquiries, jobs]) => {
+        if (cancelled) return;
+        setRelatedInquiries(Array.isArray(inquiries) ? inquiries : []);
+        setRelatedJobs(Array.isArray(jobs) ? jobs : []);
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        console.error("[QuickInquiry] Failed loading related records", loadError);
+        setRelatedInquiries([]);
+        setRelatedJobs([]);
+        setRelatedError(loadError?.message || "Unable to load related records.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsRelatedLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentAccountType, currentMatchedAccountId, open, plugin]);
+
+  const handleCreateQuickInquiry = useCallback(async () => {
+    if (!plugin) {
+      onError?.(new Error("SDK is still initializing. Please wait."));
+      return;
+    }
+    const normalizedInquiryId = toText(inquiryId);
+    if (!normalizedInquiryId) {
+      onError?.(new Error("Inquiry is still being prepared. Please wait a moment."));
+      return;
+    }
+    if (isCreatingInquiry) return;
+    const resolvedAccountMode = accountMode === "company" ? "Company" : "Contact";
+    const currentFlowRule = getInquiryFlowRule(detailsForm.type);
+    const sourceValue = toText(detailsForm.inquiry_source);
+    const typeValue = toText(detailsForm.type);
+    if (!sourceValue || !typeValue) {
+      onError?.(new Error("Source and Type are required before creating inquiry."));
+      return;
+    }
+    if (resolvedAccountMode === "Contact") {
+      const email = toText(individualForm.email);
+      if (!email || !isLikelyEmailValue(email)) {
+        onError?.(new Error("A valid email is required for individual inquiry."));
+        return;
+      }
+    } else if (!toText(companyForm.company_name)) {
+      onError?.(new Error("Company name is required for company inquiry."));
+      return;
+    }
+
+    const optimisticInquiryPatch = {
+      inquiry_status: "New Inquiry",
+      account_type: resolvedAccountMode,
+      inquiry_source: toText(sourceValue),
+      type: toText(typeValue),
+      service_inquiry_id: currentFlowRule.showServiceInquiry
+        ? normalizeServiceInquiryId(detailsForm.service_inquiry_id)
+        : "",
+      how_can_we_help: currentFlowRule.showHowCanWeHelp ? toText(detailsForm.how_can_we_help) : "",
+      how_did_you_hear: currentFlowRule.showHowDidYouHear
+        ? toText(detailsForm.how_did_you_hear)
+        : "",
+      other:
+        currentFlowRule.showHowDidYouHear && shouldShowOtherSource ? toText(detailsForm.other) : "",
+      noise_signs_options_as_text: isQuickPestServiceSelected
+        ? toText(detailsForm.noise_signs_options_as_text)
+        : "",
+      pest_active_times_options_as_text: isQuickPestServiceSelected
+        ? toText(detailsForm.pest_active_times_options_as_text)
+        : "",
+      pest_location_options_as_text: isQuickPestServiceSelected
+        ? toText(detailsForm.pest_location_options_as_text)
+        : "",
+      admin_notes: toText(detailsForm.admin_notes),
+      client_notes: toText(detailsForm.client_notes),
+      Inquiry_Taken_By_id: configuredAdminProviderId
+        ? normalizeMutationIdentifier(configuredAdminProviderId)
+        : null,
+    };
+    if (currentFlowRule.showPropertySearch) {
+      const optimisticPropertyName = toText(
+        standardizedPropertyName || detailsForm.property_name || detailsForm.property_lookup
+      );
+      const matchedPropertyId = normalizePropertyId(
+        propertyMatchState.record?.id || propertyMatchState.record?.ID
+      );
+      optimisticInquiryPatch.property_id = matchedPropertyId || "";
+      optimisticInquiryPatch.Property = {
+        id: matchedPropertyId || "",
+        property_name: optimisticPropertyName,
+        address_1: toText(detailsForm.property_address_1 || detailsForm.property_lookup),
+        suburb_town: toText(detailsForm.property_suburb_town),
+        state: toText(detailsForm.property_state),
+        postal_code: toText(detailsForm.property_postal_code),
+        country: toText(detailsForm.property_country || "AU"),
+      };
+    }
+    if (resolvedAccountMode === "Contact") {
+      const matchedContactId = resolveLookupRecordId(contactMatchState.record, "Contact");
+      optimisticInquiryPatch.primary_contact_id = matchedContactId || "";
+      optimisticInquiryPatch.Primary_Contact = {
+        id: matchedContactId || "",
+        first_name: toText(individualForm.first_name),
+        last_name: toText(individualForm.last_name),
+        email: toText(individualForm.email),
+        sms_number: toText(individualForm.sms_number),
+        address: toText(individualForm.address),
+        city: toText(individualForm.city),
+        state: toText(individualForm.state),
+        zip_code: toText(individualForm.zip_code),
+        country: toText(individualForm.country || "AU"),
+      };
+    } else {
+      const matchedCompanyId = resolveLookupRecordId(companyMatchState.record, "Company");
+      optimisticInquiryPatch.company_id = matchedCompanyId || "";
+      optimisticInquiryPatch.Company = {
+        id: matchedCompanyId || "",
+        name: toText(companyForm.company_name),
+        phone: toText(companyForm.company_phone),
+        address: toText(companyForm.company_address),
+        city: toText(companyForm.company_city),
+        state: toText(companyForm.company_state),
+        postal_code: toText(companyForm.company_postal_code),
+        account_type: toText(companyForm.company_account_type),
+        Primary_Person: {
+          first_name: toText(companyForm.primary_first_name),
+          last_name: toText(companyForm.primary_last_name),
+          email: toText(companyForm.primary_email),
+          sms_number: toText(companyForm.primary_sms_number),
+        },
+      };
+    }
+
+    setIsCreatingInquiry(true);
+    onSavingStart?.(optimisticInquiryPatch);
+    try {
+      let resolvedContactId = "";
+      let resolvedCompanyId = "";
+
+      if (resolvedAccountMode === "Contact") {
+        const email = toText(individualForm.email);
+        if (!email || !isLikelyEmailValue(email)) {
+          throw new Error("A valid email is required for individual inquiry.");
+        }
+
+        const matchedRecord = contactMatchState.record;
+        const matchedEmail = normalizeComparableText(
+          matchedRecord?.email || matchedRecord?.Email
+        );
+        const shouldUseMatched =
+          Boolean(matchedRecord) && matchedEmail === normalizeComparableText(email);
+        if (shouldUseMatched) {
+          resolvedContactId = resolveLookupRecordId(matchedRecord, "Contact");
+        }
+        if (!resolvedContactId) {
+          const refreshedMatch = await fetchContactByExactEmail({ plugin, email });
+          resolvedContactId = resolveLookupRecordId(refreshedMatch, "Contact");
+        }
+        if (!resolvedContactId) {
+          const payload = compactStringFields({
+            first_name: individualForm.first_name,
+            last_name: individualForm.last_name,
+            email,
+            sms_number: individualForm.sms_number,
+            address: individualForm.address,
+            city: individualForm.city,
+            state: individualForm.state,
+            zip_code: individualForm.zip_code,
+            country: individualForm.country || "AU",
+          });
+          try {
+            const createdContact = await createContactRecord({ plugin, payload });
+            resolvedContactId = resolveLookupRecordId(createdContact, "Contact");
+          } catch (createError) {
+            const fallbackMatch = await fetchContactByExactEmail({ plugin, email });
+            resolvedContactId = resolveLookupRecordId(fallbackMatch, "Contact");
+            if (!resolvedContactId) {
+              throw createError;
+            }
+          }
+          if (!resolvedContactId) {
+            const postCreateMatch = await fetchContactByExactEmail({ plugin, email });
+            resolvedContactId = resolveLookupRecordId(postCreateMatch, "Contact");
+          }
+        }
+
+        if (!resolvedContactId) {
+          throw new Error("Unable to resolve contact for this inquiry.");
+        }
+      } else {
+        const companyName = toText(companyForm.company_name);
+        if (!companyName) {
+          throw new Error("Company name is required for company inquiry.");
+        }
+        const matchedRecord = companyMatchState.record;
+        const matchedName = normalizeComparableText(matchedRecord?.name || matchedRecord?.Name);
+        const shouldUseMatched =
+          Boolean(matchedRecord) && matchedName === normalizeComparableText(companyName);
+        if (shouldUseMatched) {
+          resolvedCompanyId = resolveLookupRecordId(matchedRecord, "Company");
+        }
+        if (!resolvedCompanyId) {
+          const refreshedMatch = await fetchCompanyByExactName({ plugin, companyName });
+          resolvedCompanyId = resolveLookupRecordId(refreshedMatch, "Company");
+        }
+        if (!resolvedCompanyId) {
+          const primaryPersonPayload = compactStringFields({
+            first_name: companyForm.primary_first_name,
+            last_name: companyForm.primary_last_name,
+            email: companyForm.primary_email,
+            sms_number: companyForm.primary_sms_number,
+          });
+          const companyPayload = compactStringFields({
+            name: companyName,
+            phone: companyForm.company_phone,
+            address: companyForm.company_address,
+            city: companyForm.company_city,
+            state: companyForm.company_state,
+            postal_code: companyForm.company_postal_code,
+            account_type: companyForm.company_account_type,
+          });
+          if (Object.keys(primaryPersonPayload).length) {
+            companyPayload.Primary_Person = primaryPersonPayload;
+          }
+          try {
+            const createdCompany = await createCompanyRecord({
+              plugin,
+              payload: companyPayload,
+            });
+            resolvedCompanyId = resolveLookupRecordId(createdCompany, "Company");
+          } catch (createError) {
+            const fallbackMatch = await fetchCompanyByExactName({ plugin, companyName });
+            resolvedCompanyId = resolveLookupRecordId(fallbackMatch, "Company");
+            if (!resolvedCompanyId) {
+              throw createError;
+            }
+          }
+          if (!resolvedCompanyId) {
+            const postCreateMatch = await fetchCompanyByExactName({ plugin, companyName });
+            resolvedCompanyId = resolveLookupRecordId(postCreateMatch, "Company");
+          }
+        }
+
+        if (!resolvedCompanyId) {
+          throw new Error("Unable to resolve company for this inquiry.");
+        }
+      }
+
+      let resolvedPropertyId = "";
+      if (currentFlowRule.showPropertySearch) {
+        const propertyName = toText(
+          standardizedPropertyName || detailsForm.property_name || detailsForm.property_lookup
+        );
+        const matchedProperty = propertyMatchState.record;
+        const comparableTargetPropertyName = normalizeComparablePropertyName(propertyName);
+        const comparableMatchedPropertyName = normalizeComparablePropertyName(
+          matchedProperty?.property_name || matchedProperty?.Property_Name
+        );
+        if (
+          matchedProperty &&
+          comparableTargetPropertyName &&
+          comparableMatchedPropertyName === comparableTargetPropertyName
+        ) {
+          resolvedPropertyId = normalizePropertyId(matchedProperty?.id || matchedProperty?.ID);
+        } else if (propertyName) {
+          const createdProperty = await createPropertyRecord({
+            plugin,
+            payload: compactStringFields({
+              property_name: propertyName,
+              lot_number: detailsForm.property_lot_number,
+              unit_number: detailsForm.property_unit_number,
+              address_1: detailsForm.property_address_1 || detailsForm.property_lookup,
+              suburb_town: detailsForm.property_suburb_town,
+              state: detailsForm.property_state,
+              postal_code: detailsForm.property_postal_code,
+              country: detailsForm.property_country || "AU",
+            }),
+          });
+          resolvedPropertyId = normalizePropertyId(createdProperty?.id || createdProperty?.ID);
+        }
+      }
+
+      const payload = {
+        inquiry_status: "New Inquiry",
+        account_type: resolvedAccountMode,
+        primary_contact_id:
+          resolvedAccountMode === "Contact"
+            ? normalizeMutationIdentifier(resolvedContactId)
+            : null,
+        company_id:
+          resolvedAccountMode === "Company"
+            ? normalizeMutationIdentifier(resolvedCompanyId)
+            : null,
+        inquiry_source: toNullableText(sourceValue),
+        type: toNullableText(typeValue),
+        service_inquiry_id: currentFlowRule.showServiceInquiry
+          ? normalizeMutationIdentifier(normalizeServiceInquiryId(detailsForm.service_inquiry_id))
+          : null,
+        how_can_we_help: currentFlowRule.showHowCanWeHelp
+          ? toNullableText(detailsForm.how_can_we_help)
+          : null,
+        how_did_you_hear: currentFlowRule.showHowDidYouHear
+          ? toNullableText(detailsForm.how_did_you_hear)
+          : null,
+        other:
+          currentFlowRule.showHowDidYouHear && shouldShowOtherSource
+            ? toNullableText(detailsForm.other)
+            : null,
+        noise_signs_options_as_text: isQuickPestServiceSelected
+          ? toNullableText(detailsForm.noise_signs_options_as_text)
+          : null,
+        pest_active_times_options_as_text: isQuickPestServiceSelected
+          ? toNullableText(detailsForm.pest_active_times_options_as_text)
+          : null,
+        pest_location_options_as_text: isQuickPestServiceSelected
+          ? toNullableText(detailsForm.pest_location_options_as_text)
+          : null,
+        admin_notes: toNullableText(detailsForm.admin_notes),
+        client_notes: toNullableText(detailsForm.client_notes),
+        property_id:
+          currentFlowRule.showPropertySearch && resolvedPropertyId
+            ? normalizeMutationIdentifier(resolvedPropertyId)
+            : null,
+        Inquiry_Taken_By_id: configuredAdminProviderId
+          ? normalizeMutationIdentifier(configuredAdminProviderId)
+          : null,
+      };
+
+      await updateInquiryFieldsById({
+        plugin,
+        inquiryId: normalizedInquiryId,
+        payload,
+      });
+      onSaved?.({ id: normalizedInquiryId });
+    } catch (saveError) {
+      onError?.(saveError);
+    } finally {
+      setIsCreatingInquiry(false);
+    }
+  }, [
+    accountMode,
+    companyForm.company_account_type,
+    companyForm.company_address,
+    companyForm.company_city,
+    companyForm.company_name,
+    companyForm.company_phone,
+    companyForm.company_postal_code,
+    companyForm.company_state,
+    companyForm.primary_email,
+    companyForm.primary_first_name,
+    companyForm.primary_last_name,
+    companyForm.primary_sms_number,
+    companyMatchState.record,
+    configuredAdminProviderId,
+    contactMatchState.record,
+    detailsForm.admin_notes,
+    detailsForm.client_notes,
+    detailsForm.how_can_we_help,
+    detailsForm.how_did_you_hear,
+    detailsForm.inquiry_source,
+    detailsForm.noise_signs_options_as_text,
+    detailsForm.other,
+    detailsForm.pest_active_times_options_as_text,
+    detailsForm.pest_location_options_as_text,
+    detailsForm.property_address_1,
+    detailsForm.property_country,
+    detailsForm.property_lot_number,
+    detailsForm.property_lookup,
+    detailsForm.property_name,
+    detailsForm.property_postal_code,
+    detailsForm.property_state,
+    detailsForm.property_suburb_town,
+    detailsForm.property_unit_number,
+    detailsForm.service_inquiry_id,
+    detailsForm.type,
+    inquiryId,
+    individualForm.address,
+    individualForm.city,
+    individualForm.country,
+    individualForm.email,
+    individualForm.first_name,
+    individualForm.last_name,
+    individualForm.sms_number,
+    individualForm.state,
+    individualForm.zip_code,
+    isCreatingInquiry,
+    onError,
+    onSavingStart,
+    onSaved,
+    plugin,
+    propertyMatchState.record,
+    isQuickPestServiceSelected,
+    standardizedPropertyName,
+    shouldShowOtherSource,
+  ]);
+
+  const matchMessageClassByStatus = {
+    found: "text-emerald-700",
+    checking: "text-slate-500",
+    error: "text-red-600",
+    invalid: "text-amber-700",
+    "not-found": "text-slate-500",
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={isCreatingInquiry ? () => {} : onClose}
+      title="Quick Inquiry Booking"
+      widthClass="max-w-[min(98vw,1220px)]"
+      closeOnBackdrop={false}
+      footer={
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs text-slate-500">Step {step} of 2</div>
+          <div className="flex items-center gap-2">
+            {step === 2 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStep(1)}
+                disabled={isCreatingInquiry}
+              >
+                Back
+              </Button>
+            ) : null}
+            {step === 1 ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setStep(2)}
+                disabled={!canProceedStepOne}
+              >
+                Next
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleCreateQuickInquiry}
+                disabled={!canCreateInquiry}
+              >
+                {isCreatingInquiry ? "Saving..." : "Save Inquiry"}
+              </Button>
+            )}
+          </div>
+        </div>
+      }
+    >
+      <div className="max-h-[76vh] overflow-y-auto pr-1">
+        <div className="mb-3 flex items-center gap-2">
+          <span
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+              step === 1 ? "bg-[#003882] text-white" : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            1. Account
+          </span>
+          <span
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+              step === 2 ? "bg-[#003882] text-white" : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            2. Inquiry Details
+          </span>
+        </div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="space-y-4">
+            {step === 1 ? (
+              <div className="rounded border border-slate-200 bg-white p-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Are you an individual or company?
+                </div>
+                <div className="mb-3 inline-flex rounded border border-slate-300 p-0.5">
+                  <button
+                    type="button"
+                    className={`rounded px-3 py-1 text-xs font-semibold ${
+                      accountMode === "individual"
+                        ? "bg-[#003882] text-white"
+                        : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                    onClick={() => setAccountMode("individual")}
+                  >
+                    Individual
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded px-3 py-1 text-xs font-semibold ${
+                      accountMode === "company"
+                        ? "bg-[#003882] text-white"
+                        : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                    onClick={() => setAccountMode("company")}
+                  >
+                    Company
+                  </button>
+                </div>
+
+                {accountMode === "individual" ? (
+                  <div className="space-y-2">
+                    <InputField
+                      label="Email"
+                      field="quick_individual_email"
+                      value={individualForm.email}
+                      onChange={(event) =>
+                        setIndividualForm((previous) => ({
+                          ...previous,
+                          email: event.target.value,
+                        }))
+                      }
+                      placeholder="Enter email"
+                    />
+                    {contactMatchState.message ? (
+                      <div
+                        className={`text-xs ${
+                          matchMessageClassByStatus[contactMatchState.status] || "text-slate-500"
+                        }`}
+                      >
+                        {contactMatchState.message}
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-sky-700 underline underline-offset-2"
+                      onClick={() => setShowIndividualOptional((previous) => !previous)}
+                    >
+                      {showIndividualOptional ? "Hide optional details" : "Add optional details"}
+                    </button>
+
+                    {showIndividualOptional ? (
+                      <div className="grid grid-cols-1 gap-2 rounded border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2">
+                        <InputField
+                          label="First Name"
+                          field="quick_individual_first_name"
+                          value={individualForm.first_name}
+                          onChange={(event) =>
+                            setIndividualForm((previous) => ({
+                              ...previous,
+                              first_name: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Last Name"
+                          field="quick_individual_last_name"
+                          value={individualForm.last_name}
+                          onChange={(event) =>
+                            setIndividualForm((previous) => ({
+                              ...previous,
+                              last_name: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Phone"
+                          field="quick_individual_phone"
+                          value={individualForm.sms_number}
+                          onChange={(event) =>
+                            setIndividualForm((previous) => ({
+                              ...previous,
+                              sms_number: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Address (Google Lookup)"
+                          field="quick_individual_address"
+                          inputRef={individualAddressLookupRef}
+                          value={individualForm.address}
+                          onChange={(event) =>
+                            setIndividualForm((previous) => ({
+                              ...previous,
+                              address: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="City"
+                          field="quick_individual_city"
+                          value={individualForm.city}
+                          onChange={(event) =>
+                            setIndividualForm((previous) => ({
+                              ...previous,
+                              city: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="State"
+                          field="quick_individual_state"
+                          value={individualForm.state}
+                          onChange={(event) =>
+                            setIndividualForm((previous) => ({
+                              ...previous,
+                              state: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Postal Code"
+                          field="quick_individual_zip_code"
+                          value={individualForm.zip_code}
+                          onChange={(event) =>
+                            setIndividualForm((previous) => ({
+                              ...previous,
+                              zip_code: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <InputField
+                      label="Company Name"
+                      field="quick_company_name"
+                      value={companyForm.company_name}
+                      onChange={(event) =>
+                        setCompanyForm((previous) => ({
+                          ...previous,
+                          company_name: event.target.value,
+                        }))
+                      }
+                      placeholder="Enter company name"
+                    />
+                    {companyMatchState.message ? (
+                      <div
+                        className={`text-xs ${
+                          matchMessageClassByStatus[companyMatchState.status] || "text-slate-500"
+                        }`}
+                      >
+                        {companyMatchState.message}
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-sky-700 underline underline-offset-2"
+                      onClick={() => setShowCompanyOptional((previous) => !previous)}
+                    >
+                      {showCompanyOptional ? "Hide optional details" : "Add optional details"}
+                    </button>
+                    {showCompanyOptional ? (
+                      <div className="grid grid-cols-1 gap-2 rounded border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2">
+                        <InputField
+                          label="Phone"
+                          field="quick_company_phone"
+                          value={companyForm.company_phone}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              company_phone: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Address (Google Lookup)"
+                          field="quick_company_address"
+                          inputRef={companyAddressLookupRef}
+                          value={companyForm.company_address}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              company_address: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="City"
+                          field="quick_company_city"
+                          value={companyForm.company_city}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              company_city: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="State"
+                          field="quick_company_state"
+                          value={companyForm.company_state}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              company_state: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Postal Code"
+                          field="quick_company_postal_code"
+                          value={companyForm.company_postal_code}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              company_postal_code: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Account Type"
+                          field="quick_company_account_type"
+                          value={companyForm.company_account_type}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              company_account_type: event.target.value,
+                            }))
+                          }
+                          placeholder="Business / Body Corp / Other"
+                        />
+                        <InputField
+                          label="Primary First Name"
+                          field="quick_company_primary_first_name"
+                          value={companyForm.primary_first_name}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              primary_first_name: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Primary Last Name"
+                          field="quick_company_primary_last_name"
+                          value={companyForm.primary_last_name}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              primary_last_name: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Primary Email"
+                          field="quick_company_primary_email"
+                          value={companyForm.primary_email}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              primary_email: event.target.value,
+                            }))
+                          }
+                        />
+                        <InputField
+                          label="Primary Phone"
+                          field="quick_company_primary_phone"
+                          value={companyForm.primary_sms_number}
+                          onChange={(event) =>
+                            setCompanyForm((previous) => ({
+                              ...previous,
+                              primary_sms_number: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3 rounded border border-slate-200 bg-white p-3">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <SelectInput
+                    label="Source"
+                    field="quick_inquiry_source"
+                    options={INQUIRY_SOURCE_OPTIONS}
+                    value={detailsForm.inquiry_source}
+                    onChange={(nextValue) =>
+                      setDetailsForm((previous) => ({ ...previous, inquiry_source: nextValue }))
+                    }
+                  />
+                  <SelectInput
+                    label="Type"
+                    field="quick_inquiry_type"
+                    options={INQUIRY_TYPE_OPTIONS}
+                    value={detailsForm.type}
+                    onChange={(nextValue) =>
+                      setDetailsForm((previous) => ({ ...previous, type: nextValue }))
+                    }
+                  />
+                  {inquiryFlowRule.showServiceInquiry ? (
+                    <SelectInput
+                      label={
+                        isServiceOptionsLoading
+                          ? "Service (Loading...)"
+                          : "Service"
+                      }
+                      field="quick_inquiry_service"
+                      options={serviceOptions}
+                      value={detailsForm.service_inquiry_id}
+                      onChange={(nextValue) =>
+                        setDetailsForm((previous) => ({
+                          ...previous,
+                          service_inquiry_id: normalizeServiceInquiryId(nextValue),
+                        }))
+                      }
+                    />
+                  ) : null}
+                  {inquiryFlowRule.showHowDidYouHear ? (
+                    <SelectInput
+                      label="How Did You Hear"
+                      field="quick_how_did_you_hear"
+                      options={HOW_DID_YOU_HEAR_OPTIONS}
+                      value={detailsForm.how_did_you_hear}
+                      onChange={(nextValue) =>
+                        setDetailsForm((previous) => ({
+                          ...previous,
+                          how_did_you_hear: nextValue,
+                        }))
+                      }
+                    />
+                  ) : null}
+                  {inquiryFlowRule.showHowDidYouHear && shouldShowOtherSource ? (
+                    <InputField
+                      label="Other"
+                      field="quick_how_did_you_hear_other"
+                      value={detailsForm.other}
+                      onChange={(event) =>
+                        setDetailsForm((previous) => ({
+                          ...previous,
+                          other: event.target.value,
+                        }))
+                      }
+                    />
+                  ) : null}
+                </div>
+
+                {inquiryFlowRule.showServiceInquiry && isQuickPestServiceSelected ? (
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <InquiryEditListSelectionField
+                      label="Pest Noise Signs"
+                      field="quick_noise_signs_options_as_text"
+                      value={detailsForm.noise_signs_options_as_text}
+                      options={NOISE_SIGN_OPTIONS}
+                      onChange={(nextValue) =>
+                        setDetailsForm((previous) => ({
+                          ...previous,
+                          noise_signs_options_as_text: nextValue,
+                        }))
+                      }
+                    />
+                    <InquiryEditListSelectionField
+                      label="Pest Active Times"
+                      field="quick_pest_active_times_options_as_text"
+                      value={detailsForm.pest_active_times_options_as_text}
+                      options={PEST_ACTIVE_TIME_OPTIONS}
+                      onChange={(nextValue) =>
+                        setDetailsForm((previous) => ({
+                          ...previous,
+                          pest_active_times_options_as_text: nextValue,
+                        }))
+                      }
+                    />
+                    <InquiryEditListSelectionField
+                      label="Pest Locations"
+                      field="quick_pest_location_options_as_text"
+                      value={detailsForm.pest_location_options_as_text}
+                      options={PEST_LOCATION_OPTIONS}
+                      onChange={(nextValue) =>
+                        setDetailsForm((previous) => ({
+                          ...previous,
+                          pest_location_options_as_text: nextValue,
+                        }))
+                      }
+                    />
+                  </div>
+                ) : null}
+
+                {inquiryFlowRule.showHowCanWeHelp ? (
+                  <label className="block">
+                    <span className="type-label text-slate-600">How Can We Help</span>
+                    <textarea
+                      className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                      rows={4}
+                      value={detailsForm.how_can_we_help}
+                      onChange={(event) =>
+                        setDetailsForm((previous) => ({
+                          ...previous,
+                          how_can_we_help: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                ) : null}
+
+                {inquiryFlowRule.showPropertySearch ? (
+                  <>
+                    <div className="mb-1 flex items-center justify-end">
+                      <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-[#003882]"
+                          checked={Boolean(isQuickPropertySameAsContact)}
+                          disabled={
+                            isApplyingQuickSameAsContactProperty ||
+                            !toText(quickSameAsContactPropertySource?.searchText)
+                          }
+                          onChange={(event) => {
+                            void handleQuickSameAsContactPropertyChange(
+                              Boolean(event.target.checked)
+                            );
+                          }}
+                        />
+                        <span>
+                          {isApplyingQuickSameAsContactProperty
+                            ? "Applying..."
+                            : "Same as contact's address"}
+                        </span>
+                      </label>
+                    </div>
+                    <InputField
+                      label="Which address is this inquiry about?"
+                      field="quick_property_lookup"
+                      inputRef={propertyLookupRef}
+                      value={detailsForm.property_lookup}
+                      onChange={(event) => {
+                        const nextLookup = toText(event.target.value);
+                        setDetailsForm((previous) => {
+                          const nextAddress1 = nextLookup || previous.property_address_1;
+                          return {
+                            ...previous,
+                            property_lookup: event.target.value,
+                            property_address_1: nextAddress1,
+                            property_name: buildStandardPropertyName({
+                              lot_number: previous.property_lot_number,
+                              unit_number: previous.property_unit_number,
+                              address_1: nextAddress1,
+                              suburb_town: previous.property_suburb_town,
+                              state: previous.property_state,
+                              postal_code: previous.property_postal_code,
+                              country: previous.property_country || "AU",
+                            }),
+                          };
+                        });
+                      }}
+                      placeholder="Search address"
+                    />
+                    {propertyMatchState.message ? (
+                      <div
+                        className={`text-xs ${
+                          matchMessageClassByStatus[propertyMatchState.status] || "text-slate-500"
+                        }`}
+                      >
+                        {propertyMatchState.message}
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-2 rounded border border-slate-200 bg-white p-3 md:grid-cols-2">
+              <label className="block">
+                <span className="type-label text-slate-600">Admin Notes</span>
+                <textarea
+                  className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                  rows={3}
+                  value={detailsForm.admin_notes}
+                  onChange={(event) =>
+                    setDetailsForm((previous) => ({
+                      ...previous,
+                      admin_notes: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="block">
+                <span className="type-label text-slate-600">Client Notes</span>
+                <textarea
+                  className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                  rows={3}
+                  value={detailsForm.client_notes}
+                  onChange={(event) =>
+                    setDetailsForm((previous) => ({
+                      ...previous,
+                      client_notes: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+
+          <aside className="space-y-2 rounded border border-slate-200 bg-slate-50 p-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              Related Data
+            </div>
+            <div className="text-xs text-slate-600">
+              {currentMatchedAccountId
+                ? `${currentAccountType} #${currentMatchedAccountId}`
+                : "Related data appears after matching an existing contact/company."}
+            </div>
+            {isRelatedLoading ? (
+              <div className="text-xs text-slate-500">Loading related records...</div>
+            ) : null}
+            {relatedError ? (
+              <div className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
+                {relatedError}
+              </div>
+            ) : null}
+
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Past Inquiry As {currentAccountType}
+              </div>
+              {relatedInquiries.length ? (
+                <div className="max-h-44 space-y-1.5 overflow-auto">
+                  {relatedInquiries.slice(0, 20).map((item) => {
+                    const uid = toText(item?.unique_id);
+                    const id = toText(item?.id);
+                    const linkUid = uid || id;
+                    if (!linkUid) return null;
+                    const serviceId = normalizeServiceInquiryId(item?.service_inquiry_id);
+                    const serviceName = toText(item?.service_name) || toText(serviceNameById[serviceId]);
+                    const dealName = toText(item?.deal_name);
+                    return (
+                      <div
+                        key={`quick-related-inquiry-${uid || id}`}
+                        className="rounded border border-slate-200 bg-white px-2 py-1.5"
+                      >
+                        <a
+                          href={`/inquiry-details/${encodeURIComponent(linkUid)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-semibold text-sky-700 underline underline-offset-2"
+                        >
+                          {linkUid}
+                        </a>
+                        {dealName ? (
+                          <div className="text-[11px] text-slate-600">{dealName}</div>
+                        ) : null}
+                        <div className="text-[11px] text-slate-600">
+                          {formatDate(item?.created_at) || "-"}
+                        </div>
+                        <div className="text-[11px] text-slate-600">{toText(item?.type) || "-"}</div>
+                        <div className="text-[11px] text-slate-600">
+                          {serviceName || (serviceId ? `Service #${serviceId}` : "-")}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500">No past inquiries.</div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Past Jobs
+              </div>
+              {relatedJobs.length ? (
+                <div className="max-h-44 space-y-1.5 overflow-auto">
+                  {relatedJobs.slice(0, 20).map((item) => {
+                    const uid = toText(item?.unique_id);
+                    const id = toText(item?.id);
+                    const linkUid = uid || id;
+                    if (!linkUid) return null;
+                    return (
+                      <div
+                        key={`quick-related-job-${uid || id}`}
+                        className="rounded border border-slate-200 bg-white px-2 py-1.5"
+                      >
+                        <a
+                          href={`/details/${encodeURIComponent(linkUid)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-semibold text-sky-700 underline underline-offset-2"
+                        >
+                          {linkUid}
+                        </a>
+                        <div className="text-[11px] text-slate-600">
+                          {toText(item?.property_name) || "-"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500">No past jobs.</div>
+              )}
+            </div>
+          </aside>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 const INQUIRY_DETAILS_EDIT_EMPTY_FORM = {
   inquiry_status: "New Inquiry",
   inquiry_source: "",
@@ -1032,6 +3262,363 @@ function extractFirstRecord(payload) {
     }
   }
   return null;
+}
+
+function extractRecordsFromPayload(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload?.resp)) return payload.resp;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (payload?.data && typeof payload.data === "object") {
+    for (const value of Object.values(payload.data)) {
+      if (Array.isArray(value)) return value;
+    }
+  }
+  if (payload?.payload?.data && typeof payload.payload.data === "object") {
+    for (const value of Object.values(payload.payload.data)) {
+      if (Array.isArray(value)) return value;
+    }
+  }
+  return [];
+}
+
+function toSortableTimestamp(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const parsed = Date.parse(toText(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeQuickDealRowsFromCalc(records = []) {
+  const rows = [];
+  const sourceRows = Array.isArray(records) ? records : [];
+  sourceRows.forEach((record) => {
+    const idValues = record?.DealsID;
+    const uidValues = record?.Deals_Unique_ID;
+    const nameValues = record?.Deals_Deal_Name;
+    const typeValues = record?.DealsType;
+    const createdValues = record?.Deals_Created_At;
+    const serviceIdValues = record?.Service_Inquiry_ID;
+    const serviceNameValues = record?.Service_Service_Name;
+
+    const maxLength = Math.max(
+      Array.isArray(idValues) ? idValues.length : 0,
+      Array.isArray(uidValues) ? uidValues.length : 0,
+      Array.isArray(nameValues) ? nameValues.length : 0,
+      Array.isArray(typeValues) ? typeValues.length : 0,
+      Array.isArray(createdValues) ? createdValues.length : 0,
+      Array.isArray(serviceIdValues) ? serviceIdValues.length : 0,
+      Array.isArray(serviceNameValues) ? serviceNameValues.length : 0,
+      1
+    );
+
+    for (let index = 0; index < maxLength; index += 1) {
+      const pick = (value) => (Array.isArray(value) ? value[index] : value);
+      rows.push({
+        id: toText(pick(idValues)),
+        unique_id: toText(pick(uidValues)),
+        deal_name: toText(pick(nameValues)),
+        type: toText(pick(typeValues)),
+        created_at: pick(createdValues) ?? null,
+        service_inquiry_id: normalizeServiceInquiryId(pick(serviceIdValues)),
+        service_name: toText(pick(serviceNameValues)),
+      });
+    }
+  });
+
+  const dedupedByKey = new Map();
+  rows.forEach((row) => {
+    const key = toText(row?.id || row?.unique_id || row?.deal_name);
+    if (!key) return;
+    if (!dedupedByKey.has(key)) {
+      dedupedByKey.set(key, row);
+      return;
+    }
+    const existing = dedupedByKey.get(key) || {};
+    dedupedByKey.set(key, {
+      ...existing,
+      ...row,
+      id: toText(existing?.id || row?.id),
+      unique_id: toText(existing?.unique_id || row?.unique_id),
+      deal_name: toText(existing?.deal_name || row?.deal_name),
+      type: toText(existing?.type || row?.type),
+      created_at: existing?.created_at || row?.created_at || null,
+      service_inquiry_id: toText(existing?.service_inquiry_id || row?.service_inquiry_id),
+      service_name: toText(existing?.service_name || row?.service_name),
+    });
+  });
+
+  return Array.from(dedupedByKey.values()).sort(
+    (left, right) => toSortableTimestamp(right?.created_at) - toSortableTimestamp(left?.created_at)
+  );
+}
+
+function normalizeMutationIdentifier(value) {
+  const text = toText(value);
+  if (!text) return null;
+  if (/^\d+$/.test(text)) return Number.parseInt(text, 10);
+  return text;
+}
+
+function extractCreatedDealId(result) {
+  const managed = result?.mutations?.PeterpmDeal?.managedData;
+  if (managed && typeof managed === "object") {
+    for (const [managedKey, managedValue] of Object.entries(managed)) {
+      if (isPersistedId(managedKey)) return String(managedKey);
+      const nestedId = managedValue?.id || managedValue?.ID || "";
+      if (isPersistedId(nestedId)) return String(nestedId);
+    }
+  }
+  const objects = normalizeObjectList(result);
+  for (const item of objects) {
+    const pkMap = item?.extensions?.pkMap || item?.pkMap;
+    if (!pkMap || typeof pkMap !== "object") continue;
+    for (const value of Object.values(pkMap)) {
+      if (isPersistedId(value)) return String(value);
+    }
+  }
+  return "";
+}
+
+async function createInquiryRecordFromPayload({ plugin, payload = null } = {}) {
+  if (!plugin?.switchTo) {
+    throw new Error("SDK plugin is not ready.");
+  }
+  const dealModel = plugin.switchTo("PeterpmDeal");
+  if (!dealModel?.mutation) {
+    throw new Error("Deal model is unavailable.");
+  }
+
+  const mutation = await dealModel.mutation();
+  mutation.createOne(payload || {});
+  const result = await mutation.execute(true).toPromise();
+  if (!result || result?.isCancelling) {
+    throw new Error("Inquiry create was cancelled.");
+  }
+  const failure = extractStatusFailure(result);
+  if (failure) {
+    throw new Error(
+      extractMutationErrorMessage(failure.statusMessage) || "Unable to create inquiry."
+    );
+  }
+
+  const createdId = extractCreatedDealId(result);
+  if (!isPersistedId(createdId)) {
+    throw new Error("Inquiry create did not return an ID.");
+  }
+
+  const query = buildInquiryLiteBaseQuery(plugin)
+    .where("id", normalizeMutationIdentifier(createdId))
+    .limit(1)
+    .noDestroy();
+  query.getOrInitQueryCalc?.();
+  const detailResult = await toPromiseLike(query.fetchDirect());
+  const createdRecord = extractFirstRecord(detailResult);
+  const createdUid = toText(createdRecord?.unique_id || createdRecord?.Unique_ID);
+  if (!createdUid) {
+    throw new Error("Inquiry was created but unique ID was not returned.");
+  }
+
+  return {
+    id: toText(createdRecord?.id || createdRecord?.ID || createdId),
+    unique_id: createdUid,
+    raw: createdRecord || null,
+  };
+}
+
+async function fetchCompanyByExactName({ plugin, companyName } = {}) {
+  const normalizedName = normalizeComparableText(companyName);
+  if (!plugin?.switchTo || !normalizedName) return null;
+
+  const runDetailQuery = async (whereField, whereValue) => {
+    const query = plugin
+      .switchTo("PeterpmCompany")
+      .query()
+      .where(whereField, whereValue)
+      .deSelectAll()
+      .select([
+        "id",
+        "name",
+        "phone",
+        "address",
+        "city",
+        "state",
+        "postal_code",
+        "account_type",
+      ])
+      .include("Primary_Person", (personQuery) =>
+        personQuery.deSelectAll().select(["id", "first_name", "last_name", "email", "sms_number"])
+      )
+      .limit(1)
+      .noDestroy();
+    query.getOrInitQueryCalc?.();
+    const result = await toPromiseLike(query.fetchDirect());
+    return extractFirstRecord(result);
+  };
+
+  try {
+    const direct = await runDetailQuery("name", companyName);
+    if (normalizeComparableText(direct?.name || direct?.Name) === normalizedName) {
+      return direct;
+    }
+  } catch (_) {
+    // Continue to fallback search.
+  }
+
+  const fallbackMatches = await searchCompaniesForLookup({
+    plugin,
+    query: normalizedName,
+    limit: 40,
+  }).catch(() => []);
+  const fallbackRecord = (Array.isArray(fallbackMatches) ? fallbackMatches : []).find(
+    (record) => normalizeComparableText(record?.name || record?.Name) === normalizedName
+  );
+  const fallbackId = resolveLookupRecordId(fallbackRecord, "Company");
+  if (!fallbackId) return null;
+
+  try {
+    return await runDetailQuery("id", normalizeMutationIdentifier(fallbackId));
+  } catch (_) {
+    return fallbackRecord || null;
+  }
+}
+
+async function fetchContactByExactEmail({ plugin, email } = {}) {
+  const normalizedEmail = toText(email).trim().toLowerCase();
+  if (!plugin?.switchTo || !normalizedEmail) return null;
+
+  try {
+    const direct = await findContactByEmail({ plugin, email: normalizedEmail });
+    if (normalizeComparableText(direct?.email || direct?.Email) === normalizedEmail) {
+      return direct;
+    }
+  } catch (_) {
+    // Continue to fallback search.
+  }
+
+  const fallbackMatches = await searchContactsForLookup({
+    plugin,
+    query: normalizedEmail,
+    limit: 40,
+  }).catch(() => []);
+  const fallbackRecord = (Array.isArray(fallbackMatches) ? fallbackMatches : []).find(
+    (record) => normalizeComparableText(record?.email || record?.Email) === normalizedEmail
+  );
+  const fallbackId = resolveLookupRecordId(fallbackRecord, "Contact");
+  if (!fallbackId) return fallbackRecord || null;
+
+  try {
+    const detailQuery = plugin
+      .switchTo("PeterpmContact")
+      .query()
+      .where("id", normalizeMutationIdentifier(fallbackId))
+      .deSelectAll()
+      .select([
+        "id",
+        "first_name",
+        "last_name",
+        "email",
+        "sms_number",
+        "address",
+        "city",
+        "state",
+        "zip_code",
+        "country",
+      ])
+      .limit(1)
+      .noDestroy();
+    detailQuery.getOrInitQueryCalc?.();
+    const detailResult = await toPromiseLike(detailQuery.fetchDirect());
+    return extractFirstRecord(detailResult) || fallbackRecord || null;
+  } catch (_) {
+    return fallbackRecord || null;
+  }
+}
+
+async function fetchQuickRelatedInquiriesByAccount({
+  plugin,
+  accountType = "Contact",
+  accountId = "",
+} = {}) {
+  const normalizedAccountId = toText(accountId);
+  if (!plugin?.switchTo || !normalizedAccountId) return [];
+  const normalizedType = String(accountType || "").trim().toLowerCase();
+  const isCompanyAccount = normalizedType === "company" || normalizedType === "entity";
+  const modelName = isCompanyAccount ? "PeterpmCompany" : "PeterpmContact";
+  const operationName = isCompanyAccount ? "calcCompanies" : "calcContacts";
+  const variableType = isCompanyAccount ? "PeterpmCompanyID!" : "PeterpmContactID!";
+  const richQuery = `
+    query ${operationName}($id: ${variableType}) {
+      ${operationName}(query: [{ where: { id: $id } }]) {
+        DealsID: field(arg: ["Deals", "id"])
+        Deals_Unique_ID: field(arg: ["Deals", "unique_id"])
+        Deals_Deal_Name: field(arg: ["Deals", "deal_name"])
+        DealsType: field(arg: ["Deals", "type"])
+        Deals_Created_At: field(arg: ["Deals", "created_at"])
+        Service_Inquiry_ID: field(arg: ["Deals", "service_inquiry_id"])
+        Service_Service_Name: field(arg: ["Deals", "Service_Inquiry", "service_name"])
+      }
+    }
+  `;
+
+  try {
+    const query = plugin.switchTo(modelName).query().fromGraphql(richQuery);
+    const response = await toPromiseLike(
+      query.fetchDirect({
+        variables: { id: normalizeMutationIdentifier(normalizedAccountId) },
+      })
+    );
+    const normalizedRows = normalizeQuickDealRowsFromCalc(extractRecordsFromPayload(response));
+    if (normalizedRows.length) {
+      return normalizedRows;
+    }
+  } catch (queryError) {
+    console.warn("[QuickInquiry] Rich related inquiry query failed. Falling back.", queryError);
+  }
+
+  const fallbackRows = await fetchLinkedDealsByAccount({
+    plugin,
+    accountType,
+    accountId: normalizedAccountId,
+  }).catch(() => []);
+  return (Array.isArray(fallbackRows) ? fallbackRows : [])
+    .map((row) => ({
+      id: toText(row?.id || row?.ID),
+      unique_id: toText(row?.unique_id || row?.Unique_ID),
+      deal_name: toText(row?.deal_name || row?.Deal_Name),
+      created_at: row?.created_at || row?.Created_At || row?.Date_Added || null,
+      type: toText(row?.type || row?.Type),
+      service_inquiry_id: normalizeServiceInquiryId(
+        row?.service_inquiry_id || row?.Service_Inquiry_ID
+      ),
+      service_name: toText(row?.service_name || row?.Service_Service_Name),
+    }))
+    .sort(
+      (left, right) => toSortableTimestamp(right?.created_at) - toSortableTimestamp(left?.created_at)
+    );
+}
+
+async function fetchQuickRelatedJobsByAccount({
+  plugin,
+  accountType = "Contact",
+  accountId = "",
+} = {}) {
+  const normalizedAccountId = toText(accountId);
+  if (!plugin?.switchTo || !normalizedAccountId) return [];
+  const rows = await fetchLinkedJobsByAccount({
+    plugin,
+    accountType,
+    accountId: normalizedAccountId,
+  }).catch(() => []);
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      id: toText(row?.id || row?.ID),
+      unique_id: toText(row?.unique_id || row?.Unique_ID),
+      property_name: toText(
+        row?.property_name || row?.Property_Name || row?.property || row?.Property
+      ),
+      created_at: row?.created_at || row?.Created_At || null,
+    }))
+    .sort((left, right) => Number(right?.created_at || 0) - Number(left?.created_at || 0));
 }
 
 function buildInquiryLiteBaseQuery(plugin) {
@@ -1254,6 +3841,67 @@ async function fetchServiceProviderById({ plugin, providerId }) {
   return null;
 }
 
+async function fetchServiceProviderByContactId({ plugin, contactId }) {
+  const normalizedContactId = normalizeMutationIdentifier(contactId);
+  if (!plugin?.switchTo || normalizedContactId == null) return null;
+  const providerModel = plugin.switchTo("PeterpmServiceProvider");
+
+  const runQuery = async (restrictToAdminType = false) => {
+    let query = providerModel
+      .query()
+      .where("contact_information_id", normalizedContactId)
+      .deSelectAll()
+      .select([
+        "id",
+        "unique_id",
+        "type",
+        "status",
+        "work_email",
+        "mobile_number",
+        "contact_information_id",
+      ])
+      .include("Contact_Information", (contactQuery) =>
+        contactQuery.deSelectAll().select(["first_name", "last_name"])
+      )
+      .limit(1)
+      .noDestroy();
+
+    if (restrictToAdminType) {
+      query = query.andWhere("type", "Admin");
+    }
+    query.getOrInitQueryCalc?.();
+    const result = await toPromiseLike(query.fetchDirect());
+    return extractFirstRecord(result);
+  };
+
+  const adminRecord = await runQuery(true);
+  if (adminRecord) return adminRecord;
+
+  const anyRecord = await runQuery(false);
+  if (anyRecord) return anyRecord;
+  return null;
+}
+
+async function resolveRecentActivityAdminProviderId({
+  plugin,
+  configuredProviderId = "",
+  currentUserContactId = "",
+} = {}) {
+  const configuredId = toText(configuredProviderId);
+  if (configuredId) {
+    return configuredId;
+  }
+
+  const byContactRecord = await fetchServiceProviderByContactId({
+    plugin,
+    contactId: currentUserContactId,
+  });
+  const byContactRecordId = toText(byContactRecord?.id || byContactRecord?.ID);
+  if (byContactRecordId) return byContactRecordId;
+
+  return "";
+}
+
 async function fetchJobIdByUniqueId({ plugin, uniqueId }) {
   const normalizedUniqueId = toText(uniqueId);
   if (!plugin?.switchTo || !normalizedUniqueId) return "";
@@ -1307,7 +3955,8 @@ async function fetchJobInquiryRecordIdById({ plugin, jobId }) {
 
 export function InquiryDetailsPage() {
   const navigate = useNavigate();
-  const { success, error } = useToast();
+  const location = useLocation();
+  const { toast, success, error, dismiss } = useToast();
   const { plugin, isReady: isSdkReady } = useVitalStatsPlugin();
   const { uid = "" } = useParams();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
@@ -1352,6 +4001,8 @@ export function InquiryDetailsPage() {
   });
   const [isDeleteRecordModalOpen, setIsDeleteRecordModalOpen] = useState(false);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
+  const [isQuickInquiryBookingModalOpen, setIsQuickInquiryBookingModalOpen] = useState(false);
+  const [isQuickInquiryProvisioning, setIsQuickInquiryProvisioning] = useState(false);
   const [isInquiryDetailsModalOpen, setIsInquiryDetailsModalOpen] = useState(false);
   const [isSavingInquiryDetails, setIsSavingInquiryDetails] = useState(false);
   const [isInquiryEditPestAccordionOpen, setIsInquiryEditPestAccordionOpen] = useState(false);
@@ -1380,6 +4031,12 @@ export function InquiryDetailsPage() {
   const [memosError, setMemosError] = useState("");
   const [memoText, setMemoText] = useState("");
   const [isMemoChatOpen, setIsMemoChatOpen] = useState(false);
+  const [isRecentActivityPanelOpen, setIsRecentActivityPanelOpen] = useState(false);
+  const [recentAdminActivities, setRecentAdminActivities] = useState(() =>
+    readRecentAdminActivitiesFromStorage()
+  );
+  const recentAdminActivitiesRef = useRef(readRecentAdminActivitiesFromStorage());
+  const [isRecentActivitySyncing, setIsRecentActivitySyncing] = useState(false);
   const [memoFile, setMemoFile] = useState(null);
   const [memoReplyDrafts, setMemoReplyDrafts] = useState({});
   const [isPostingMemo, setIsPostingMemo] = useState(false);
@@ -1408,15 +4065,34 @@ export function InquiryDetailsPage() {
   const previousAccountBindingKeyRef = useRef("");
   const memoFileInputRef = useRef(null);
   const popupCommentAutoShownRef = useRef({});
+  const quickInquiryProvisioningRequestedRef = useRef(false);
+  const quickInquirySavingToastIdRef = useRef("");
+  const lastRecentActivityViewKeyRef = useRef("");
+  const recentActivityProviderIdRef = useRef("");
+  const recentActivitySyncTimeoutRef = useRef(null);
+  const lastSyncedRecentActivityHashRef = useRef("");
+  const syncRecentActivityFileRef = useRef(null);
   const safeUid = useMemo(() => String(uid || "").trim(), [uid]);
-  const hasUid = Boolean(safeUid);
+  const isQuickInquiryBookingMode = useMemo(
+    () =>
+      toText(safeUid).toLowerCase() === "new" ||
+      toText(location?.pathname).toLowerCase().replace(/\/+$/, "") === "/inquiry-details/new",
+    [location?.pathname, safeUid]
+  );
+  const hasUid = Boolean(safeUid) && !isQuickInquiryBookingMode;
   const configuredAdminProviderId = useMemo(
     () => toText(import.meta.env.VITE_APP_USER_ADMIN_ID),
     []
   );
+  const currentAdminContactId = toText(APP_USER?.id);
   const inquiryStatus = useMemo(
-    () => String(resolvedInquiry?.inquiry_status || resolvedInquiry?.Inquiry_Status || "").trim(),
-    [resolvedInquiry]
+    () =>
+      String(
+        resolvedInquiry?.inquiry_status ||
+          resolvedInquiry?.Inquiry_Status ||
+          (isQuickInquiryBookingMode ? "New Inquiry" : "")
+      ).trim(),
+    [isQuickInquiryBookingMode, resolvedInquiry]
   );
   const inquiryNumericId = useMemo(
     () => String(resolvedInquiry?.id || resolvedInquiry?.ID || "").trim(),
@@ -1428,11 +4104,225 @@ export function InquiryDetailsPage() {
     }
     return resolveStatusStyle(inquiryStatus);
   }, [inquiryStatus]);
+  const headerInquiryStatusLabel = isQuickInquiryBookingMode
+    ? "New Inquiry"
+    : inquiryStatus || (isContextLoading ? "Loading..." : "Unknown");
+  const headerInquiryStatusStyle = isQuickInquiryBookingMode
+    ? resolveStatusStyle("New Inquiry")
+    : inquiryStatusStyle;
   const externalInquiryUrl = useMemo(() => {
     if (!inquiryNumericId) return "";
     return `https://app.ontraport.com/#!/deal/edit&id=${encodeURIComponent(inquiryNumericId)}`;
   }, [inquiryNumericId]);
   const inquiry = resolvedInquiry || {};
+  const currentActivityPath = useMemo(
+    () => `${toText(location?.pathname) || "/"}${toText(location?.search)}`,
+    [location?.pathname, location?.search]
+  );
+  const trackRecentActivity = useCallback(
+    ({
+      action = "",
+      pageType = "",
+      pageName = "",
+      path = "",
+      metadata = null,
+    } = {}) => {
+      const normalizedAction = toText(action);
+      if (!isMajorRecentActivityAction(normalizedAction)) return;
+      const resolvedPath = toText(path || currentActivityPath);
+      const resolvedPageType = toText(pageType) || resolveActivityPageType(resolvedPath);
+      const resolvedPageName = toText(pageName) || resolveActivityPageName(resolvedPageType);
+      const normalizedMetadata =
+        metadata && typeof metadata === "object" ? { ...metadata } : {};
+      const metadataInquiryId =
+        toText(normalizedMetadata?.inquiry_id) ||
+        toText(normalizedMetadata?.inquiryId) ||
+        toText(normalizedMetadata?.deal_id);
+      const metadataInquiryUid =
+        toText(normalizedMetadata?.inquiry_uid) ||
+        toText(normalizedMetadata?.inquiryUid) ||
+        toText(normalizedMetadata?.deal_uid);
+      const isNewInquiryPath = toText(resolvedPath).toLowerCase().startsWith("/inquiry-details/new");
+      const timestamp = Date.now();
+      const nextRecord = normalizeRecentActivityRecord({
+        id: `activity-${timestamp}-${Math.random().toString(36).slice(2, 9)}`,
+        timestamp,
+        action: normalizedAction,
+        page_type: resolvedPageType,
+        page_name: resolvedPageName,
+        path: resolvedPath,
+        inquiry_id: metadataInquiryId || (isNewInquiryPath ? "" : toText(inquiryNumericId)),
+        inquiry_uid: metadataInquiryUid || (isNewInquiryPath ? "" : toText(safeUid)),
+        metadata: normalizedMetadata,
+      });
+      const currentList = finalizeRecentActivityList(
+        recentAdminActivitiesRef.current?.length
+          ? recentAdminActivitiesRef.current
+          : readRecentAdminActivitiesFromStorage()
+      );
+      const normalizedActionKey = normalizeRecentActivityAction(nextRecord?.action);
+      let merged = [nextRecord, ...currentList];
+
+      if (normalizedActionKey === "created new inquiry") {
+        const nextInquiryUid = toText(nextRecord?.inquiry_uid).toLowerCase();
+        const startedIndex = currentList.findIndex((item) => {
+          if (normalizeRecentActivityAction(item?.action) !== "started new inquiry") {
+            return false;
+          }
+          const startedUid = toText(item?.inquiry_uid).toLowerCase();
+          if (nextInquiryUid && startedUid && startedUid === nextInquiryUid) {
+            return true;
+          }
+          return toText(item?.path).toLowerCase().startsWith("/inquiry-details/new");
+        });
+        if (startedIndex >= 0) {
+          const startedRecord = currentList[startedIndex];
+          const remaining = currentList.filter((_, index) => index !== startedIndex);
+          const upgradedRecord = normalizeRecentActivityRecord({
+            ...startedRecord,
+            ...nextRecord,
+            id: toText(startedRecord?.id) || toText(nextRecord?.id),
+          });
+          merged = [upgradedRecord, ...remaining];
+        }
+      }
+
+      const nextRecords = finalizeRecentActivityList(merged);
+      recentAdminActivitiesRef.current = nextRecords;
+      writeRecentAdminActivitiesToStorage(nextRecords);
+      setRecentAdminActivities(nextRecords);
+      console.log("[RecentActivitySync][InquiryDetails] Tracked activity", {
+        action: nextRecord?.action,
+        inquiry_uid: nextRecord?.inquiry_uid,
+        inquiry_id: nextRecord?.inquiry_id,
+        records: nextRecords.length,
+      });
+
+      if (
+        normalizeRecentActivityAction(nextRecord?.action) === "created new inquiry" &&
+        Array.isArray(nextRecords) &&
+        nextRecords.length
+      ) {
+        const syncFn = syncRecentActivityFileRef.current;
+        if (typeof syncFn === "function") {
+          void syncFn(nextRecords)
+            .then((didSync) => {
+              if (didSync) {
+                lastSyncedRecentActivityHashRef.current = buildRecentActivitySignature(nextRecords);
+              }
+            })
+            .catch((syncError) => {
+              console.warn("[InquiryDetails] Failed immediate recent activity sync", syncError);
+              recentActivityProviderIdRef.current = "";
+            });
+        }
+      }
+    },
+    [currentActivityPath, inquiryNumericId, safeUid]
+  );
+  const syncRecentActivityFile = useCallback(
+    async (records = []) => {
+      const configuredId = toText(configuredAdminProviderId);
+      if (!plugin) {
+        throw new Error("SDK plugin is not ready for recent activity sync.");
+      }
+      const normalizedRecords = (Array.isArray(records) ? records : [])
+        .map((item) => normalizeRecentActivityRecord(item))
+        .filter((item) => isMajorRecentActivityAction(item?.action))
+        .sort((left, right) => Number(right?.timestamp || 0) - Number(left?.timestamp || 0))
+        .slice(0, MAX_RECENT_ADMIN_ACTIVITY_RECORDS);
+      if (!normalizedRecords.length) return false;
+      console.log("[RecentActivitySync][InquiryDetails] Sync start", {
+        records: normalizedRecords.length,
+        configuredProviderId: configuredId,
+        currentAdminContactId,
+      });
+
+      let resolvedProviderId = toText(recentActivityProviderIdRef.current);
+      if (!recentActivityProviderIdRef.current) {
+        try {
+          resolvedProviderId = await resolveRecentActivityAdminProviderId({
+            plugin,
+            configuredProviderId: configuredId,
+            currentUserContactId: currentAdminContactId,
+          });
+          recentActivityProviderIdRef.current = resolvedProviderId;
+        } catch (providerError) {
+          console.warn("[InquiryDetails] Failed resolving provider for recent activity sync", providerError);
+        }
+      }
+      if (!resolvedProviderId) {
+        throw new Error("Admin service provider ID could not be resolved for recent activity sync.");
+      }
+
+      const jsonPayload = createRecentActivityJsonData(normalizedRecords, resolvedProviderId);
+      console.log("[RecentActivitySync][InquiryDetails] Updating service provider", {
+        resolvedProviderId,
+        payloadLength: jsonPayload.length,
+      });
+      const didUpdate = await updateServiceProviderRecentActivityJsonData({
+        plugin,
+        serviceProviderId: resolvedProviderId,
+        jsonPayload,
+      });
+      if (!didUpdate) {
+        throw new Error("Recent activity JSON update was not acknowledged.");
+      }
+      console.log("[RecentActivitySync][InquiryDetails] Sync success", {
+        resolvedProviderId,
+        records: normalizedRecords.length,
+      });
+      return true;
+    },
+    [configuredAdminProviderId, currentAdminContactId, plugin]
+  );
+
+  useEffect(() => {
+    recentAdminActivitiesRef.current = finalizeRecentActivityList(recentAdminActivities);
+  }, [recentAdminActivities]);
+
+  useEffect(() => {
+    syncRecentActivityFileRef.current = syncRecentActivityFile;
+  }, [syncRecentActivityFile]);
+
+  useEffect(() => {
+    if (!plugin || !recentAdminActivities.length) return;
+    const signature = buildRecentActivitySignature(recentAdminActivities);
+    if (!signature || signature === lastSyncedRecentActivityHashRef.current) return;
+    if (recentActivitySyncTimeoutRef.current) {
+      window.clearTimeout(recentActivitySyncTimeoutRef.current);
+    }
+    recentActivitySyncTimeoutRef.current = window.setTimeout(async () => {
+      setIsRecentActivitySyncing(true);
+      try {
+        const didSync = await syncRecentActivityFile(recentAdminActivities);
+        if (didSync) {
+          lastSyncedRecentActivityHashRef.current = signature;
+        }
+      } catch (syncError) {
+        console.error("[InquiryDetails] Failed syncing recent activity file", syncError);
+        recentActivityProviderIdRef.current = "";
+      } finally {
+        setIsRecentActivitySyncing(false);
+      }
+    }, 250);
+
+    return () => {
+      if (recentActivitySyncTimeoutRef.current) {
+        window.clearTimeout(recentActivitySyncTimeoutRef.current);
+      }
+    };
+  }, [plugin, recentAdminActivities, syncRecentActivityFile]);
+
+  useEffect(
+    () => () => {
+      if (recentActivitySyncTimeoutRef.current) {
+        window.clearTimeout(recentActivitySyncTimeoutRef.current);
+      }
+    },
+    []
+  );
+
   const inquiryPrimaryContact = getInquiryPrimaryContact(inquiry);
   const inquiryCompany = getInquiryCompany(inquiry);
   const inquiryCompanyPrimaryPerson =
@@ -1594,6 +4484,9 @@ export function InquiryDetailsPage() {
     if (linkedPropertiesSorted.length) return linkedPropertiesSorted[0];
     return null;
   }, [linkedPropertiesSorted, normalizedSelectedPropertyId, propertyLookupRecords]);
+  const uploadsPropertyId = normalizePropertyId(
+    activeRelatedProperty?.id || normalizedSelectedPropertyId || inquiryPropertyId
+  );
   const workspacePropertiesSorted = useMemo(
     () =>
       dedupePropertyLookupRecords(propertyLookupRecords).sort((left, right) =>
@@ -2229,6 +5122,87 @@ export function InquiryDetailsPage() {
   }, [safeUid]);
 
   useEffect(() => {
+    if (isQuickInquiryBookingMode) {
+      setIsQuickInquiryBookingModalOpen(true);
+    }
+  }, [isQuickInquiryBookingMode]);
+
+  useEffect(() => {
+    if (!isQuickInquiryBookingMode) {
+      quickInquiryProvisioningRequestedRef.current = false;
+      setIsQuickInquiryProvisioning(false);
+      return;
+    }
+    if (!isSdkReady || !plugin?.switchTo) return;
+    if (inquiryNumericId || isQuickInquiryProvisioning) return;
+    if (quickInquiryProvisioningRequestedRef.current) return;
+    quickInquiryProvisioningRequestedRef.current = true;
+    setIsQuickInquiryProvisioning(true);
+
+    createInquiryRecordFromPayload({
+      plugin,
+      payload: {
+        inquiry_status: "New Inquiry",
+        account_type: "Contact",
+        Inquiry_Taken_By_id: configuredAdminProviderId
+          ? normalizeMutationIdentifier(configuredAdminProviderId)
+          : null,
+      },
+    })
+      .then((createdInquiry) => {
+        const createdId = toText(createdInquiry?.id || createdInquiry?.ID);
+        const nextUid = toText(createdInquiry?.unique_id);
+        if (!nextUid) {
+          throw new Error("Inquiry was created but unique ID was not returned.");
+        }
+        trackRecentActivity({
+          action: "Created new inquiry",
+          path: `/inquiry-details/${encodeURIComponent(nextUid)}`,
+          pageType: "inquiry-details",
+          pageName: "Inquiry Details",
+          metadata: {
+            inquiry_id: createdId,
+            inquiry_uid: nextUid,
+          },
+        });
+        const latestRecentActivities = readRecentAdminActivitiesFromStorage();
+        if (Array.isArray(latestRecentActivities) && latestRecentActivities.length) {
+          void syncRecentActivityFile(latestRecentActivities)
+            .then((didSync) => {
+              if (didSync) {
+                lastSyncedRecentActivityHashRef.current =
+                  buildRecentActivitySignature(latestRecentActivities);
+              }
+            })
+            .catch((syncError) => {
+              console.warn("[InquiryDetails] Failed post-create recent activity sync", syncError);
+              recentActivityProviderIdRef.current = "";
+            });
+        }
+        navigate(`/inquiry-details/${encodeURIComponent(nextUid)}`, { replace: true });
+      })
+      .catch((provisionError) => {
+        quickInquiryProvisioningRequestedRef.current = false;
+        console.error("[InquiryDetails] Failed background quick inquiry creation", provisionError);
+        error("Create failed", provisionError?.message || "Unable to create inquiry.");
+      })
+      .finally(() => {
+        setIsQuickInquiryProvisioning(false);
+      });
+  }, [
+    configuredAdminProviderId,
+    error,
+    inquiryNumericId,
+    isQuickInquiryBookingMode,
+    isQuickInquiryProvisioning,
+    isSdkReady,
+    navigate,
+    plugin,
+    syncRecentActivityFile,
+    trackRecentActivity,
+  ]);
+
+  useEffect(() => {
     if (!accountBindingKey) return;
     if (!previousAccountBindingKeyRef.current) {
       previousAccountBindingKeyRef.current = accountBindingKey;
@@ -2444,6 +5418,26 @@ export function InquiryDetailsPage() {
       isMounted = false;
     };
   }, [linkedPropertiesSorted, normalizedSelectedPropertyId, plugin, propertyLookupRecords]);
+
+  useEffect(() => {
+    const sourceComparableAddress = normalizeAddressText(
+      joinAddress([
+        sameAsContactPropertySource?.address1,
+        sameAsContactPropertySource?.suburbTown,
+        sameAsContactPropertySource?.state,
+        sameAsContactPropertySource?.postalCode,
+      ]) || sameAsContactPropertySource?.searchText
+    );
+    const selectedComparableAddress = buildComparablePropertyAddress(activeRelatedProperty || {});
+    const isAddressMatched =
+      Boolean(sourceComparableAddress && selectedComparableAddress) &&
+      (sourceComparableAddress === selectedComparableAddress ||
+        selectedComparableAddress.includes(sourceComparableAddress) ||
+        sourceComparableAddress.includes(selectedComparableAddress));
+    setIsPropertySameAsContact((previous) =>
+      previous === isAddressMatched ? previous : isAddressMatched
+    );
+  }, [activeRelatedProperty, sameAsContactPropertySource]);
 
   useEffect(() => {
     if (!isInquiryDetailsModalOpen) return;
@@ -2851,11 +5845,12 @@ export function InquiryDetailsPage() {
   ]);
 
   const refreshResolvedInquiry = useCallback(async () => {
-    if (!plugin || !inquiryNumericId) return;
+    if (!plugin || !inquiryNumericId) return null;
     const refreshed = await fetchInquiryLiteById({ plugin, id: inquiryNumericId });
     if (refreshed) {
       setResolvedInquiry(refreshed);
     }
+    return refreshed || null;
   }, [inquiryNumericId, plugin]);
 
   const refreshMemos = useCallback(async () => {
@@ -3149,8 +6144,8 @@ export function InquiryDetailsPage() {
 
   const handleSameAsContactPropertyChange = useCallback(
     async (checked) => {
-      setIsPropertySameAsContact(Boolean(checked));
       if (!checked) return;
+      setIsPropertySameAsContact(true);
 
       if (!plugin || !inquiryNumericId) {
         setIsPropertySameAsContact(false);
@@ -3325,7 +6320,16 @@ export function InquiryDetailsPage() {
     setAppointmentModalEditingId("");
     setAppointmentModalDraft(null);
     setIsAppointmentModalOpen(true);
-  }, []);
+    trackRecentActivity({
+      action: "Opened create appointment",
+      pageType: "inquiry-details",
+      pageName: "Inquiry Details",
+      metadata: {
+        inquiry_id: toText(inquiryNumericId),
+        inquiry_uid: toText(safeUid),
+      },
+    });
+  }, [inquiryNumericId, safeUid, trackRecentActivity]);
 
   const handleOpenEditAppointmentModal = useCallback((record = {}, draftState = null) => {
     const appointmentId = toText(record?.id || record?.ID);
@@ -3334,7 +6338,17 @@ export function InquiryDetailsPage() {
     setAppointmentModalEditingId(appointmentId);
     setAppointmentModalDraft(draftState && typeof draftState === "object" ? draftState : null);
     setIsAppointmentModalOpen(true);
-  }, []);
+    trackRecentActivity({
+      action: "Opened edit appointment",
+      pageType: "inquiry-details",
+      pageName: "Inquiry Details",
+      metadata: {
+        appointment_id: appointmentId,
+        inquiry_id: toText(inquiryNumericId),
+        inquiry_uid: toText(safeUid),
+      },
+    });
+  }, [inquiryNumericId, safeUid, trackRecentActivity]);
 
   const closeAppointmentModal = useCallback(() => {
     setIsAppointmentModalOpen(false);
@@ -3345,15 +6359,121 @@ export function InquiryDetailsPage() {
 
   const handleOpenUploadModal = useCallback(() => {
     setIsUploadsModalOpen(true);
-  }, []);
+    trackRecentActivity({
+      action: "Opened uploads modal",
+      pageType: "inquiry-details",
+      pageName: "Inquiry Details",
+      metadata: {
+        inquiry_id: toText(inquiryNumericId),
+        inquiry_uid: toText(safeUid),
+      },
+    });
+  }, [inquiryNumericId, safeUid, trackRecentActivity]);
 
   const closeUploadsModal = useCallback(() => {
     setIsUploadsModalOpen(false);
   }, []);
 
+  const handleCloseQuickInquiryBookingModal = useCallback(() => {
+    setIsQuickInquiryBookingModalOpen(false);
+  }, []);
+
+  const dismissQuickInquirySavingToast = useCallback(() => {
+    const toastId = toText(quickInquirySavingToastIdRef.current);
+    if (!toastId) return;
+    dismiss(toastId);
+    quickInquirySavingToastIdRef.current = "";
+  }, [dismiss]);
+
+  const handleQuickInquiryBookingSavingStart = useCallback(
+    (optimisticPatch = {}) => {
+      setIsQuickInquiryBookingModalOpen(false);
+      setResolvedInquiry((previous) => {
+        const base = previous && typeof previous === "object" ? previous : {};
+        const next = {
+          ...base,
+          ...(optimisticPatch && typeof optimisticPatch === "object" ? optimisticPatch : {}),
+        };
+        if (!toText(next?.id) && inquiryNumericId) {
+          next.id = inquiryNumericId;
+        }
+        const currentSafeUid = toText(safeUid);
+        if (
+          !toText(next?.unique_id) &&
+          currentSafeUid &&
+          currentSafeUid.toLowerCase() !== "new"
+        ) {
+          next.unique_id = currentSafeUid;
+        }
+        if (!toText(next?.inquiry_status)) {
+          next.inquiry_status = "New Inquiry";
+        }
+        return next;
+      });
+      dismissQuickInquirySavingToast();
+      quickInquirySavingToastIdRef.current = toast({
+        type: "info",
+        title: "Saving inquiry...",
+        description: "Please wait while details are being saved.",
+        duration: 0,
+      });
+    },
+    [dismissQuickInquirySavingToast, inquiryNumericId, safeUid, toast]
+  );
+
+  const handleQuickInquiryBookingSaved = useCallback(async () => {
+    try {
+      await refreshResolvedInquiry();
+      dismissQuickInquirySavingToast();
+      success("Inquiry saved", "Quick inquiry details were saved.");
+    } catch (refreshError) {
+      dismissQuickInquirySavingToast();
+      error("Refresh failed", refreshError?.message || "Inquiry saved but refresh failed.");
+    }
+  }, [
+    dismissQuickInquirySavingToast,
+    error,
+    inquiryNumericId,
+    refreshResolvedInquiry,
+    success,
+  ]);
+
+  const handleQuickInquiryBookingError = useCallback(
+    (saveError) => {
+      dismissQuickInquirySavingToast();
+      setIsQuickInquiryBookingModalOpen(true);
+      error("Create failed", saveError?.message || "Unable to create inquiry.");
+    },
+    [dismissQuickInquirySavingToast, error]
+  );
+
   const handleNewInquiry = () => {
-    navigate("/inquiry-direct/new");
+    trackRecentActivity({
+      action: "Started new inquiry",
+      path: "/inquiry-details/new",
+      pageType: "inquiry-details",
+      pageName: "Inquiry Details",
+      metadata: {
+        from_inquiry_id: toText(inquiryNumericId),
+        from_inquiry_uid: toText(safeUid),
+      },
+    });
+    navigate("/inquiry-details/new");
   };
+
+  const handleQuickView = useCallback(() => {
+    trackRecentActivity({
+      action: "Started new inquiry",
+      path: "/inquiry-details/new",
+      pageType: "inquiry-details",
+      pageName: "Inquiry Details",
+      metadata: {
+        from_inquiry_id: toText(inquiryNumericId),
+        from_inquiry_uid: toText(safeUid),
+      },
+    });
+    navigate("/inquiry-details/new");
+  }, [inquiryNumericId, navigate, safeUid, trackRecentActivity]);
 
   const handleEditInquiry = () => {
     if (!hasUid) return;
@@ -3376,6 +6496,15 @@ export function InquiryDetailsPage() {
         },
       });
       await refreshResolvedInquiry();
+      trackRecentActivity({
+        action: "Created call back",
+        pageType: "inquiry-details",
+        pageName: "Inquiry Details",
+        metadata: {
+          inquiry_id: toText(inquiryNumericId),
+          inquiry_uid: toText(safeUid),
+        },
+      });
       success("Callback created", "Callback request was marked on this inquiry.");
     } catch (saveError) {
       console.error("[InquiryDetails] Failed creating callback", saveError);
@@ -3383,7 +6512,16 @@ export function InquiryDetailsPage() {
     } finally {
       setIsCreatingCallback(false);
     }
-  }, [error, inquiryNumericId, isCreatingCallback, plugin, refreshResolvedInquiry, success]);
+  }, [
+    error,
+    inquiryNumericId,
+    isCreatingCallback,
+    plugin,
+    refreshResolvedInquiry,
+    safeUid,
+    success,
+    trackRecentActivity,
+  ]);
 
   const handleOpenCreateQuoteModal = useCallback(() => {
     const today = new Date();
@@ -3395,7 +6533,16 @@ export function InquiryDetailsPage() {
       follow_up_date: "",
     });
     setIsCreateQuoteModalOpen(true);
-  }, []);
+    trackRecentActivity({
+      action: "Opened create quote/job modal",
+      pageType: "inquiry-details",
+      pageName: "Inquiry Details",
+      metadata: {
+        inquiry_id: toText(inquiryNumericId),
+        inquiry_uid: toText(safeUid),
+      },
+    });
+  }, [inquiryNumericId, safeUid, trackRecentActivity]);
 
   const hasLinkedQuoteJob =
     isQuoteJobDirectlyLinked && toText(inquiryStatus).toLowerCase() === "quote created";
@@ -3423,6 +6570,18 @@ export function InquiryDetailsPage() {
         error("Open failed", "Unable to resolve quote/job record.");
         return;
       }
+      trackRecentActivity({
+        action: "Opened quote/job",
+        path: `/details/${encodeURIComponent(resolvedUid)}`,
+        pageType: "job-details",
+        pageName: "Job Details",
+        metadata: {
+          inquiry_id: toText(inquiryNumericId),
+          inquiry_uid: toText(safeUid),
+          job_uid: resolvedUid,
+          job_id: linkedJobValue,
+        },
+      });
       navigate(`/details/${encodeURIComponent(resolvedUid)}`);
     } catch (openError) {
       console.error("[InquiryDetails] Failed opening quote/job details", openError);
@@ -3441,6 +6600,9 @@ export function InquiryDetailsPage() {
     quoteJobIdFromRecord,
     navigate,
     plugin,
+    inquiryNumericId,
+    safeUid,
+    trackRecentActivity,
   ]);
 
   const handleCloseCreateQuoteModal = useCallback(() => {
@@ -3486,6 +6648,17 @@ export function InquiryDetailsPage() {
       });
       await refreshResolvedInquiry();
       setRelatedRecordsRefreshKey((previous) => previous + 1);
+      trackRecentActivity({
+        action: "Created quote/job",
+        pageType: "inquiry-details",
+        pageName: "Inquiry Details",
+        metadata: {
+          inquiry_id: toText(inquiryNumericId),
+          inquiry_uid: toText(safeUid),
+          job_id: toText(createdJob?.id || createdJob?.ID),
+          job_uid: toText(createdJob?.unique_id || createdJob?.Unique_ID),
+        },
+      });
       success(
         "Quote created",
         `Quote ${toText(createdJob?.unique_id || createdJob?.Unique_ID) || ""} created.`
@@ -3512,7 +6685,9 @@ export function InquiryDetailsPage() {
     serviceProviderIdResolved,
     inquiryTakenByStoredId,
     inquiryTakenByIdResolved,
+    safeUid,
     success,
+    trackRecentActivity,
   ]);
 
   const handleMemoFileChange = useCallback((event) => {
@@ -3705,7 +6880,16 @@ export function InquiryDetailsPage() {
   const handleDeleteRecord = useCallback(() => {
     setIsMoreOpen(false);
     setIsDeleteRecordModalOpen(true);
-  }, []);
+    trackRecentActivity({
+      action: "Opened cancel inquiry modal",
+      pageType: "inquiry-details",
+      pageName: "Inquiry Details",
+      metadata: {
+        inquiry_id: toText(inquiryNumericId),
+        inquiry_uid: toText(safeUid),
+      },
+    });
+  }, [inquiryNumericId, safeUid, trackRecentActivity]);
 
   const handleCloseDeleteRecordModal = useCallback(() => {
     if (isDeletingRecord) return;
@@ -3728,6 +6912,16 @@ export function InquiryDetailsPage() {
           inquiry_status: "Cancelled",
         },
       });
+      trackRecentActivity({
+        action: "Cancelled inquiry",
+        path: "/",
+        pageType: "dashboard",
+        pageName: "Dashboard",
+        metadata: {
+          inquiry_id: toText(inquiryNumericId),
+          inquiry_uid: toText(safeUid),
+        },
+      });
       success("Record cancelled", "Inquiry status was updated to Cancelled.");
       setIsDeleteRecordModalOpen(false);
       navigate("/");
@@ -3737,7 +6931,16 @@ export function InquiryDetailsPage() {
     } finally {
       setIsDeletingRecord(false);
     }
-  }, [error, inquiryNumericId, isDeletingRecord, navigate, plugin, success]);
+  }, [
+    error,
+    inquiryNumericId,
+    isDeletingRecord,
+    navigate,
+    plugin,
+    safeUid,
+    success,
+    trackRecentActivity,
+  ]);
 
   const handleConfirmServiceProviderAllocation = useCallback(async () => {
     if (isAllocatingServiceProvider) return;
@@ -3762,6 +6965,16 @@ export function InquiryDetailsPage() {
         },
       });
       await refreshResolvedInquiry();
+      trackRecentActivity({
+        action: "Allocated service provider",
+        pageType: "inquiry-details",
+        pageName: "Inquiry Details",
+        metadata: {
+          inquiry_id: toText(inquiryNumericId),
+          inquiry_uid: toText(safeUid),
+          service_provider_id: providerId,
+        },
+      });
       success("Service provider allocated", "Deal was updated with selected service provider.");
     } catch (allocationError) {
       console.error("[InquiryDetails] Service provider allocation failed", allocationError);
@@ -3775,8 +6988,10 @@ export function InquiryDetailsPage() {
     isAllocatingServiceProvider,
     plugin,
     refreshResolvedInquiry,
+    safeUid,
     selectedServiceProviderId,
     success,
+    trackRecentActivity,
   ]);
 
   const handleConfirmInquiryTakenBy = useCallback(async () => {
@@ -3801,6 +7016,16 @@ export function InquiryDetailsPage() {
         },
       });
       await refreshResolvedInquiry();
+      trackRecentActivity({
+        action: "Updated inquiry taken by",
+        pageType: "inquiry-details",
+        pageName: "Inquiry Details",
+        metadata: {
+          inquiry_id: toText(inquiryNumericId),
+          inquiry_uid: toText(safeUid),
+          inquiry_taken_by_id: providerId,
+        },
+      });
       success("Inquiry taken by updated", "Inquiry was updated with selected admin.");
     } catch (saveError) {
       console.error("[InquiryDetails] Inquiry taken by update failed", saveError);
@@ -3814,8 +7039,10 @@ export function InquiryDetailsPage() {
     isSavingInquiryTakenBy,
     plugin,
     refreshResolvedInquiry,
+    safeUid,
     selectedInquiryTakenById,
     success,
+    trackRecentActivity,
   ]);
 
   const handleOpenInquiryDetailsEditor = useCallback(() => {
@@ -3824,7 +7051,16 @@ export function InquiryDetailsPage() {
       ...(inquiryDetailsInitialForm || {}),
     });
     setIsInquiryDetailsModalOpen(true);
-  }, [inquiryDetailsInitialForm]);
+    trackRecentActivity({
+      action: "Opened inquiry edit modal",
+      pageType: "inquiry-details",
+      pageName: "Inquiry Details",
+      metadata: {
+        inquiry_id: toText(inquiryNumericId),
+        inquiry_uid: toText(safeUid),
+      },
+    });
+  }, [inquiryDetailsInitialForm, inquiryNumericId, safeUid, trackRecentActivity]);
 
   const handleCloseInquiryDetailsEditor = useCallback(() => {
     if (isSavingInquiryDetails) return;
@@ -4165,6 +7401,15 @@ export function InquiryDetailsPage() {
   const handleOpenTasksModal = () => {
     if (!inquiryNumericId) return;
     setIsTasksModalOpen(true);
+    trackRecentActivity({
+      action: "Opened manage tasks",
+      pageType: "inquiry-details",
+      pageName: "Inquiry Details",
+      metadata: {
+        inquiry_id: toText(inquiryNumericId),
+        inquiry_uid: toText(safeUid),
+      },
+    });
   };
   const handleCloseTasksModal = () => {
     setIsTasksModalOpen(false);
@@ -4207,6 +7452,20 @@ export function InquiryDetailsPage() {
       navigate(`/details/${encodeURIComponent(nextUid)}`);
     },
     [navigate]
+  );
+  const handleOpenRecentActivityItem = useCallback(
+    (activity = {}) => {
+      const targetPath = toText(activity?.path);
+      if (!targetPath) return;
+      trackRecentActivity({
+        action: "Opened recent activity",
+        path: targetPath,
+        pageType: toText(activity?.page_type) || resolveActivityPageType(targetPath),
+        pageName: toText(activity?.page_name) || resolveActivityPageName(resolveActivityPageType(targetPath)),
+      });
+      navigate(targetPath);
+    },
+    [navigate, trackRecentActivity]
   );
   const handleToggleRelatedJobLink = useCallback(
     async (jobRecord = {}) => {
@@ -4336,158 +7595,165 @@ export function InquiryDetailsPage() {
               </div>
               <span
                 className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                style={inquiryStatusStyle}
+                style={headerInquiryStatusStyle}
               >
-                {inquiryStatus || (isContextLoading ? "Loading..." : "Unknown")}
+                {headerInquiryStatusLabel}
               </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               <div className="service-provider-allocation-field w-full min-w-[360px] max-w-[620px] md:w-auto md:flex-1">
-                <span className="service-provider-allocation-legend">Service Provider</span>
-                <SearchDropdownInput
-                  label=""
-                  field="service_provider_allocation"
-                  value={serviceProviderSearch}
-                  placeholder="Allocate service provider"
-                  items={serviceProviderSearchItems}
-                  onValueChange={(value) => {
-                    setServiceProviderSearch(value);
-                    setSelectedServiceProviderId("");
-                  }}
-                  onSelect={(item) => {
-                    const providerId = toText(item?.id);
-                    setSelectedServiceProviderId(providerId);
-                    setServiceProviderSearch(toText(item?.valueLabel || item?.label));
-                  }}
-                  onAdd={handleConfirmServiceProviderAllocation}
-                  addButtonLabel={
-                    isAllocatingServiceProvider ? "Allocating..." : "Confirm Allocation"
-                  }
-                  emptyText={
-                    isServiceProviderLookupLoading
-                      ? "Loading service providers..."
-                      : "No service providers found."
-                  }
-                  rootData={{
-                    className: "service-provider-allocation-root w-full",
-                    "data-search-root": "service-provider-allocation",
-                  }}
-                />
-              </div>
-              <div className="service-provider-allocation-field w-full min-w-[360px] max-w-[620px] md:w-auto md:flex-1">
-                <span className="service-provider-allocation-legend">Inquiry Taken By</span>
-                <SearchDropdownInput
-                  label=""
-                  field="inquiry_taken_by_allocation"
-                  value={inquiryTakenBySearch}
-                  placeholder="Set inquiry taken by"
-                  items={inquiryTakenBySearchItems}
-                  onValueChange={(value) => {
-                    setInquiryTakenBySearch(value);
-                    setSelectedInquiryTakenById("");
-                  }}
-                  onSelect={(item) => {
-                    const providerId = toText(item?.id);
-                    setSelectedInquiryTakenById(providerId);
-                    setInquiryTakenBySearch(toText(item?.valueLabel || item?.label));
-                  }}
-                  onAdd={handleConfirmInquiryTakenBy}
-                  addButtonLabel={isSavingInquiryTakenBy ? "Saving..." : "Confirm Selection"}
-                  emptyText={
-                    isInquiryTakenByLookupLoading
-                      ? "Loading admins..."
-                      : "No admin records found."
-                  }
-                  rootData={{
-                    className: "service-provider-allocation-root w-full",
-                    "data-search-root": "inquiry-taken-by-allocation",
-                  }}
-                />
-              </div>
-              <Button
-                variant="primary"
-                size="sm"
-                className="h-8 whitespace-nowrap px-3 !text-xs"
-                onClick={handleNewInquiry}
-              >
-                New Inquiry
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 whitespace-nowrap px-3 !text-xs"
-                onClick={handleEditInquiry}
-                disabled={!hasUid}
-              >
-                Edit Inquiry
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 whitespace-nowrap px-3 !text-xs"
-                onClick={handleCreateCallback}
-                disabled={!inquiryNumericId || isCreatingCallback}
-              >
-                {isCreatingCallback ? "Creating..." : "Create Call Back"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 whitespace-nowrap px-3 !text-xs"
-                onClick={handleOpenTasksModal}
-                disabled={!inquiryNumericId}
-              >
-                Manage Tasks
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 whitespace-nowrap px-3 !text-xs"
-                onClick={handleQuoteJobAction}
-                disabled={!inquiryNumericId || isCreatingQuote || isOpeningQuoteJob}
-              >
-                {isCreatingQuote
-                  ? "Creating Quote/Job..."
-                  : isOpeningQuoteJob
-                    ? "Opening Quote/Job..."
-                    : hasLinkedQuoteJob
-                      ? "View Quote/Job"
-                      : "Create Quote/Job"}
-              </Button>
-
-              <div className="relative" ref={moreMenuRef}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 whitespace-nowrap px-3 !text-xs"
-                  onClick={() => setIsMoreOpen((previous) => !previous)}
-                  aria-haspopup="menu"
-                  aria-expanded={isMoreOpen}
-                >
-                  More
-                  <ChevronDownIcon />
-                </Button>
-                {isMoreOpen ? (
-                  <div className="absolute right-0 top-full z-40 mt-1 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg">
-                    <button
-                      type="button"
-                      className={`block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 ${
-                        isDeletingRecord ? "pointer-events-none opacity-50" : ""
-                      }`}
-                      onClick={handleDeleteRecord}
-                    >
-                      Delete Record
-                    </button>
+                    <span className="service-provider-allocation-legend">Service Provider</span>
+                    <SearchDropdownInput
+                      label=""
+                      field="service_provider_allocation"
+                      value={serviceProviderSearch}
+                      placeholder="Allocate service provider"
+                      items={serviceProviderSearchItems}
+                      onValueChange={(value) => {
+                        setServiceProviderSearch(value);
+                        setSelectedServiceProviderId("");
+                      }}
+                      onSelect={(item) => {
+                        const providerId = toText(item?.id);
+                        setSelectedServiceProviderId(providerId);
+                        setServiceProviderSearch(toText(item?.valueLabel || item?.label));
+                      }}
+                      onAdd={handleConfirmServiceProviderAllocation}
+                      addButtonLabel={
+                        isAllocatingServiceProvider ? "Allocating..." : "Confirm Allocation"
+                      }
+                      closeOnSelect={false}
+                      emptyText={
+                        isServiceProviderLookupLoading
+                          ? "Loading service providers..."
+                          : "No service providers found."
+                      }
+                      rootData={{
+                        className: "service-provider-allocation-root w-full",
+                        "data-search-root": "service-provider-allocation",
+                      }}
+                    />
                   </div>
-                ) : null}
-              </div>
+                  <div className="service-provider-allocation-field w-full min-w-[360px] max-w-[620px] md:w-auto md:flex-1">
+                    <span className="service-provider-allocation-legend">Inquiry Taken By</span>
+                    <SearchDropdownInput
+                      label=""
+                      field="inquiry_taken_by_allocation"
+                      value={inquiryTakenBySearch}
+                      placeholder="Set inquiry taken by"
+                      items={inquiryTakenBySearchItems}
+                      onValueChange={(value) => {
+                        setInquiryTakenBySearch(value);
+                        setSelectedInquiryTakenById("");
+                      }}
+                      onSelect={(item) => {
+                        const providerId = toText(item?.id);
+                        setSelectedInquiryTakenById(providerId);
+                        setInquiryTakenBySearch(toText(item?.valueLabel || item?.label));
+                      }}
+                      onAdd={handleConfirmInquiryTakenBy}
+                      addButtonLabel={isSavingInquiryTakenBy ? "Saving..." : "Confirm Selection"}
+                      closeOnSelect={false}
+                      emptyText={
+                        isInquiryTakenByLookupLoading
+                          ? "Loading admins..."
+                          : "No admin records found."
+                      }
+                      rootData={{
+                        className: "service-provider-allocation-root w-full",
+                        "data-search-root": "inquiry-taken-by-allocation",
+                      }}
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 whitespace-nowrap px-3 !text-xs"
+                    onClick={handleCreateCallback}
+                    disabled={!inquiryNumericId || isCreatingCallback}
+                  >
+                    {isCreatingCallback ? "Creating..." : "Create Call Back"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 whitespace-nowrap px-3 !text-xs"
+                    onClick={handleOpenTasksModal}
+                    disabled={!inquiryNumericId}
+                  >
+                    Manage Tasks
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 whitespace-nowrap px-3 !text-xs"
+                    onClick={() => {
+                      if (!isQuickInquiryBookingMode) {
+                        handleQuickView();
+                        return;
+                      }
+                      setIsQuickInquiryBookingModalOpen(true);
+                    }}
+                  >
+                    Quick View
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 whitespace-nowrap px-3 !text-xs"
+                    onClick={handleQuoteJobAction}
+                    disabled={!inquiryNumericId || isCreatingQuote || isOpeningQuoteJob}
+                  >
+                    {isCreatingQuote
+                      ? "Creating Quote/Job..."
+                      : isOpeningQuoteJob
+                        ? "Opening Quote/Job..."
+                        : hasLinkedQuoteJob
+                        ? "View Quote/Job"
+                        : "Create Quote/Job"}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="h-8 whitespace-nowrap px-3 !text-xs"
+                    onClick={handleNewInquiry}
+                  >
+                    New Inquiry
+                  </Button>
+
+                  <div className="relative" ref={moreMenuRef}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 whitespace-nowrap px-3 !text-xs"
+                      onClick={() => setIsMoreOpen((previous) => !previous)}
+                      aria-haspopup="menu"
+                      aria-expanded={isMoreOpen}
+                    >
+                      More
+                      <ChevronDownIcon />
+                    </Button>
+                    {isMoreOpen ? (
+                      <div className="absolute right-0 top-full z-40 mt-1 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+                        <button
+                          type="button"
+                          className={`block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 ${
+                            isDeletingRecord ? "pointer-events-none opacity-50" : ""
+                          }`}
+                          onClick={handleDeleteRecord}
+                        >
+                          Delete Record
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
             </div>
           </div>
         </div>
       </section>
       <JobDirectStoreProvider
-        jobUid={safeUid || null}
+        jobUid={hasUid ? safeUid : null}
         jobData={{ id: linkedInquiryJobIdFromRecord, ID: linkedInquiryJobIdFromRecord }}
         lookupData={workspaceLookupData}
       >
@@ -4525,6 +7791,16 @@ export function InquiryDetailsPage() {
         initialValues={contactModalState.initialValues}
         useTopLookupSearch
         enableInlineDuplicateLookup
+      />
+      <QuickInquiryBookingModal
+        open={isQuickInquiryBookingModalOpen}
+        onClose={handleCloseQuickInquiryBookingModal}
+        plugin={plugin}
+        inquiryId={inquiryNumericId}
+        configuredAdminProviderId={configuredAdminProviderId}
+        onSavingStart={handleQuickInquiryBookingSavingStart}
+        onSaved={handleQuickInquiryBookingSaved}
+        onError={handleQuickInquiryBookingError}
       />
       <AddPropertyModal
         open={propertyModalState.open}
@@ -4774,6 +8050,7 @@ export function InquiryDetailsPage() {
                 Inquiry_Record_ID: inquiryNumericId,
                 job_id: linkedInquiryJobIdFromRecord || null,
                 Job_ID: linkedInquiryJobIdFromRecord || null,
+                ...(uploadsPropertyId ? { property_name_id: uploadsPropertyId } : {}),
               }}
               layoutMode="form"
             />
@@ -4990,7 +8267,7 @@ export function InquiryDetailsPage() {
         data-page="inquiry-details"
         data-inquiry-uid={safeUid}
       >
-        {!hasUid ? (
+        {!hasUid && !isQuickInquiryBookingMode ? (
           <div className="mb-3 rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
             Open this page with a valid inquiry UID to load inquiry details.
           </div>
@@ -5508,6 +8785,8 @@ export function InquiryDetailsPage() {
                       isApplyingSameAsContactProperty || !inquiryNumericId || !plugin
                     }
                     onSameAsContactChange={handleSameAsContactPropertyChange}
+                    showPropertyUploadsSection={false}
+                    propertyDetailsVariant="cards"
                   />
                   ) : null}
 
@@ -5527,8 +8806,10 @@ export function InquiryDetailsPage() {
                       Inquiry_Record_ID: inquiryNumericId,
                       job_id: linkedInquiryJobIdFromRecord || null,
                       Job_ID: linkedInquiryJobIdFromRecord || null,
+                      ...(uploadsPropertyId ? { property_name_id: uploadsPropertyId } : {}),
                     }}
                     layoutMode="table"
+                    existingUploadsView="tiles"
                     onRequestAddUpload={handleOpenUploadModal}
                   />
                 ) : (

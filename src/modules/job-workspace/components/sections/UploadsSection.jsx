@@ -48,6 +48,43 @@ function TrashIcon() {
   );
 }
 
+function CloseIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function FileTypeIcon({ extension = "FILE" }) {
+  return (
+    <svg width="36" height="40" viewBox="0 0 36 40" fill="none" aria-hidden="true">
+      <path
+        d="M8 1h14l7 7v29a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2z"
+        fill="#EFF6FF"
+        stroke="#93C5FD"
+      />
+      <path d="M22 1v7h7" stroke="#93C5FD" />
+      <rect x="10" y="23" width="16" height="9" rx="2" fill="#DBEAFE" />
+      <text
+        x="18"
+        y="30"
+        textAnchor="middle"
+        fontSize="8"
+        fontWeight="700"
+        fill="#1E3A8A"
+      >
+        {String(extension || "FILE").slice(0, 4)}
+      </text>
+    </svg>
+  );
+}
+
 function normalizeRecordId(value = "") {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -76,6 +113,65 @@ function dedupeUploadRecords(records = []) {
   return Array.from(map.values());
 }
 
+function resolveUploadPreviewUrl(record = null) {
+  return String(
+    record?.url || record?.link || record?.file_url || record?.preview_url || ""
+  ).trim();
+}
+
+function resolveUploadDisplayName(record = null) {
+  return String(record?.name || record?.file_name || record?.title || "Upload").trim() || "Upload";
+}
+
+function resolveUploadExtension(record = null) {
+  const explicitType = String(record?.type || "").trim().toLowerCase();
+  const fromName = resolveUploadDisplayName(record).split(".").pop() || "";
+  if (fromName && fromName !== resolveUploadDisplayName(record)) {
+    return fromName.toUpperCase();
+  }
+  if (explicitType.includes("pdf")) return "PDF";
+  if (explicitType.includes("image")) return "IMG";
+  if (explicitType.includes("sheet") || explicitType.includes("excel") || explicitType.includes("csv")) {
+    return "XLS";
+  }
+  if (explicitType.includes("word")) return "DOC";
+  if (explicitType.includes("zip")) return "ZIP";
+  return "FILE";
+}
+
+function isImageUpload(record = null) {
+  const type = String(record?.type || "").toLowerCase();
+  const name = resolveUploadDisplayName(record).toLowerCase();
+  return (
+    type.startsWith("image/") ||
+    [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"].some((suffix) =>
+      name.endsWith(suffix)
+    )
+  );
+}
+
+function isPdfUpload(record = null) {
+  const type = String(record?.type || "").toLowerCase();
+  const name = resolveUploadDisplayName(record).toLowerCase();
+  return type.includes("pdf") || name.endsWith(".pdf");
+}
+
+function triggerFileDownload(url = "", name = "") {
+  const targetUrl = String(url || "").trim();
+  if (!targetUrl) return;
+  const fileName = String(name || "").trim();
+  const anchor = document.createElement("a");
+  anchor.href = targetUrl;
+  anchor.rel = "noopener noreferrer";
+  anchor.target = "_blank";
+  if (fileName) {
+    anchor.setAttribute("download", fileName);
+  }
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+}
+
 export function UploadsSection({
   plugin,
   jobData,
@@ -86,6 +182,7 @@ export function UploadsSection({
   linkedJobId = "",
   highlightUploadId = "",
   layoutMode = "split",
+  existingUploadsView = "table",
   onRequestAddUpload = null,
 }) {
   const { success, error } = useToast();
@@ -98,6 +195,7 @@ export function UploadsSection({
   const [isUploading, setIsUploading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [previewTarget, setPreviewTarget] = useState(null);
   const sectionRef = useRef(null);
   const inputRef = useRef(null);
   const pendingUploadsRef = useRef([]);
@@ -118,6 +216,10 @@ export function UploadsSection({
   const resolvedLayoutMode = String(layoutMode || "split").trim().toLowerCase();
   const isTableOnlyLayout = resolvedLayoutMode === "table";
   const isFormOnlyLayout = resolvedLayoutMode === "form";
+  const resolvedExistingUploadsView = String(existingUploadsView || "table")
+    .trim()
+    .toLowerCase();
+  const useUploadTilesView = resolvedExistingUploadsView === "tiles";
   const showUploadComposer = !isTableOnlyLayout;
   const showExistingUploads = !isFormOnlyLayout;
   const isInquiryMode = mode === "inquiry";
@@ -429,6 +531,13 @@ export function UploadsSection({
     }
   };
 
+  const previewUrl = resolveUploadPreviewUrl(previewTarget);
+  const previewName = resolveUploadDisplayName(previewTarget);
+  const previewExtension = resolveUploadExtension(previewTarget);
+  const previewIsImage = isImageUpload(previewTarget);
+  const previewIsPdf = isPdfUpload(previewTarget);
+  const previewSupportsInline = previewIsImage || previewIsPdf;
+
   return (
     <section
       ref={sectionRef}
@@ -594,75 +703,141 @@ export function UploadsSection({
 
         {targetRecordId && !isLoading && !loadError ? (
           <>
-            <div className="overflow-x-auto">
-              <table className="table-fixed w-full text-left text-sm text-slate-600">
-                <thead className="border-b border-slate-200 text-slate-500">
-                  <tr>
-                    <th className="w-1/4 px-2 py-2">Type</th>
-                    <th className="w-2/4 px-2 py-2">Name</th>
-                    <th className="w-1/4 px-2 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {!visibleExistingUploads.length ? (
-                    <tr>
-                      <td className="px-2 py-3 text-slate-400" colSpan={3}>
-                        No uploads available.
-                      </td>
-                    </tr>
-                  ) : (
-                    visibleExistingUploads.map((record, index) => {
-                      const uploadId = String(record?.id || "").trim();
-                      const uploadUrl = String(record?.url || "").trim();
-                      const isHighlighted =
-                        Boolean(normalizedHighlightUploadId) &&
-                        normalizeRecordId(uploadId) === normalizedHighlightUploadId;
-                      return (
-                        <tr
-                          key={`${uploadId || uploadUrl || "upload"}-${index}`}
-                          data-ann-kind="upload"
-                          data-ann-id={normalizeRecordId(uploadId)}
-                          data-ann-highlighted={isHighlighted ? "true" : "false"}
-                          className={`border-b border-slate-100 last:border-b-0 ${
-                            isHighlighted ? "bg-amber-50" : ""
-                          }`}
+            {useUploadTilesView ? (
+              <div className="flex flex-wrap gap-2">
+                {!visibleExistingUploads.length ? (
+                  <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-400">
+                    No uploads available.
+                  </div>
+                ) : (
+                  visibleExistingUploads.map((record, index) => {
+                    const uploadId = String(record?.id || "").trim();
+                    const uploadUrl = resolveUploadPreviewUrl(record);
+                    const uploadName = resolveUploadDisplayName(record);
+                    const uploadExtension = resolveUploadExtension(record);
+                    const supportsInlinePreview = isImageUpload(record) || isPdfUpload(record);
+                    const isHighlighted =
+                      Boolean(normalizedHighlightUploadId) &&
+                      normalizeRecordId(uploadId) === normalizedHighlightUploadId;
+                    return (
+                      <div
+                        key={`${uploadId || uploadUrl || "upload"}-${index}`}
+                        data-ann-kind="upload"
+                        data-ann-id={normalizeRecordId(uploadId)}
+                        data-ann-highlighted={isHighlighted ? "true" : "false"}
+                        className={`relative w-[88px] max-w-[88px] rounded border bg-white px-2 py-2 ${
+                          isHighlighted ? "border-amber-300 bg-amber-50" : "border-slate-200"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className="absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                          onClick={() => setDeleteTarget(record)}
+                          aria-label="Delete upload"
+                          title="Delete Upload"
+                          disabled={!uploadId}
                         >
-                          <td className="px-2 py-3">{record?.type || "File"}</td>
-                          <td className="px-2 py-3 break-all">{record?.name || "Upload"}</td>
-                          <td className="px-2 py-3">
-                            <div className="flex w-full items-center justify-end gap-2">
-                              <button
-                                type="button"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                                onClick={() => {
-                                  if (!uploadUrl) return;
-                                  window.open(uploadUrl, "_blank", "noopener,noreferrer");
-                                }}
-                                aria-label="View upload"
-                                title="View Upload"
-                                disabled={!uploadUrl}
-                              >
-                                <EyeIcon />
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-red-300 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-                                onClick={() => setDeleteTarget(record)}
-                                aria-label="Delete upload"
-                                title="Delete Upload"
-                                disabled={!uploadId}
-                              >
-                                <TrashIcon />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          <CloseIcon />
+                        </button>
+                        <div className="flex min-h-[48px] items-center justify-center">
+                          <FileTypeIcon extension={uploadExtension} />
+                        </div>
+                        <button
+                          type="button"
+                          className="mt-1 w-full truncate text-center text-[10px] font-medium text-sky-700 underline decoration-sky-500/60 underline-offset-2 hover:text-sky-800 disabled:cursor-not-allowed disabled:text-slate-400"
+                          onClick={() => setPreviewTarget(record)}
+                          disabled={!uploadUrl}
+                          title={uploadName}
+                        >
+                          {uploadName}
+                        </button>
+                        {!supportsInlinePreview && uploadUrl ? (
+                          <button
+                            type="button"
+                            className="mt-1 inline-flex h-5 w-full items-center justify-center rounded border border-slate-200 bg-white px-1 text-[10px] text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                            onClick={() => triggerFileDownload(uploadUrl, uploadName)}
+                            title={`Download ${uploadName}`}
+                            aria-label={`Download ${uploadName}`}
+                          >
+                            Download
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="table-fixed w-full text-left text-sm text-slate-600">
+                  <thead className="border-b border-slate-200 text-slate-500">
+                    <tr>
+                      <th className="w-1/4 px-2 py-2">Type</th>
+                      <th className="w-2/4 px-2 py-2">Name</th>
+                      <th className="w-1/4 px-2 py-2 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!visibleExistingUploads.length ? (
+                      <tr>
+                        <td className="px-2 py-3 text-slate-400" colSpan={3}>
+                          No uploads available.
+                        </td>
+                      </tr>
+                    ) : (
+                      visibleExistingUploads.map((record, index) => {
+                        const uploadId = String(record?.id || "").trim();
+                        const uploadUrl = resolveUploadPreviewUrl(record);
+                        const isHighlighted =
+                          Boolean(normalizedHighlightUploadId) &&
+                          normalizeRecordId(uploadId) === normalizedHighlightUploadId;
+                        return (
+                          <tr
+                            key={`${uploadId || uploadUrl || "upload"}-${index}`}
+                            data-ann-kind="upload"
+                            data-ann-id={normalizeRecordId(uploadId)}
+                            data-ann-highlighted={isHighlighted ? "true" : "false"}
+                            className={`border-b border-slate-100 last:border-b-0 ${
+                              isHighlighted ? "bg-amber-50" : ""
+                            }`}
+                          >
+                            <td className="px-2 py-3">{record?.type || "File"}</td>
+                            <td className="px-2 py-3 break-all">{record?.name || "Upload"}</td>
+                            <td className="px-2 py-3">
+                              <div className="flex w-full items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                                  onClick={() => {
+                                    if (!uploadUrl) return;
+                                    window.open(uploadUrl, "_blank", "noopener,noreferrer");
+                                  }}
+                                  aria-label="View upload"
+                                  title="View Upload"
+                                  disabled={!uploadUrl}
+                                >
+                                  <EyeIcon />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-red-300 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                  onClick={() => setDeleteTarget(record)}
+                                  aria-label="Delete upload"
+                                  title="Delete Upload"
+                                  disabled={!uploadId}
+                                >
+                                  <TrashIcon />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {hasMoreExistingUploads ? (
               <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
                 <span>
@@ -681,6 +856,70 @@ export function UploadsSection({
         ) : null}
       </Card>
       ) : null}
+
+      <Modal
+        open={Boolean(previewTarget)}
+        onClose={() => setPreviewTarget(null)}
+        title={previewName || "Upload Preview"}
+        widthClass="max-w-[min(96vw,1100px)]"
+        footer={
+          <div className="flex justify-end gap-2">
+            {previewUrl && !previewSupportsInline ? (
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => triggerFileDownload(previewUrl, previewName)}
+              >
+                Download
+              </Button>
+            ) : null}
+            {previewUrl ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
+              >
+                Open in New Tab
+              </Button>
+            ) : null}
+            <Button type="button" variant="primary" onClick={() => setPreviewTarget(null)}>
+              Close
+            </Button>
+          </div>
+        }
+      >
+        {!previewUrl ? (
+          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+            Preview is not available for this file.
+          </div>
+        ) : previewIsImage ? (
+          <div className="rounded border border-slate-200 bg-slate-50 p-2">
+            <img
+              src={previewUrl}
+              alt={previewName || "Upload preview"}
+              className="mx-auto max-h-[72vh] w-auto rounded"
+            />
+          </div>
+        ) : previewIsPdf ? (
+          <iframe
+            title={previewName || "Upload preview"}
+            src={previewUrl}
+            className="h-[72vh] w-full rounded border border-slate-200 bg-white"
+          />
+        ) : (
+          <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 rounded border border-slate-200 bg-slate-50 px-4 py-6 text-center">
+            <FileTypeIcon extension={previewExtension} />
+            <div className="text-sm text-slate-600">Preview is not available for this file type.</div>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => triggerFileDownload(previewUrl, previewName)}
+            >
+              Download File
+            </Button>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={Boolean(deleteTarget)}

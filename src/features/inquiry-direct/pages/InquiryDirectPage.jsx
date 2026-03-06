@@ -32,6 +32,9 @@ const INQUIRY_SECTION_LABELS = {
   "job-information": "Inquiry Information",
 };
 const INQUIRY_PAGE_DATA_ATTR = "inquiry-direct";
+const RECENT_ADMIN_ACTIVITY_STORAGE_KEY = "ptpm_admin_recent_activity_v1";
+const RECENT_ACTIVITIES_UPDATED_EVENT = "ptpm-recent-activities-updated";
+const MAX_RECENT_ADMIN_ACTIVITY_RECORDS = 20;
 const EMPTY_DRAFT = {
   sales_stage: "",
   deal_value: "",
@@ -154,6 +157,78 @@ function toPromiseLike(result) {
     });
   }
   return Promise.resolve(result);
+}
+
+function resolveRecentActivityPageType(pathname = "") {
+  const normalizedPath = toText(pathname).toLowerCase();
+  if (!normalizedPath) return "unknown";
+  if (normalizedPath.startsWith("/inquiry-details")) return "inquiry-details";
+  if (normalizedPath.startsWith("/inquiry-direct")) return "inquiry-direct";
+  if (normalizedPath.startsWith("/job-direct")) return "job-direct";
+  if (normalizedPath.startsWith("/details")) return "job-details";
+  if (normalizedPath.startsWith("/profile")) return "profile";
+  if (normalizedPath.startsWith("/settings")) return "settings";
+  if (normalizedPath.startsWith("/notifications")) return "notifications";
+  if (normalizedPath === "/") return "dashboard";
+  return "app";
+}
+
+function resolveRecentActivityPageName(pageType = "") {
+  const normalizedType = toText(pageType).toLowerCase();
+  if (normalizedType === "inquiry-details") return "Inquiry Details";
+  if (normalizedType === "inquiry-direct") return "Inquiry Direct";
+  if (normalizedType === "job-direct") return "Job Direct";
+  if (normalizedType === "job-details") return "Job Details";
+  if (normalizedType === "profile") return "Profile";
+  if (normalizedType === "settings") return "Settings";
+  if (normalizedType === "notifications") return "Notifications";
+  if (normalizedType === "dashboard") return "Dashboard";
+  return "App";
+}
+
+function readRecentAdminActivitiesFromStorage() {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const raw = window.localStorage.getItem(RECENT_ADMIN_ACTIVITY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function appendRecentAdminActivity({
+  action = "",
+  path = "",
+  inquiryId = "",
+  inquiryUid = "",
+  metadata = null,
+} = {}) {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  const normalizedAction = toText(action);
+  if (!normalizedAction) return;
+  const resolvedPath = toText(path) || toText(window.location?.pathname) || "/inquiry-direct";
+  const pageType = resolveRecentActivityPageType(resolvedPath);
+  const timestamp = Date.now();
+  const record = {
+    id: `activity-${timestamp}-${Math.random().toString(36).slice(2, 9)}`,
+    timestamp,
+    action: normalizedAction,
+    page_type: pageType,
+    page_name: resolveRecentActivityPageName(pageType),
+    path: resolvedPath,
+    inquiry_id: toText(inquiryId),
+    inquiry_uid: toText(inquiryUid),
+    metadata: metadata && typeof metadata === "object" ? metadata : {},
+  };
+  try {
+    const existing = readRecentAdminActivitiesFromStorage();
+    const next = [record, ...existing].slice(0, MAX_RECENT_ADMIN_ACTIVITY_RECORDS);
+    window.localStorage.setItem(RECENT_ADMIN_ACTIVITY_STORAGE_KEY, JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent(RECENT_ACTIVITIES_UPDATED_EVENT));
+  } catch {
+    // no-op
+  }
 }
 
 function extractCreatedDealId(result) {
@@ -501,6 +576,16 @@ export function InquiryDirectPage() {
     })
       .then((created) => {
         if (!isActive) return;
+        appendRecentAdminActivity({
+          action: "Created new inquiry",
+          path: `/inquiry-direct/${encodeURIComponent(created.unique_id)}`,
+          inquiryId: toText(created?.id),
+          inquiryUid: toText(created?.unique_id),
+          metadata: {
+            inquiry_id: toText(created?.id),
+            inquiry_uid: toText(created?.unique_id),
+          },
+        });
         navigate(`/inquiry-direct/${encodeURIComponent(created.unique_id)}`, {
           replace: true,
         });
@@ -608,6 +693,14 @@ export function InquiryDirectPage() {
         inquiryId: existingId,
         payload,
       });
+      appendRecentAdminActivity({
+        action: "Updated inquiry",
+        path: toText(resolvedInquiry?.unique_id)
+          ? `/inquiry-direct/${encodeURIComponent(toText(resolvedInquiry?.unique_id))}`
+          : toText(window.location?.pathname),
+        inquiryId: existingId,
+        inquiryUid: toText(resolvedInquiry?.unique_id),
+      });
       if (nextPropertyId && nextPropertyId !== previousPropertyId) {
         await emitAnnouncement({
           plugin,
@@ -628,6 +721,16 @@ export function InquiryDirectPage() {
     const created = await createInquiryRecord({ plugin, payload });
     setResolvedInquiry(created);
     setInitialValues(mapRecordToDraft(created.raw || {}));
+    appendRecentAdminActivity({
+      action: "Created new inquiry",
+      path: `/inquiry-direct/${encodeURIComponent(created.unique_id)}`,
+      inquiryId: toText(created?.id),
+      inquiryUid: toText(created?.unique_id),
+      metadata: {
+        inquiry_id: toText(created?.id),
+        inquiry_uid: toText(created?.unique_id),
+      },
+    });
     if (nextPropertyId) {
       await emitAnnouncement({
         plugin,
@@ -665,6 +768,17 @@ export function InquiryDirectPage() {
       inquiryId,
       payload: {
         service_provider_id: normalizeId(providerId),
+      },
+    });
+    appendRecentAdminActivity({
+      action: "Updated inquiry service provider",
+      path: toText(resolvedInquiry?.unique_id)
+        ? `/inquiry-direct/${encodeURIComponent(toText(resolvedInquiry?.unique_id))}`
+        : toText(window.location?.pathname),
+      inquiryId,
+      inquiryUid: toText(resolvedInquiry?.unique_id),
+      metadata: {
+        service_provider_id: providerId,
       },
     });
     await emitAnnouncement({

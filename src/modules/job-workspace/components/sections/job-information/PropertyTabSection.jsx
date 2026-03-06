@@ -53,6 +53,31 @@ import {
   normalizePropertyId,
 } from "./jobInfoUtils.js";
 
+function CopyIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.7" />
+      <path
+        d="M5 15V6C5 4.89543 5.89543 4 7 4H16"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function toSafeText(value) {
+  return String(value || "").trim();
+}
+
+function hasDisplayValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "boolean") return true;
+  const text = String(value).trim();
+  return Boolean(text && text !== "-" && text !== "—");
+}
+
 export function PropertyTabSection({
   plugin,
   preloadedLookupData,
@@ -79,6 +104,8 @@ export function PropertyTabSection({
   isSameAsContactChecked = false,
   isSameAsContactDisabled = false,
   onSameAsContactChange = null,
+  showPropertyUploadsSection = true,
+  propertyDetailsVariant = "accordion",
 }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
@@ -148,6 +175,10 @@ export function PropertyTabSection({
   );
 
   const relatedPropertyMapLink = buildPropertyMapLink(activeRelatedProperty || {});
+  const normalizedPropertyDetailsVariant = String(propertyDetailsVariant || "accordion")
+    .trim()
+    .toLowerCase();
+  const useCardDetailsLayout = normalizedPropertyDetailsVariant === "cards";
   const informationFields = [
     { label: "Property Name", value: activeRelatedProperty?.property_name },
     { label: "Property UID", value: activeRelatedProperty?.unique_id },
@@ -172,6 +203,45 @@ export function PropertyTabSection({
     { label: "Building Age", value: activeRelatedProperty?.building_age },
     { label: "Building Features", value: getPropertyFeatureText(activeRelatedProperty) },
   ];
+  const propertyFeatureTags = useMemo(() => {
+    const raw = toSafeText(getPropertyFeatureText(activeRelatedProperty));
+    if (!raw) return [];
+    return Array.from(
+      new Set(
+        raw
+          .split(",")
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+      )
+    );
+  }, [activeRelatedProperty]);
+  const propertyRecordId = toSafeText(
+    activeRelatedProperty?.id || activeRelatedProperty?.ID || activeRelatedProperty?.Property_ID
+  );
+  const propertyExternalHref = propertyRecordId
+    ? `https://app.ontraport.com/#!/o_properties10001/edit&id=${encodeURIComponent(propertyRecordId)}`
+    : "";
+
+  const copyPropertyName = useCallback(async () => {
+    const value = toSafeText(activeRelatedProperty?.property_name);
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      success("Copied", "Property name copied.");
+    } catch {
+      error("Copy failed", "Unable to copy property name.");
+    }
+  }, [activeRelatedProperty?.property_name, error, success]);
+  const copyPropertyUid = useCallback(async () => {
+    const value = toSafeText(activeRelatedProperty?.unique_id || activeRelatedProperty?.Unique_ID);
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      success("Copied", "Property UID copied.");
+    } catch {
+      error("Copy failed", "Unable to copy property UID.");
+    }
+  }, [activeRelatedProperty?.unique_id, activeRelatedProperty?.Unique_ID, error, success]);
   const contactLookupById = useMemo(() => {
     const map = new Map();
     (contacts || []).forEach((item) => {
@@ -747,14 +817,14 @@ export function PropertyTabSection({
         </Card>
       </div>
       <div className="w-full space-y-4">
-        <Card className="h-fit space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="text-base font-bold leading-4 text-neutral-700">Related Property</div>
+        <Card className="h-fit overflow-hidden !p-0">
+          <header className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-2.5 py-1.5">
+            <div className="text-[13px] font-semibold text-slate-900">Related Property</div>
             {activeRelatedProperty ? (
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex items-center justify-center p-0 text-slate-500 transition hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300"
                   disabled={!relatedPropertyMapLink}
                   onClick={() => {
                     if (!relatedPropertyMapLink) return;
@@ -767,72 +837,223 @@ export function PropertyTabSection({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800"
+                  className="inline-flex items-center justify-center p-0 text-slate-500 transition hover:text-slate-700"
                   onClick={() => onEditRelatedProperty?.(activeRelatedProperty)}
                   aria-label="Edit related property"
-                  title="Edit Property"
+                  title="Edit related property"
                 >
                   <EditIcon />
                 </button>
               </div>
             ) : null}
-          </div>
+          </header>
 
           {activeRelatedProperty ? (
-            <div className="space-y-3">
-              <AccordionBlock
-                title="Property Information"
-                isOpen={openSections.information}
-                onToggle={() =>
-                  setOpenSections((previous) => ({
-                    ...previous,
-                    information: !previous.information,
-                  }))
-                }
-              >
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  {informationFields.map((item) => (
-                    <div key={item.label} className="space-y-1 border-b border-slate-100 pb-2 last:border-b-0">
-                      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                        {item.label}
-                      </div>
-                      <div
-                        className={`text-sm text-neutral-800 ${
-                          String(item.label || "").toLowerCase().includes("uid") ? "uid-text" : ""
-                        }`}
-                      >
-                        {formatPropertyValue(item.value)}
-                      </div>
+            <div className="space-y-3 p-2.5">
+              {useCardDetailsLayout ? (
+                <div className="grid grid-cols-1 gap-x-3 gap-y-3 xl:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                      Property Information
                     </div>
-                  ))}
+                    <div className="grid grid-cols-1 gap-x-3 gap-y-[14px] sm:grid-cols-2">
+                      {informationFields.map((item) => {
+                        if (!hasDisplayValue(item.value)) return null;
+                        const normalizedLabel = String(item.label || "").trim().toLowerCase();
+                        const isPropertyNameField = normalizedLabel === "property name";
+                        const isPropertyUidField = normalizedLabel === "property uid";
+                        return (
+                          <div key={item.label} className="group min-w-0">
+                            <div className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                              {item.label}
+                            </div>
+                            <div className="mt-0.5 flex w-full min-w-0 items-start gap-2">
+                              {isPropertyNameField ? (
+                                <>
+                                  {relatedPropertyMapLink ? (
+                                    <a
+                                      href={relatedPropertyMapLink}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-block min-w-0 max-w-[calc(100%-1.5rem)] truncate text-[12px] font-medium text-blue-700 underline underline-offset-2 hover:text-blue-800"
+                                      title={toSafeText(item.value)}
+                                    >
+                                      {formatPropertyValue(item.value)}
+                                    </a>
+                                  ) : (
+                                    <div className="inline-block min-w-0 max-w-[calc(100%-1.5rem)] truncate text-[12px] font-medium text-slate-800">
+                                      {formatPropertyValue(item.value)}
+                                    </div>
+                                  )}
+                                  {toSafeText(item.value) ? (
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-slate-200 text-slate-400 transition hover:border-slate-300 hover:text-slate-700"
+                                      onClick={copyPropertyName}
+                                      aria-label="Copy property name"
+                                      title="Copy property name"
+                                    >
+                                      <CopyIcon />
+                                    </button>
+                                  ) : null}
+                                </>
+                              ) : isPropertyUidField ? (
+                                <>
+                                  {propertyExternalHref ? (
+                                    <a
+                                      href={propertyExternalHref}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-block min-w-0 max-w-[calc(100%-1.5rem)] truncate text-[12px] font-medium text-blue-700 underline underline-offset-2 hover:text-blue-800 uid-text"
+                                      title={toSafeText(item.value)}
+                                    >
+                                      {formatPropertyValue(item.value)}
+                                    </a>
+                                  ) : (
+                                    <div className="inline-block min-w-0 max-w-[calc(100%-1.5rem)] truncate text-[12px] font-medium text-slate-800 uid-text">
+                                      {formatPropertyValue(item.value)}
+                                    </div>
+                                  )}
+                                  {toSafeText(item.value) ? (
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-slate-200 text-slate-400 transition hover:border-slate-300 hover:text-slate-700"
+                                      onClick={copyPropertyUid}
+                                      aria-label="Copy property UID"
+                                      title="Copy property UID"
+                                    >
+                                      <CopyIcon />
+                                    </button>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <div
+                                  className={`inline-block min-w-0 max-w-full truncate text-[12px] font-medium text-slate-800 ${
+                                    normalizedLabel.includes("uid") ? "uid-text" : ""
+                                  }`}
+                                  title={formatPropertyValue(item.value)}
+                                >
+                                  {formatPropertyValue(item.value)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                      Property Description
+                    </div>
+                    <div className="grid grid-cols-1 gap-x-3 gap-y-[14px] sm:grid-cols-2">
+                      {descriptionFields.map((item) => {
+                        const isBuildingFeaturesField =
+                          String(item.label || "").trim().toLowerCase() === "building features";
+                        if (isBuildingFeaturesField && !propertyFeatureTags.length) return null;
+                        if (!isBuildingFeaturesField && !hasDisplayValue(item.value)) return null;
+                        return (
+                          <div
+                            key={item.label}
+                            className={`min-w-0 ${isBuildingFeaturesField ? "sm:col-span-2" : ""}`}
+                          >
+                            <div className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                              {item.label}
+                            </div>
+                            {isBuildingFeaturesField ? (
+                              <div className="mt-1 min-h-0 max-h-[72px] overflow-auto">
+                                <div className="flex flex-wrap gap-1">
+                                  {propertyFeatureTags.map((tag) => (
+                                    <span
+                                      key={`property-feature-${tag}`}
+                                      className="inline-flex items-center rounded border border-sky-200 px-2 py-0.5 text-[11px] text-sky-800"
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                className="inline-block min-w-0 max-w-full truncate text-[12px] font-medium text-slate-800"
+                                title={formatPropertyValue(item.value)}
+                              >
+                                {formatPropertyValue(item.value)}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </AccordionBlock>
+              ) : (
+                <>
+                  <AccordionBlock
+                    title="Property Information"
+                    isOpen={openSections.information}
+                    onToggle={() =>
+                      setOpenSections((previous) => ({
+                        ...previous,
+                        information: !previous.information,
+                      }))
+                    }
+                  >
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                      {informationFields.map((item) => (
+                        <div
+                          key={item.label}
+                          className="space-y-1 border-b border-slate-100 pb-2 last:border-b-0"
+                        >
+                          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                            {item.label}
+                          </div>
+                          <div
+                            className={`text-sm text-neutral-800 ${
+                              String(item.label || "").toLowerCase().includes("uid") ? "uid-text" : ""
+                            }`}
+                          >
+                            {formatPropertyValue(item.value)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </AccordionBlock>
 
-              <AccordionBlock
-                title="Property Description"
-                isOpen={openSections.description}
-                onToggle={() =>
-                  setOpenSections((previous) => ({
-                    ...previous,
-                    description: !previous.description,
-                  }))
-                }
-              >
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  {descriptionFields.map((item) => (
-                    <div key={item.label} className="space-y-1 border-b border-slate-100 pb-2 last:border-b-0">
-                      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                        {item.label}
-                      </div>
-                      <div className="text-sm text-neutral-800">{formatPropertyValue(item.value)}</div>
+                  <AccordionBlock
+                    title="Property Description"
+                    isOpen={openSections.description}
+                    onToggle={() =>
+                      setOpenSections((previous) => ({
+                        ...previous,
+                        description: !previous.description,
+                      }))
+                    }
+                  >
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                      {descriptionFields.map((item) => (
+                        <div
+                          key={item.label}
+                          className="space-y-1 border-b border-slate-100 pb-2 last:border-b-0"
+                        >
+                          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                            {item.label}
+                          </div>
+                          <div className="text-sm text-neutral-800">
+                            {formatPropertyValue(item.value)}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </AccordionBlock>
+                  </AccordionBlock>
+                </>
+              )}
             </div>
           ) : (
-            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-              No related property linked to this job.
+            <div className="p-2.5">
+              <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                No related property linked to this job.
+              </div>
             </div>
           )}
         </Card>
@@ -935,6 +1156,7 @@ export function PropertyTabSection({
           ) : null}
         </Card>
 
+        {showPropertyUploadsSection ? (
         <section
           data-section="property-uploads"
           className="grid grid-cols-1 gap-4 xl:grid-cols-[480px_1fr]"
@@ -1128,6 +1350,7 @@ export function PropertyTabSection({
             ) : null}
           </Card>
         </section>
+        ) : null}
       </div>
 
       <PropertyAffiliationModal

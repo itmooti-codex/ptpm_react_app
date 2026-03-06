@@ -46,6 +46,8 @@ export function DashboardContent({
   onViewInquiry,
   sidebarOpen,
   onToggleSidebar,
+  onCreateInquiry,
+  onCreateJob,
   sortOrder = "desc",
   onToggleSortOrder,
 }) {
@@ -65,6 +67,15 @@ export function DashboardContent({
             <span>Hide Filters</span>
           </Button>
         )}
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="primary" size="sm" onClick={onCreateInquiry}>
+            New Inquiry
+          </Button>
+          <Button variant="primary" size="sm" onClick={onCreateJob}>
+            New Quote/Job
+          </Button>
+        </div>
       </div>
 
       {/* Calendar */}

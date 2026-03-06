@@ -241,6 +241,7 @@ export function SearchDropdownInput({
   hideAddAction = false,
   emptyText,
   addButtonLabel,
+  closeOnSelect = true,
   rootData,
 }) {
   const rootRef = useRef(null);
@@ -350,7 +351,7 @@ export function SearchDropdownInput({
                       onMouseDown={(event) => {
                         event.preventDefault();
                         onSelect(item);
-                        setIsOpen(false);
+                        setIsOpen(!closeOnSelect);
                       }}
                     >
                       <span>{item.label}</span>

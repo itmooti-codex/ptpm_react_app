@@ -84,17 +84,10 @@ export function DashboardHeader({
   isBatchMode = false,
   batchSelectedCount = 0,
   onBatchDeleteClick,
-  onCreateInquiry,
-  onCreateJob,
   onPrintCurrentTable,
   onExportCurrentTable,
   onExportServiceProviders,
 }) {
-  const createItems = [
-    { label: "New Inquiry", onClick: () => onCreateInquiry?.() },
-    { label: "New Quote/Job", onClick: () => onCreateJob?.() },
-  ];
-
   const printItems = [
     { label: "Print List", onClick: () => onPrintCurrentTable?.() },
     { label: "Ecoaccess Report (XLSX)", onClick: () => onExportCurrentTable?.() },
@@ -111,7 +104,6 @@ export function DashboardHeader({
 
   return (
     <header className="flex h-14 items-center justify-end gap-2 bg-[#003882] px-4 text-white shadow-sm">
-      <HeaderDropdownButton label="Create" items={createItems} />
       <HeaderDropdownButton label="Print" items={printItems} />
       <HeaderDropdownButton label="Batch Actions" items={batchItems} />
 

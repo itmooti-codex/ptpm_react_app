@@ -9,13 +9,14 @@ export function Modal({
   widthClass = "max-w-2xl",
   zIndexClass = "z-50",
   footer,
+  closeOnBackdrop = true,
 }) {
   if (!open) return null;
 
   return (
     <div
       className={cx("fixed inset-0 flex items-center justify-center bg-black/40 px-4", zIndexClass)}
-      onClick={onClose}
+      onClick={closeOnBackdrop ? onClose : undefined}
       role="presentation"
     >
       <div

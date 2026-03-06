@@ -411,7 +411,7 @@ export function DashboardPage() {
   }, [plugin, isCreatingJob, success, showError, navigate]);
 
   const handleCreateInquiry = useCallback(() => {
-    navigate("/inquiry-direct");
+    navigate("/inquiry-details/new");
   }, [navigate]);
 
   const handleEnableBatchDelete = useCallback(() => {
@@ -592,8 +592,6 @@ export function DashboardPage() {
         isBatchMode={isBatchMode}
         batchSelectedCount={batchSelectedIds.length}
         onBatchDeleteClick={() => setBatchDeleteModal(true)}
-        onCreateInquiry={handleCreateInquiry}
-        onCreateJob={handleCreateJob}
         onPrintCurrentTable={handlePrintCurrentTable}
         onExportCurrentTable={handleExportCurrentTable}
         onExportServiceProviders={handleExportServiceProviders}
@@ -643,6 +641,8 @@ export function DashboardPage() {
             onViewInquiry={handleViewRecord}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+            onCreateInquiry={handleCreateInquiry}
+            onCreateJob={handleCreateJob}
             sortOrder={sortOrder}
             onToggleSortOrder={handleToggleSortOrder}
           />
