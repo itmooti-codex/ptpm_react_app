@@ -2,6 +2,8 @@ import {
   fetchUploadsByField,
   subscribeUploadsByField,
   createUploadFromFileByField,
+  createUploadRecordByField,
+  updateUploadRecordById,
   uploadFileToStorage,
   deleteUploadRecordById,
 } from "./uploadsRuntimeHelpers.js";
@@ -107,6 +109,30 @@ export async function createInquiryUploadFromFile({
     uploadPath,
     additionalPayload,
   });
+}
+
+export async function createJobUploadRecord({ plugin, jobId, payload } = {}) {
+  return createUploadRecordByField({
+    plugin,
+    fieldName: "job_id",
+    idValue: jobId,
+    missingIdMessage: "Job ID is missing.",
+    payload,
+  });
+}
+
+export async function createInquiryUploadRecord({ plugin, inquiryId, payload } = {}) {
+  return createUploadRecordByField({
+    plugin,
+    fieldName: "inquiry_id",
+    idValue: inquiryId,
+    missingIdMessage: "Inquiry ID is missing.",
+    payload,
+  });
+}
+
+export async function updateUploadRecordFields({ plugin, id, payload } = {}) {
+  return updateUploadRecordById({ plugin, id, payload });
 }
 
 export function subscribeJobUploadsByJobId({ plugin, jobId, onChange, onError } = {}) {

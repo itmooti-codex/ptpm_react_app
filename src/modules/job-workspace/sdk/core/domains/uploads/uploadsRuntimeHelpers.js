@@ -14,6 +14,7 @@ import {
 } from "./uploadsHelpers.js";
 import {
   parseUploadCreateMutationResult,
+  parseUploadUpdateMutationResult,
   parseUploadDeleteMutationResult,
 } from "./uploadsMutationResultHelpers.js";
 
@@ -218,6 +219,77 @@ export async function createUploadFromFileByField({
     ...payload,
     ...(createdRecord && typeof createdRecord === "object" ? createdRecord : {}),
     id: createdId,
+  });
+}
+
+export async function createUploadRecordByField({
+  plugin,
+  fieldName,
+  idValue,
+  missingIdMessage,
+  payload,
+} = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) {
+    throw new Error("SDK plugin is not ready.");
+  }
+
+  const normalizedId = normalizeIdentifier(idValue);
+  if (!normalizedId) {
+    throw new Error(missingIdMessage || "Record ID is missing.");
+  }
+
+  const uploadModel = resolvedPlugin.switchTo("PeterpmUpload");
+  if (!uploadModel?.mutation) {
+    throw new Error("Upload model is unavailable.");
+  }
+
+  const safePayload = payload && typeof payload === "object" ? payload : {};
+  const mutationPayload = {
+    ...safePayload,
+    [fieldName]: normalizedId,
+  };
+
+  const mutation = await uploadModel.mutation();
+  mutation.createOne(mutationPayload);
+  const result = await mutation.execute(true).toPromise();
+  const { record: createdRecord, id: createdId } = parseUploadCreateMutationResult(result);
+
+  return normalizeUploadRecord({
+    ...mutationPayload,
+    ...(createdRecord && typeof createdRecord === "object" ? createdRecord : {}),
+    id: createdId,
+  });
+}
+
+export async function updateUploadRecordById({ plugin, id, payload } = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) {
+    throw new Error("SDK plugin is not ready.");
+  }
+
+  const normalizedId = normalizeIdentifier(id);
+  if (!normalizedId) {
+    throw new Error("Upload ID is missing.");
+  }
+
+  const uploadModel = resolvedPlugin.switchTo("PeterpmUpload");
+  if (!uploadModel?.mutation) {
+    throw new Error("Upload model is unavailable.");
+  }
+
+  const safePayload = payload && typeof payload === "object" ? payload : {};
+  const mutation = await uploadModel.mutation();
+  mutation.update((query) => query.where("id", normalizedId).set(safePayload));
+  const result = await mutation.execute(true).toPromise();
+  const { record: updatedRecord, id: updatedId } = parseUploadUpdateMutationResult(result, {
+    normalizedId,
+  });
+
+  return normalizeUploadRecord({
+    ...safePayload,
+    ...(updatedRecord && typeof updatedRecord === "object" ? updatedRecord : {}),
+    id: updatedId || normalizedId,
   });
 }
 

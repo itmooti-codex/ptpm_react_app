@@ -15,10 +15,13 @@ import { selectJobUploads } from "../../state/selectors.js";
 import { useRenderWindow } from "../primitives/JobDirectTable.jsx";
 import {
   createInquiryUploadFromFile,
+  createInquiryUploadRecord,
   createJobUploadFromFile,
+  createJobUploadRecord,
   deleteUploadRecord,
   fetchInquiryUploads,
   fetchJobUploads,
+  updateUploadRecordFields,
 } from "../../sdk/core/runtime.js";
 
 function EyeIcon() {
@@ -85,6 +88,293 @@ function FileTypeIcon({ extension = "FILE" }) {
   );
 }
 
+function FormTileIcon() {
+  return (
+    <svg width="36" height="40" viewBox="0 0 36 40" fill="none" aria-hidden="true">
+      <rect x="6" y="1" width="24" height="38" rx="3" fill="#ECFDF5" stroke="#6EE7B7" />
+      <path d="M12 11H24M12 17H24M12 23H20" stroke="#047857" strokeWidth="1.4" />
+      <rect x="10" y="28" width="16" height="7" rx="2" fill="#A7F3D0" />
+      <text x="18" y="33.5" textAnchor="middle" fontSize="7" fontWeight="700" fill="#065F46">
+        FORM
+      </text>
+    </svg>
+  );
+}
+
+const UPLOAD_FILTER_TABS = ["all", "photo", "file", "forms"];
+const PRESTART_FORM_KIND = "prestart";
+const PCA_FORM_KIND = "pca";
+const PRESTART_ACTIVITY_OPTIONS = [
+  "Rat Treatment to Ceiling",
+  "Possum Proofing to Roof or Floors",
+  "Turkey Trapping",
+  "Pigeon Proofing",
+  "Dead removal",
+  "Other",
+];
+const PRESTART_CHECKBOX_FIELDS = [
+  "f_1_driving_vehicles_on_or_off_roads",
+  "f_2_hazardous_chemicals",
+  "f_3_non_powered_hand_tools",
+  "f_4_powered_hand_tools",
+  "f_5_removing_dead_animals",
+  "f_6_towing_a_trailer",
+  "f_7_use_of_portable_ladders",
+  "f_8_working_alone_or_remote",
+  "f_9_working_at_heights_using_an_ewp",
+  "f_10_working_at_heights",
+  "pedestrian_traffic",
+  "ground_conditions",
+  "asbestos",
+  "roof_condition",
+  "aboveground_services_inc_powerlines",
+  "pets_dangerous_wildlife",
+  "weather_storm_rain_hot_cold_or_wind",
+  "moisture",
+  "degradation",
+  "dust",
+  "pitch",
+  "plan_and_equipment_checked_for_faults",
+  "do_you_have_the_right_ppe_for_the_task",
+  "ppe_checked_for_faaults_damage_defacts",
+  "acknowledgement",
+];
+const PRESTART_TEXT_FIELDS = ["write_your_name", "potential_hazard", "action_control"];
+const PCA_CHECKBOX_FIELDS = [
+  "rodents",
+  "f_1_ramik_50mg_kg_diphacinone",
+  "f_2_sorexa_blocks_0_005g_kg_difenacoum",
+  "f_3_generation_block_0_025g_kg_difethialone",
+  "f_4_first_formula_0_005_brodifacoum",
+  "f_5_racumin_0_37_coumateralyl",
+  "f_6_alphachloralose",
+  "f_7_country_permethrin_1_permethrin",
+  "f_8_dragnet_2_permethrin",
+  "f_9_sorexa_sachets_0_005g_kg_difenacoum",
+  "f_10_contrac_0_005_bromodiolone",
+  "f_11_ditrac_0_005_brodifacoum",
+  "f_12_biforce_100gm_l_bifenthrin",
+];
+const PCA_NUMBER_FIELDS = [
+  "rodenticide_blocks_grams",
+  "rodenticide_pellets_grams",
+  "redenticide_satchets_grams",
+  "insecticide_powder_grams",
+  "ceiling_void_s",
+  "external_walls",
+  "garage",
+  "kitchen",
+  "between_floors",
+  "plastic_bait_station_under_house",
+];
+const PCA_TEXT_FIELDS = [
+  "plastic_bait_station_where_and_number",
+  "other_place_description_and_number",
+  "other_pest",
+  "technicians_comments",
+];
+const PCA_DATETIME_FIELDS = ["time_sent_to_occupant_owner"];
+const FORM_KIND_CONFIG = {
+  [PRESTART_FORM_KIND]: {
+    kind: PRESTART_FORM_KIND,
+    title: "Prestart Form",
+    shortLabel: "Prestart",
+    checkboxFields: PRESTART_CHECKBOX_FIELDS,
+    numberFields: [],
+    textFields: PRESTART_TEXT_FIELDS,
+    datetimeFields: [],
+    multilineTextFields: ["potential_hazard", "action_control"],
+    includeActivityDescription: true,
+  },
+  [PCA_FORM_KIND]: {
+    kind: PCA_FORM_KIND,
+    title: "Pest Control Advice Form",
+    shortLabel: "PCA",
+    checkboxFields: PCA_CHECKBOX_FIELDS,
+    numberFields: PCA_NUMBER_FIELDS,
+    textFields: PCA_TEXT_FIELDS,
+    datetimeFields: PCA_DATETIME_FIELDS,
+    multilineTextFields: ["other_place_description_and_number", "technicians_comments"],
+    includeActivityDescription: false,
+  },
+};
+
+function toText(value) {
+  return String(value ?? "").trim();
+}
+
+function toBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const normalized = toText(value).toLowerCase();
+  if (!normalized) return false;
+  return ["1", "true", "yes", "y", "checked", "on"].includes(normalized);
+}
+
+function toNumberString(value) {
+  const normalized = toText(value);
+  if (!normalized) return "";
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? String(parsed) : "";
+}
+
+function formatDateDisplay(value = null) {
+  const date = value instanceof Date ? value : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  const day = `${date.getDate()}`.padStart(2, "0");
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+function parseUnixValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  if (String(Math.trunc(Math.abs(numeric))).length <= 10) {
+    return Math.trunc(numeric);
+  }
+  return Math.trunc(numeric / 1000);
+}
+
+function formatDateTimeLocalInput(value = "") {
+  const raw = value ?? "";
+  const unix = parseUnixValue(raw);
+  const date = unix === null ? new Date(raw) : new Date(unix * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+function parseDateTimeInputToUnix(value = "") {
+  const normalized = toText(value);
+  if (!normalized) return null;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return Math.floor(parsed.getTime() / 1000);
+}
+
+function buildUploadFormDisplayName(kind = PRESTART_FORM_KIND, date = null) {
+  const config = FORM_KIND_CONFIG[kind] || FORM_KIND_CONFIG[PRESTART_FORM_KIND];
+  return `${config.shortLabel} ${formatDateDisplay(date)}`.trim();
+}
+
+function humanizeFieldLabel(fieldName = "") {
+  const normalized = toText(fieldName);
+  if (!normalized) return "";
+  const withoutIndexPrefix = normalized.replace(/^f_\d+_/i, "");
+  const withSpaces = withoutIndexPrefix.replaceAll("_", " ");
+  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+}
+
+function hasMeaningfulValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return toText(value).length > 0;
+}
+
+function inferUploadFormKind(record = null) {
+  const name = toText(resolveUploadDisplayName(record)).toLowerCase();
+  if (name.startsWith("pca")) return PCA_FORM_KIND;
+  if (name.includes("pest control advice")) return PCA_FORM_KIND;
+  const hasPcaSignals = [
+    ...PCA_CHECKBOX_FIELDS,
+    ...PCA_NUMBER_FIELDS,
+    ...PCA_TEXT_FIELDS,
+    ...PCA_DATETIME_FIELDS,
+  ].some((field) => hasMeaningfulValue(record?.[field]));
+  return hasPcaSignals ? PCA_FORM_KIND : PRESTART_FORM_KIND;
+}
+
+function isUploadFormRecord(record = null) {
+  const typeValue = toText(record?.type).toLowerCase();
+  if (typeValue === "form") return true;
+  const hasKnownFormField = [
+    ...PRESTART_CHECKBOX_FIELDS,
+    ...PRESTART_TEXT_FIELDS,
+    ...PCA_CHECKBOX_FIELDS,
+    ...PCA_NUMBER_FIELDS,
+    ...PCA_TEXT_FIELDS,
+    ...PCA_DATETIME_FIELDS,
+    "activity_description",
+    "activity_other",
+  ].some((field) => hasMeaningfulValue(record?.[field]));
+  return hasKnownFormField;
+}
+
+function buildUploadFormDraft(kind = PRESTART_FORM_KIND, sourceRecord = null) {
+  const config = FORM_KIND_CONFIG[kind] || FORM_KIND_CONFIG[PRESTART_FORM_KIND];
+  const draft = {};
+  if (config.includeActivityDescription) {
+    draft.activity_description = toText(sourceRecord?.activity_description);
+    draft.activity_other = toText(sourceRecord?.activity_other);
+  }
+  config.checkboxFields.forEach((fieldName) => {
+    draft[fieldName] = toBoolean(sourceRecord?.[fieldName]);
+  });
+  config.numberFields.forEach((fieldName) => {
+    draft[fieldName] = toNumberString(sourceRecord?.[fieldName]);
+  });
+  config.textFields.forEach((fieldName) => {
+    draft[fieldName] = toText(sourceRecord?.[fieldName]);
+  });
+  (Array.isArray(config.datetimeFields) ? config.datetimeFields : []).forEach((fieldName) => {
+    draft[fieldName] = formatDateTimeLocalInput(sourceRecord?.[fieldName]);
+  });
+  return draft;
+}
+
+function buildUploadFormPayload({
+  kind = PRESTART_FORM_KIND,
+  draft = {},
+  displayName = "",
+} = {}) {
+  const config = FORM_KIND_CONFIG[kind] || FORM_KIND_CONFIG[PRESTART_FORM_KIND];
+  const safeDraft = draft && typeof draft === "object" ? draft : {};
+  const payload = {
+    type: "Form",
+    file_name: toText(displayName),
+    photo_name: "",
+    photo_upload: "",
+    file_upload: "",
+  };
+
+  if (config.includeActivityDescription) {
+    const activityDescription = toText(safeDraft.activity_description);
+    payload.activity_description = activityDescription;
+    payload.activity_other =
+      activityDescription === "Other" ? toText(safeDraft.activity_other) : "";
+  }
+
+  config.checkboxFields.forEach((fieldName) => {
+    payload[fieldName] = Boolean(safeDraft[fieldName]);
+  });
+  config.numberFields.forEach((fieldName) => {
+    const normalized = toText(safeDraft[fieldName]);
+    payload[fieldName] = normalized ? Number(normalized) : null;
+  });
+  config.textFields.forEach((fieldName) => {
+    payload[fieldName] = toText(safeDraft[fieldName]);
+  });
+  (Array.isArray(config.datetimeFields) ? config.datetimeFields : []).forEach((fieldName) => {
+    payload[fieldName] = parseDateTimeInputToUnix(safeDraft[fieldName]);
+  });
+
+  return payload;
+}
+
+function resolveUploadCategory(record = null) {
+  if (isUploadFormRecord(record)) return "forms";
+  if (isImageUpload(record)) return "photo";
+  return "file";
+}
+
 function normalizeRecordId(value = "") {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -143,6 +433,8 @@ function isImageUpload(record = null) {
   const type = String(record?.type || "").toLowerCase();
   const name = resolveUploadDisplayName(record).toLowerCase();
   return (
+    type === "photo" ||
+    type.includes("image") ||
     type.startsWith("image/") ||
     [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"].some((suffix) =>
       name.endsWith(suffix)
@@ -184,6 +476,7 @@ export function UploadsSection({
   layoutMode = "split",
   existingUploadsView = "table",
   onRequestAddUpload = null,
+  enableFormUploads = false,
 }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
@@ -196,9 +489,18 @@ export function UploadsSection({
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [previewTarget, setPreviewTarget] = useState(null);
+  const [activeUploadsTab, setActiveUploadsTab] = useState("all");
+  const [isUploadFormModalOpen, setIsUploadFormModalOpen] = useState(false);
+  const [uploadFormKind, setUploadFormKind] = useState(PRESTART_FORM_KIND);
+  const [uploadFormDraft, setUploadFormDraft] = useState(() =>
+    buildUploadFormDraft(PRESTART_FORM_KIND)
+  );
+  const [editingUploadFormId, setEditingUploadFormId] = useState("");
+  const [isSavingUploadForm, setIsSavingUploadForm] = useState(false);
   const sectionRef = useRef(null);
   const inputRef = useRef(null);
   const pendingUploadsRef = useRef([]);
+  const formsEnabled = Boolean(enableFormUploads);
   const jobId = useMemo(() => normalizeJobId(jobData), [jobData]);
   const normalizedInquiryId = useMemo(() => normalizeRecordId(inquiryId), [inquiryId]);
   const normalizedLinkedJobId = useMemo(() => normalizeRecordId(linkedJobId), [linkedJobId]);
@@ -227,6 +529,43 @@ export function UploadsSection({
   const normalizedHighlightUploadId = normalizeRecordId(highlightUploadId);
   const announcementInquiryId = isInquiryMode ? normalizedInquiryId : inquiryIdFromPayload;
   const announcementJobId = isInquiryMode ? normalizedLinkedJobId : jobId;
+  const effectiveAdditionalPayload = useMemo(
+    () => ({
+      ...(additionalCreatePayload && typeof additionalCreatePayload === "object"
+        ? additionalCreatePayload
+        : {}),
+      ...(isInquiryMode && normalizedLinkedJobId
+        ? { job_id: normalizedLinkedJobId, Job_ID: normalizedLinkedJobId }
+        : {}),
+    }),
+    [additionalCreatePayload, isInquiryMode, normalizedLinkedJobId]
+  );
+  const filteredUploads = useMemo(() => {
+    if (!formsEnabled || activeUploadsTab === "all") return uploads;
+    return (Array.isArray(uploads) ? uploads : []).filter(
+      (record) => resolveUploadCategory(record) === activeUploadsTab
+    );
+  }, [formsEnabled, activeUploadsTab, uploads]);
+  const uploadTabCounts = useMemo(() => {
+    const uploadRows = Array.isArray(uploads) ? uploads : [];
+    const counts = { all: uploadRows.length, photo: 0, file: 0, forms: 0 };
+    uploadRows.forEach((record) => {
+      const category = resolveUploadCategory(record);
+      if (!counts[category] && counts[category] !== 0) return;
+      counts[category] += 1;
+    });
+    return counts;
+  }, [uploads]);
+  const editingUploadRecord = useMemo(() => {
+    if (!editingUploadFormId) return null;
+    return (
+      (Array.isArray(uploads) ? uploads : []).find(
+        (record) => normalizeRecordId(record?.id || record?.ID) === editingUploadFormId
+      ) || null
+    );
+  }, [uploads, editingUploadFormId]);
+  const activeUploadFormConfig =
+    FORM_KIND_CONFIG[uploadFormKind] || FORM_KIND_CONFIG[PRESTART_FORM_KIND];
   const {
     hasMore: hasMorePendingUploads,
     remainingCount: remainingPendingUploadsCount,
@@ -243,7 +582,7 @@ export function UploadsSection({
     showMore: showMoreExistingUploads,
     shouldWindow: isExistingUploadsWindowed,
     visibleRows: visibleExistingUploads,
-  } = useRenderWindow(uploads, {
+  } = useRenderWindow(filteredUploads, {
     threshold: 150,
     pageSize: 100,
   });
@@ -305,6 +644,22 @@ export function UploadsSection({
       return [];
     });
   }, [targetRecordId]);
+
+  useEffect(() => {
+    if (!formsEnabled && activeUploadsTab !== "all") {
+      setActiveUploadsTab("all");
+    }
+  }, [formsEnabled, activeUploadsTab]);
+
+  useEffect(() => {
+    if (!normalizedHighlightUploadId || activeUploadsTab === "all") return;
+    const exists = (Array.isArray(uploads) ? uploads : []).some(
+      (record) => normalizeRecordId(record?.id || record?.ID) === normalizedHighlightUploadId
+    );
+    if (exists) {
+      setActiveUploadsTab("all");
+    }
+  }, [activeUploadsTab, normalizedHighlightUploadId, uploads]);
 
   useEffect(() => {
     if (!normalizedHighlightUploadId || !hasMoreExistingUploads) return;
@@ -426,12 +781,6 @@ export function UploadsSection({
 
     for (const pending of pendingUploads) {
       try {
-        const effectiveAdditionalPayload = {
-          ...(additionalCreatePayload && typeof additionalCreatePayload === "object"
-            ? additionalCreatePayload
-            : {}),
-          ...(isInquiryMode && normalizedLinkedJobId ? { job_id: normalizedLinkedJobId } : {}),
-        };
         const saved = isInquiryMode
           ? await createInquiryUploadFromFile({
               plugin,
@@ -508,6 +857,152 @@ export function UploadsSection({
     }
 
     setIsUploading(false);
+  };
+
+  const openCreateUploadForm = (kind = PRESTART_FORM_KIND) => {
+    if (!plugin || !targetRecordId) {
+      error(
+        "Cannot save form",
+        isInquiryMode ? "Inquiry record is not loaded yet." : "Job record is not loaded yet."
+      );
+      return;
+    }
+    const resolvedKind =
+      kind === PCA_FORM_KIND || kind === PRESTART_FORM_KIND ? kind : PRESTART_FORM_KIND;
+    setUploadFormKind(resolvedKind);
+    setUploadFormDraft(buildUploadFormDraft(resolvedKind));
+    setEditingUploadFormId("");
+    setIsUploadFormModalOpen(true);
+  };
+
+  const openEditUploadForm = (record = null) => {
+    const uploadId = normalizeRecordId(record?.id || record?.ID);
+    if (!uploadId) return;
+    const resolvedKind = inferUploadFormKind(record);
+    setUploadFormKind(resolvedKind);
+    setUploadFormDraft(buildUploadFormDraft(resolvedKind, record));
+    setEditingUploadFormId(uploadId);
+    setIsUploadFormModalOpen(true);
+  };
+
+  const handleUploadFormFieldChange = (fieldName, value) => {
+    setUploadFormDraft((previous) => ({
+      ...previous,
+      [fieldName]: value,
+    }));
+  };
+
+  const buildUploadAssociationPayload = (record = null) => {
+    const base = {};
+    const propertyId = normalizeRecordId(
+      record?.property_name_id ||
+        effectiveAdditionalPayload?.property_name_id ||
+        effectiveAdditionalPayload?.Property_Name_ID
+    );
+    if (propertyId) {
+      base.property_name_id = propertyId;
+    }
+    const resolvedInquiryId = normalizeRecordId(
+      record?.inquiry_id ||
+        normalizedInquiryId ||
+        effectiveAdditionalPayload?.inquiry_id ||
+        effectiveAdditionalPayload?.Inquiry_ID ||
+        effectiveAdditionalPayload?.inquiry_record_id ||
+        effectiveAdditionalPayload?.Inquiry_Record_ID
+    );
+    if (resolvedInquiryId) {
+      base.inquiry_id = resolvedInquiryId;
+    }
+    const resolvedJobId = normalizeRecordId(
+      record?.job_id ||
+        jobId ||
+        normalizedLinkedJobId ||
+        effectiveAdditionalPayload?.job_id ||
+        effectiveAdditionalPayload?.Job_ID
+    );
+    if (resolvedJobId) {
+      base.job_id = resolvedJobId;
+    }
+    return base;
+  };
+
+  const saveUploadForm = async () => {
+    if (!plugin || !targetRecordId || isSavingUploadForm) return;
+    const displayName =
+      toText(editingUploadRecord?.name) || buildUploadFormDisplayName(uploadFormKind, new Date());
+    const payload = {
+      ...buildUploadAssociationPayload(editingUploadRecord),
+      ...buildUploadFormPayload({
+        kind: uploadFormKind,
+        draft: uploadFormDraft,
+        displayName,
+      }),
+    };
+    setIsSavingUploadForm(true);
+    try {
+      const saved = editingUploadFormId
+        ? await updateUploadRecordFields({
+            plugin,
+            id: editingUploadFormId,
+            payload,
+          })
+        : isInquiryMode
+          ? await createInquiryUploadRecord({
+              plugin,
+              inquiryId: normalizedInquiryId,
+              payload,
+            })
+          : await createJobUploadRecord({
+              plugin,
+              jobId,
+              payload,
+            });
+
+      if (saved) {
+        if (editingUploadFormId) {
+          storeActions.replaceEntityCollection(
+            "jobUploads",
+            dedupeUploadRecords(
+              (uploads || []).map((record) => {
+                const recordId = normalizeRecordId(record?.id || record?.ID);
+                return recordId === editingUploadFormId ? { ...record, ...saved } : record;
+              })
+            )
+          );
+          success("Form updated", `${activeUploadFormConfig.title} was updated.`);
+        } else {
+          storeActions.replaceEntityCollection(
+            "jobUploads",
+            dedupeUploadRecords([saved, ...(uploads || [])])
+          );
+          const createdUploadId = normalizeRecordId(saved?.id || saved?.ID);
+          if (createdUploadId) {
+            emitAnnouncement({
+              plugin,
+              eventKey: ANNOUNCEMENT_EVENT_KEYS.UPLOAD_ADDED,
+              quoteJobId: announcementJobId,
+              inquiryId: announcementInquiryId,
+              focusId: createdUploadId,
+              focusIds: [createdUploadId],
+              dedupeEntityId: `${announcementJobId}:${announcementInquiryId}:upload_form:${createdUploadId}`,
+              title: "New form added",
+              content: `${activeUploadFormConfig.title} was added.`,
+              logContext: "job-direct:UploadsSection:saveUploadForm",
+            }).catch((announcementError) => {
+              console.warn("[JobDirect] Upload form announcement emit failed", announcementError);
+            });
+          }
+          success("Form added", `${activeUploadFormConfig.title} was added.`);
+        }
+      }
+      setIsUploadFormModalOpen(false);
+      setEditingUploadFormId("");
+    } catch (saveError) {
+      console.error("[JobDirect] Failed saving upload form", saveError);
+      error("Unable to save form", saveError?.message || "Please try again.");
+    } finally {
+      setIsSavingUploadForm(false);
+    }
   };
 
   const confirmDeleteUpload = async () => {
@@ -667,21 +1162,72 @@ export function UploadsSection({
 
       {showExistingUploads ? (
       <Card className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="type-subheadline text-slate-800">Existing Uploads</h3>
-          {isTableOnlyLayout && typeof onRequestAddUpload === "function" ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="primary"
-              className="h-8 whitespace-nowrap px-3 text-xs"
-              onClick={() => onRequestAddUpload()}
-              disabled={!targetRecordId}
-            >
-              Add Upload
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {formsEnabled ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 whitespace-nowrap px-3 text-xs"
+                  onClick={() => openCreateUploadForm(PRESTART_FORM_KIND)}
+                  disabled={!targetRecordId}
+                >
+                  Prestart Form
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 whitespace-nowrap px-3 text-xs"
+                  onClick={() => openCreateUploadForm(PCA_FORM_KIND)}
+                  disabled={!targetRecordId}
+                >
+                  Pest Control Advice Form
+                </Button>
+              </>
+            ) : null}
+            {isTableOnlyLayout && typeof onRequestAddUpload === "function" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="h-8 whitespace-nowrap px-3 text-xs"
+                onClick={() => onRequestAddUpload()}
+                disabled={!targetRecordId}
+              >
+                Add Upload
+              </Button>
+            ) : null}
+          </div>
         </div>
+
+        {formsEnabled ? (
+          <div className="inline-flex flex-wrap items-center gap-1 rounded border border-slate-200 bg-slate-50 p-1">
+            {UPLOAD_FILTER_TABS.map((tab) => {
+              const isActive = activeUploadsTab === tab;
+              const label = tab === "forms" ? "Forms" : tab.charAt(0).toUpperCase() + tab.slice(1);
+              const count = uploadTabCounts?.[tab] || 0;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  className={`inline-flex h-7 items-center gap-1 rounded px-2.5 text-[11px] font-medium transition ${
+                    isActive
+                      ? "bg-[#003882] text-white"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+                  }`}
+                  onClick={() => setActiveUploadsTab(tab)}
+                >
+                  <span>{label}</span>
+                  <span className={isActive ? "text-white/80" : "text-slate-500"}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
 
         {!targetRecordId ? (
           <div className="rounded-lg border border-slate-200 p-6 text-sm text-slate-400">
@@ -707,15 +1253,19 @@ export function UploadsSection({
               <div className="flex flex-wrap gap-2">
                 {!visibleExistingUploads.length ? (
                   <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-400">
-                    No uploads available.
+                    {formsEnabled && activeUploadsTab !== "all"
+                      ? `No ${activeUploadsTab} uploads available.`
+                      : "No uploads available."}
                   </div>
                 ) : (
                   visibleExistingUploads.map((record, index) => {
                     const uploadId = String(record?.id || "").trim();
                     const uploadUrl = resolveUploadPreviewUrl(record);
                     const uploadName = resolveUploadDisplayName(record);
-                    const uploadExtension = resolveUploadExtension(record);
-                    const supportsInlinePreview = isImageUpload(record) || isPdfUpload(record);
+                    const isFormUpload = isUploadFormRecord(record);
+                    const uploadExtension = isFormUpload ? "FORM" : resolveUploadExtension(record);
+                    const supportsInlinePreview =
+                      !isFormUpload && (isImageUpload(record) || isPdfUpload(record));
                     const isHighlighted =
                       Boolean(normalizedHighlightUploadId) &&
                       normalizeRecordId(uploadId) === normalizedHighlightUploadId;
@@ -740,18 +1290,29 @@ export function UploadsSection({
                           <CloseIcon />
                         </button>
                         <div className="flex min-h-[48px] items-center justify-center">
-                          <FileTypeIcon extension={uploadExtension} />
+                          {isFormUpload ? (
+                            <FormTileIcon />
+                          ) : (
+                            <FileTypeIcon extension={uploadExtension} />
+                          )}
                         </div>
                         <button
                           type="button"
                           className="mt-1 w-full truncate text-center text-[10px] font-medium text-sky-700 underline decoration-sky-500/60 underline-offset-2 hover:text-sky-800 disabled:cursor-not-allowed disabled:text-slate-400"
-                          onClick={() => setPreviewTarget(record)}
-                          disabled={!uploadUrl}
+                          onClick={() => {
+                            if (isFormUpload) {
+                              openEditUploadForm(record);
+                              return;
+                            }
+                            if (!uploadUrl) return;
+                            setPreviewTarget(record);
+                          }}
+                          disabled={!isFormUpload && !uploadUrl}
                           title={uploadName}
                         >
                           {uploadName}
                         </button>
-                        {!supportsInlinePreview && uploadUrl ? (
+                        {!isFormUpload && !supportsInlinePreview && uploadUrl ? (
                           <button
                             type="button"
                             className="mt-1 inline-flex h-5 w-full items-center justify-center rounded border border-slate-200 bg-white px-1 text-[10px] text-slate-700 hover:border-slate-300 hover:bg-slate-50"
@@ -781,13 +1342,16 @@ export function UploadsSection({
                     {!visibleExistingUploads.length ? (
                       <tr>
                         <td className="px-2 py-3 text-slate-400" colSpan={3}>
-                          No uploads available.
+                          {formsEnabled && activeUploadsTab !== "all"
+                            ? `No ${activeUploadsTab} uploads available.`
+                            : "No uploads available."}
                         </td>
                       </tr>
                     ) : (
                       visibleExistingUploads.map((record, index) => {
                         const uploadId = String(record?.id || "").trim();
                         const uploadUrl = resolveUploadPreviewUrl(record);
+                        const isFormUpload = isUploadFormRecord(record);
                         const isHighlighted =
                           Boolean(normalizedHighlightUploadId) &&
                           normalizeRecordId(uploadId) === normalizedHighlightUploadId;
@@ -809,12 +1373,16 @@ export function UploadsSection({
                                   type="button"
                                   className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                                   onClick={() => {
+                                    if (isFormUpload) {
+                                      openEditUploadForm(record);
+                                      return;
+                                    }
                                     if (!uploadUrl) return;
                                     window.open(uploadUrl, "_blank", "noopener,noreferrer");
                                   }}
-                                  aria-label="View upload"
-                                  title="View Upload"
-                                  disabled={!uploadUrl}
+                                  aria-label={isFormUpload ? "Edit form upload" : "View upload"}
+                                  title={isFormUpload ? "Edit Form" : "View Upload"}
+                                  disabled={!isFormUpload && !uploadUrl}
                                 >
                                   <EyeIcon />
                                 </button>
@@ -841,7 +1409,7 @@ export function UploadsSection({
             {hasMoreExistingUploads ? (
               <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
                 <span>
-                  Showing {visibleExistingUploads.length} of {uploads.length} uploads
+                  Showing {visibleExistingUploads.length} of {filteredUploads.length} uploads
                 </span>
                 <Button type="button" variant="outline" onClick={showMoreExistingUploads}>
                   Load {Math.min(remainingExistingUploadsCount, 100)} more
@@ -849,13 +1417,200 @@ export function UploadsSection({
               </div>
             ) : isExistingUploadsWindowed ? (
               <div className="text-xs text-slate-500">
-                Showing all {uploads.length} uploads.
+                Showing all {filteredUploads.length} uploads.
               </div>
             ) : null}
           </>
         ) : null}
       </Card>
       ) : null}
+
+      <Modal
+        open={isUploadFormModalOpen}
+        onClose={() => {
+          if (isSavingUploadForm) return;
+          setIsUploadFormModalOpen(false);
+        }}
+        title={`${editingUploadFormId ? "Edit" : "New"} ${activeUploadFormConfig.title}`}
+        widthClass="max-w-[min(96vw,1040px)]"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setIsUploadFormModalOpen(false)}
+              disabled={isSavingUploadForm}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={saveUploadForm}
+              disabled={isSavingUploadForm}
+            >
+              {isSavingUploadForm ? "Saving..." : "Save Form"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="max-h-[76vh] space-y-3 overflow-y-auto pr-1">
+          {activeUploadFormConfig.includeActivityDescription ? (
+            <div className="rounded border border-slate-200 p-2">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Activity
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="space-y-1">
+                  <div className="text-[11px] font-medium text-slate-700">Activity Description</div>
+                  <select
+                    className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none"
+                    value={toText(uploadFormDraft.activity_description)}
+                    onChange={(event) =>
+                      handleUploadFormFieldChange("activity_description", event.target.value)
+                    }
+                  >
+                    <option value="">Select Activity</option>
+                    {PRESTART_ACTIVITY_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {toText(uploadFormDraft.activity_description) === "Other" ? (
+                  <label className="space-y-1">
+                    <div className="text-[11px] font-medium text-slate-700">Activity Other</div>
+                    <input
+                      className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none"
+                      value={toText(uploadFormDraft.activity_other)}
+                      onChange={(event) =>
+                        handleUploadFormFieldChange("activity_other", event.target.value)
+                      }
+                      placeholder="Describe activity"
+                    />
+                  </label>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="rounded border border-slate-200 p-2">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Checklist
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {activeUploadFormConfig.checkboxFields.map((fieldName) => (
+                <label
+                  key={fieldName}
+                  className="inline-flex items-start gap-2 rounded border border-slate-100 bg-slate-50 px-2 py-1.5 text-[12px] text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-[#003882] focus:ring-[#003882]"
+                    checked={Boolean(uploadFormDraft[fieldName])}
+                    onChange={(event) =>
+                      handleUploadFormFieldChange(fieldName, event.target.checked)
+                    }
+                  />
+                  <span>{humanizeFieldLabel(fieldName)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {activeUploadFormConfig.numberFields.length ? (
+            <div className="rounded border border-slate-200 p-2">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Quantities
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {activeUploadFormConfig.numberFields.map((fieldName) => (
+                  <label key={fieldName} className="space-y-1">
+                    <div className="text-[11px] font-medium text-slate-700">
+                      {humanizeFieldLabel(fieldName)}
+                    </div>
+                    <input
+                      type="number"
+                      step="any"
+                      className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none"
+                      value={toText(uploadFormDraft[fieldName])}
+                      onChange={(event) =>
+                        handleUploadFormFieldChange(fieldName, event.target.value)
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {activeUploadFormConfig.datetimeFields.length ? (
+            <div className="rounded border border-slate-200 p-2">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Date & Time
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {activeUploadFormConfig.datetimeFields.map((fieldName) => (
+                  <label key={fieldName} className="space-y-1">
+                    <div className="text-[11px] font-medium text-slate-700">
+                      {humanizeFieldLabel(fieldName)}
+                    </div>
+                    <input
+                      type="datetime-local"
+                      className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none"
+                      value={toText(uploadFormDraft[fieldName])}
+                      onChange={(event) =>
+                        handleUploadFormFieldChange(fieldName, event.target.value)
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {activeUploadFormConfig.textFields.length ? (
+            <div className="rounded border border-slate-200 p-2">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Notes
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {activeUploadFormConfig.textFields.map((fieldName) => {
+                  const isMultiline = activeUploadFormConfig.multilineTextFields.includes(
+                    fieldName
+                  );
+                  return (
+                    <label key={fieldName} className="space-y-1">
+                      <div className="text-[11px] font-medium text-slate-700">
+                        {humanizeFieldLabel(fieldName)}
+                      </div>
+                      {isMultiline ? (
+                        <textarea
+                          rows={3}
+                          className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none"
+                          value={toText(uploadFormDraft[fieldName])}
+                          onChange={(event) =>
+                            handleUploadFormFieldChange(fieldName, event.target.value)
+                          }
+                        />
+                      ) : (
+                        <input
+                          className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none"
+                          value={toText(uploadFormDraft[fieldName])}
+                          onChange={(event) =>
+                            handleUploadFormFieldChange(fieldName, event.target.value)
+                          }
+                        />
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </Modal>
 
       <Modal
         open={Boolean(previewTarget)}

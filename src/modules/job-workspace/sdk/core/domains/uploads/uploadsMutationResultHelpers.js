@@ -37,6 +37,22 @@ export function parseUploadCreateMutationResult(result) {
   };
 }
 
+export function parseUploadUpdateMutationResult(result, { normalizedId } = {}) {
+  if (!result || result?.isCancelling) {
+    throw new Error("Upload update was cancelled.");
+  }
+
+  ensureUploadMutationStatusOrThrow(result, "Unable to update upload.");
+  const updated = findUploadMutationData(result, "update");
+  const updatedRecord = Array.isArray(updated) ? updated[0] || null : updated;
+  const mutationId = extractCreatedRecordId(result, "PeterpmUpload");
+
+  return {
+    record: updatedRecord,
+    id: updatedRecord?.id || updatedRecord?.ID || mutationId || normalizedId || "",
+  };
+}
+
 export function parseUploadDeleteMutationResult(result) {
   if (!result || result?.isCancelling) {
     throw new Error("Upload delete was cancelled.");
