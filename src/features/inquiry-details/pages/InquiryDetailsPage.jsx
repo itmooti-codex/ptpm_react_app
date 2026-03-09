@@ -4345,6 +4345,7 @@ export function InquiryDetailsPage() {
   const inquiryPropertyId = normalizePropertyId(
     inquiry?.property_id ||
       inquiry?.Property_ID ||
+      inquiry?.PropertyID ||
       inquiryPropertyRelationRecord?.id ||
       inquiryPropertyRelationRecord?.ID
   );
@@ -4356,8 +4357,26 @@ export function InquiryDetailsPage() {
           inquiryPropertyId ||
           inquiryPropertyRelationRecord?.id ||
           inquiryPropertyRelationRecord?.ID,
+        unique_id: inquiryPropertyRelationRecord?.unique_id || inquiry?.Property_Unique_ID,
+        property_name: inquiryPropertyRelationRecord?.property_name || inquiry?.Property_Property_Name,
+        address_1: inquiryPropertyRelationRecord?.address_1 || inquiry?.Property_Address_1,
+        address_2: inquiryPropertyRelationRecord?.address_2 || inquiry?.Property_Address_2,
+        suburb_town: inquiryPropertyRelationRecord?.suburb_town || inquiry?.Property_Suburb_Town,
+        state: inquiryPropertyRelationRecord?.state || inquiry?.PropertyState || inquiry?.Property_State,
+        postal_code: inquiryPropertyRelationRecord?.postal_code || inquiry?.Property_Postal_Code,
+        country: inquiryPropertyRelationRecord?.country || inquiry?.PropertyCountry || inquiry?.Property_Country,
+        property_type: inquiryPropertyRelationRecord?.property_type || inquiry?.Property_Property_Type,
+        building_type: inquiryPropertyRelationRecord?.building_type || inquiry?.Property_Building_Type,
+        building_type_other: inquiryPropertyRelationRecord?.building_type_other || inquiry?.Property_Building_Type_Other,
+        foundation_type: inquiryPropertyRelationRecord?.foundation_type || inquiry?.Property_Foundation_Type,
+        bedrooms: inquiryPropertyRelationRecord?.bedrooms ?? inquiry?.PropertyBedrooms,
+        manhole: inquiryPropertyRelationRecord?.manhole ?? inquiry?.PropertyManhole,
+        stories: inquiryPropertyRelationRecord?.stories ?? inquiry?.PropertyStories,
+        building_age: inquiryPropertyRelationRecord?.building_age || inquiry?.Property_Building_Age,
+        lot_number: inquiryPropertyRelationRecord?.lot_number || inquiry?.Property_Lot_Number,
+        unit_number: inquiryPropertyRelationRecord?.unit_number || inquiry?.Property_Unit_Number,
       }),
-    [inquiryPropertyId, inquiryPropertyRelationRecord]
+    [inquiryPropertyId, inquiryPropertyRelationRecord, inquiry]
   );
   const normalizedSelectedPropertyId = normalizePropertyId(selectedPropertyId);
   const linkedPropertiesSorted = useMemo(
@@ -5462,6 +5481,11 @@ export function InquiryDetailsPage() {
     setPropertyLookupRecords((previous) =>
       mergePropertyCollectionsIfChanged(previous, [inquiryPropertyRecord])
     );
+    if (resolvePropertyLookupLabel(inquiryPropertyRecord)) {
+      setLinkedProperties((previous) =>
+        mergePropertyCollectionsIfChanged(previous, [inquiryPropertyRecord])
+      );
+    }
   }, [inquiryPropertyId, inquiryPropertyRecord]);
 
   useEffect(() => {
@@ -5560,7 +5584,9 @@ export function InquiryDetailsPage() {
 
     const hasAddressDetails = Boolean(
       toText(
-        selectedRecord?.address_1 ||
+        selectedRecord?.property_name ||
+          selectedRecord?.Property_Name ||
+          selectedRecord?.address_1 ||
           selectedRecord?.Address_1 ||
           selectedRecord?.address ||
           selectedRecord?.Address

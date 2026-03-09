@@ -797,13 +797,13 @@ export function PropertyTabSection({
             </div>
           ) : null}
 
-          {selectedAccountId && isLoading ? (
+          {selectedAccountId && isLoading && !linkedPropertyOptions.length ? (
             <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
               Loading linked properties...
             </div>
           ) : null}
 
-          {selectedAccountId && !isLoading && loadError ? (
+          {selectedAccountId && loadError ? (
             <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {loadError}
             </div>
@@ -815,7 +815,7 @@ export function PropertyTabSection({
             </div>
           ) : null}
 
-          {selectedAccountId && !isLoading && !loadError && linkedPropertyOptions.length ? (
+          {selectedAccountId && !loadError && linkedPropertyOptions.length ? (
             <div className="space-y-2">
               {linkedPropertyOptions.map((property, index) => {
                 const propertyId = normalizePropertyId(property.id);

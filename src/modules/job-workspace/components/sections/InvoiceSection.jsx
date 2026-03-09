@@ -411,7 +411,16 @@ function buildServiceProviderSummary(job = {}) {
   };
 }
 
-export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
+export function InvoiceSection({
+  plugin,
+  jobData,
+  onExternalUnsavedChange,
+  quoteSheetHtml,
+  onAcceptQuote,
+  isAcceptingQuote,
+  canAcceptQuote,
+  activeTab,
+}) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
   const jobEntity = useJobDirectSelector(selectJobEntity);
@@ -420,6 +429,10 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
   const defaultInvoiceActivityIds = useJobDirectSelector(selectDefaultInvoiceActivityIds);
   const storeMaterialSummary = useJobDirectSelector(selectBillMaterialSummary);
   const [activeBillingTab, setActiveBillingTab] = useState("client-invoice");
+
+  useEffect(() => {
+    if (activeTab) setActiveBillingTab(activeTab);
+  }, [activeTab]);
 
   const [invoiceDate, setInvoiceDate] = useState("");
   const [invoiceDueDate, setInvoiceDueDate] = useState("");
@@ -958,6 +971,18 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
           <button
             type="button"
             className={`inline-flex items-center px-6 py-3 ${
+              activeBillingTab === "quote"
+                ? "border-b-2 border-sky-900 text-sky-900"
+                : "text-neutral-700"
+            }`}
+            onClick={() => setActiveBillingTab("quote")}
+            data-tab="quote"
+          >
+            Quote
+          </button>
+          <button
+            type="button"
+            className={`inline-flex items-center px-6 py-3 ${
               activeBillingTab === "client-invoice"
                 ? "border-b-2 border-sky-900 text-sky-900"
                 : "text-neutral-700"
@@ -981,6 +1006,34 @@ export function InvoiceSection({ plugin, jobData, onExternalUnsavedChange }) {
           </button>
         </div>
       </div>
+
+      {activeBillingTab === "quote" ? (
+        <div className="space-y-4">
+          {canAcceptQuote ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="inline-flex h-8 items-center rounded border border-sky-700 bg-sky-700 px-3 text-xs font-medium text-white hover:bg-sky-800 disabled:opacity-50"
+                onClick={onAcceptQuote}
+                disabled={isAcceptingQuote}
+              >
+                {isAcceptingQuote ? "Accepting..." : "Accept Quote"}
+              </button>
+            </div>
+          ) : null}
+          {quoteSheetHtml ? (
+            <iframe
+              title="Job sheet"
+              srcDoc={quoteSheetHtml}
+              className="h-[72vh] w-full rounded border border-slate-200 bg-white"
+            />
+          ) : (
+            <div className="rounded border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+              No quote sheet available yet.
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {activeBillingTab === "client-invoice" ? (
         <ClientInvoicePanel

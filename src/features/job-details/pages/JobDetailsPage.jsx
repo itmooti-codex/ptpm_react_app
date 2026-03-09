@@ -279,7 +279,7 @@ const JOB_WORKSPACE_TABS = [
   { id: "appointments", label: "Appointments" },
   { id: "activities", label: "Activities" },
   { id: "materials", label: "Materials" },
-  { id: "invoice-payment", label: "Invoice and Payment" },
+  { id: "invoice-payment", label: "Quote and Payment" },
 ];
 
 const JOB_INITIAL_SELECT_FIELDS = [
@@ -934,7 +934,7 @@ export function JobDetailsPage() {
     "related-data": true,
   }));
   const [isTasksModalOpen, setIsTasksModalOpen] = useState(false);
-  const [isReviewAcceptModalOpen, setIsReviewAcceptModalOpen] = useState(false);
+  const [invoiceActiveTab, setInvoiceActiveTab] = useState("");
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const [appointmentModalMode, setAppointmentModalMode] = useState("create");
   const [editingAppointmentId, setEditingAppointmentId] = useState("");
@@ -1048,7 +1048,7 @@ export function JobDetailsPage() {
     setActiveWorkspaceTab("related-data");
     setMountedWorkspaceTabs({ "related-data": true });
     setIsTasksModalOpen(false);
-    setIsReviewAcceptModalOpen(false);
+    setInvoiceActiveTab("");
     setIsAppointmentModalOpen(false);
     setAppointmentModalMode("create");
     setEditingAppointmentId("");
@@ -1125,7 +1125,7 @@ export function JobDetailsPage() {
       setActiveWorkspaceTab("related-data");
       setMountedWorkspaceTabs({ "related-data": true });
       setIsTasksModalOpen(false);
-      setIsReviewAcceptModalOpen(false);
+      setInvoiceActiveTab("");
       setIsAppointmentModalOpen(false);
       setAppointmentModalMode("create");
       setEditingAppointmentId("");
@@ -1191,7 +1191,7 @@ export function JobDetailsPage() {
       setActiveWorkspaceTab("related-data");
       setMountedWorkspaceTabs({ "related-data": true });
       setIsTasksModalOpen(false);
-      setIsReviewAcceptModalOpen(false);
+      setInvoiceActiveTab("");
       setIsAppointmentModalOpen(false);
       setAppointmentModalMode("create");
       setEditingAppointmentId("");
@@ -1326,7 +1326,7 @@ export function JobDetailsPage() {
         setActiveWorkspaceTab("related-data");
         setMountedWorkspaceTabs({ "related-data": true });
         setIsTasksModalOpen(false);
-        setIsReviewAcceptModalOpen(false);
+        setInvoiceActiveTab("");
         setIsAppointmentModalOpen(false);
         setAppointmentModalMode("create");
         setEditingAppointmentId("");
@@ -1559,14 +1559,6 @@ export function JobDetailsPage() {
           );
         }
 
-        console.warn("[JobDetails] account details resolved", {
-          resolvedJobContact,
-          jobCompany,
-          resolvedContactId,
-          resolvedEntityId: loadedClientEntityId,
-          resolvedIndividualId: loadedClientIndividualId,
-          loadedAccountType,
-        });
         setAccountContactRecord(resolvedJobContact || null);
         setAccountCompanyRecord(jobCompany || null);
       } catch (loadError) {
@@ -3054,7 +3046,6 @@ export function JobDetailsPage() {
         date_quoted_accepted: now,
       }));
       setLoadedJobStatus("In Progress");
-      setIsReviewAcceptModalOpen(false);
       success("Quote accepted", "Quote status was updated to Accepted.");
     } catch (saveError) {
       console.error("[JobDetailsBlank] Failed accepting quote", saveError);
@@ -4375,7 +4366,8 @@ export function JobDetailsPage() {
                       className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
                       onClick={() => {
                         setOpenMenu("");
-                        setIsReviewAcceptModalOpen(true);
+                        setActiveWorkspaceTab("invoice-payment");
+                        setInvoiceActiveTab("quote");
                       }}
                     >
                       Review Quote
@@ -4514,7 +4506,11 @@ export function JobDetailsPage() {
                     <button
                       type="button"
                       className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
-                      onClick={() => setOpenMenu("")}
+                      onClick={() => {
+                        setOpenMenu("");
+                        setActiveWorkspaceTab("invoice-payment");
+                        setInvoiceActiveTab("quote");
+                      }}
                     >
                       Print Job Sheet
                     </button>
@@ -4698,7 +4694,10 @@ export function JobDetailsPage() {
                         variant="outline"
                         size="sm"
                         className="h-8 whitespace-nowrap px-3 !text-xs"
-                        onClick={() => setIsReviewAcceptModalOpen(true)}
+                        onClick={() => {
+                          setActiveWorkspaceTab("invoice-payment");
+                          setInvoiceActiveTab("quote");
+                        }}
                         disabled={isQuoteWorkflowUpdating}
                       >
                         {isQuoteWorkflowUpdating ? "Accepting..." : "Review and Accept Quote"}
@@ -4973,7 +4972,15 @@ export function JobDetailsPage() {
                 isMounted={Boolean(mountedWorkspaceTabs["invoice-payment"])}
                 isActive={activeWorkspaceTab === "invoice-payment"}
               >
-                <InvoiceSection plugin={plugin} jobData={jobDirectBootstrapJobData} />
+                <InvoiceSection
+                  plugin={plugin}
+                  jobData={jobDirectBootstrapJobData}
+                  quoteSheetHtml={reviewJobSheetHtml}
+                  onAcceptQuote={handleAcceptQuote}
+                  isAcceptingQuote={isQuoteWorkflowUpdating}
+                  canAcceptQuote={canAcceptQuote}
+                  activeTab={invoiceActiveTab}
+                />
               </WorkspaceTabPanel>
             </section>
 
@@ -5141,42 +5148,6 @@ export function JobDetailsPage() {
           ...(relatedInquiryId ? { deal_id: relatedInquiryId, Deal_id: relatedInquiryId } : {}),
         }}
       />
-
-      <Modal
-        open={isReviewAcceptModalOpen}
-        title="Review and Accept Quote"
-        onClose={() => {
-          if (isQuoteWorkflowUpdating) return;
-          setIsReviewAcceptModalOpen(false);
-        }}
-        widthClass="max-w-[min(96vw,1200px)]"
-        footer={
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsReviewAcceptModalOpen(false)}
-              disabled={isQuoteWorkflowUpdating}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleAcceptQuote}
-              disabled={isQuoteWorkflowUpdating}
-            >
-              {isQuoteWorkflowUpdating ? "Accepting..." : "Review and Accept Quote"}
-            </Button>
-          </div>
-        }
-      >
-        <iframe
-          title="Job sheet review"
-          srcDoc={reviewJobSheetHtml}
-          className="h-[72vh] w-full rounded border border-slate-200 bg-white"
-        />
-      </Modal>
 
       <Modal
         open={isMarkCompleteConfirmOpen}

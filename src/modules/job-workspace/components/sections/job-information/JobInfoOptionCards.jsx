@@ -116,6 +116,18 @@ export function PropertyOptionCard({
 }) {
   const propertyId = normalizePropertyId(property?.id);
   const mapLink = buildPropertyMapLink(property);
+  const hasPropertyLabel = Boolean(
+    property?.property_name || property?.address_1 || property?.suburb_town
+  );
+
+  if (!hasPropertyLabel && propertyId) {
+    return (
+      <div className="w-full animate-pulse rounded border border-slate-200 bg-white px-3 py-2">
+        <div className="h-3 w-16 rounded bg-slate-200" />
+        <div className="mt-2 h-4 w-48 rounded bg-slate-200" />
+      </div>
+    );
+  }
 
   return (
     <div
