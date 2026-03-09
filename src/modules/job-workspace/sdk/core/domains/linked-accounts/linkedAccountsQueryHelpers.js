@@ -9,8 +9,8 @@ export function resolveLinkedAccountModelName(accountType) {
     : "PeterpmContact";
 }
 
-export const LINKED_ACCOUNT_INCLUDE_TIMEOUT_MS = 20000;
-export const LINKED_ACCOUNT_CUSTOM_FALLBACK_TIMEOUT_MS = 15000;
+export const LINKED_ACCOUNT_INCLUDE_TIMEOUT_MS = 8000;
+export const LINKED_ACCOUNT_CUSTOM_FALLBACK_TIMEOUT_MS = 5000;
 
 export function buildLinkedDealsFallbackQuery(accountType) {
   const resolvedType = resolveLinkedAccountType(accountType);
@@ -21,6 +21,7 @@ export function buildLinkedDealsFallbackQuery(accountType) {
           Deals_Unique_ID: field(arg: ["Deals", "unique_id"])
           DealsID: field(arg: ["Deals", "id"])
           Deals_Deal_Name: field(arg: ["Deals", "deal_name"])
+          Deals_Inquiry_Status: field(arg: ["Deals", "inquiry_status"])
         }
       }
     `
@@ -30,6 +31,7 @@ export function buildLinkedDealsFallbackQuery(accountType) {
           Deals_Unique_ID: field(arg: ["Deals", "unique_id"])
           DealsID: field(arg: ["Deals", "id"])
           Deals_Deal_Name: field(arg: ["Deals", "deal_name"])
+          Deals_Inquiry_Status: field(arg: ["Deals", "inquiry_status"])
         }
       }
     `;
@@ -43,7 +45,13 @@ export function buildLinkedJobsFallbackQuery(accountType) {
         calcCompanies(query: [{ where: { id: $id } }]) {
           JobsID: field(arg: ["Jobs", "id"])
           Jobs_Unique_ID: field(arg: ["Jobs", "unique_id"])
+          Jobs_Job_Status: field(arg: ["Jobs", "job_status"])
+          Jobs_Quote_Status: field(arg: ["Jobs", "quote_status"])
           Property_Property_Name: field(arg: ["Jobs", "Property", "property_name"])
+          Property_Unique_ID: field(arg: ["Jobs", "Property", "unique_id"])
+          Property_Address_1: field(arg: ["Jobs", "Property", "address_1"])
+          Property_Suburb_Town: field(arg: ["Jobs", "Property", "suburb_town"])
+          Property_State: field(arg: ["Jobs", "Property", "state"])
         }
       }
     `
@@ -52,7 +60,13 @@ export function buildLinkedJobsFallbackQuery(accountType) {
         calcContacts(query: [{ where: { id: $id } }]) {
           Jobs_As_Client_IndividualID: field(arg: ["Jobs_As_Client_Individual", "id"])
           Jobs_As_Client_Individual_Unique_ID: field(arg: ["Jobs_As_Client_Individual", "unique_id"])
+          Jobs_As_Client_Individual_Job_Status: field(arg: ["Jobs_As_Client_Individual", "job_status"])
+          Jobs_As_Client_Individual_Quote_Status: field(arg: ["Jobs_As_Client_Individual", "quote_status"])
           Property_Property_Name: field(arg: ["Jobs_As_Client_Individual", "Property", "property_name"])
+          Property_Unique_ID: field(arg: ["Jobs_As_Client_Individual", "Property", "unique_id"])
+          Property_Address_1: field(arg: ["Jobs_As_Client_Individual", "Property", "address_1"])
+          Property_Suburb_Town: field(arg: ["Jobs_As_Client_Individual", "Property", "suburb_town"])
+          Property_State: field(arg: ["Jobs_As_Client_Individual", "Property", "state"])
         }
       }
     `;

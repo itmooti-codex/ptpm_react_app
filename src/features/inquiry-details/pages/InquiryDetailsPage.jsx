@@ -4421,7 +4421,6 @@ export function InquiryDetailsPage() {
   const [isQuoteJobDirectlyLinked, setIsQuoteJobDirectlyLinked] = useState(false);
   const [quoteCreateDraft, setQuoteCreateDraft] = useState({
     quote_date: "",
-    follow_up_date: "",
   });
   const [isDeleteRecordModalOpen, setIsDeleteRecordModalOpen] = useState(false);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
@@ -4808,7 +4807,7 @@ export function InquiryDetailsPage() {
   const selectedRelatedJobId =
     linkedJobSelectionOverride !== undefined
       ? toText(linkedJobSelectionOverride)
-      : linkedInquiryJobIdFromRecord;
+      : linkedInquiryJobIdFromRecord || quoteJobIdFromRecord;
   const inquiryPropertyRelationRecord = useMemo(
     () => normalizeRelationRecord(inquiry?.Property || inquiry?.property),
     [inquiry?.Property, inquiry?.property]
@@ -7221,8 +7220,7 @@ export function InquiryDetailsPage() {
     });
   }, [inquiryNumericId, safeUid, trackRecentActivity]);
 
-  const hasLinkedQuoteJob =
-    isQuoteJobDirectlyLinked && toText(inquiryStatus).toLowerCase() === "quote created";
+  const hasLinkedQuoteJob = Boolean(quoteJobIdFromRecord);
 
   const handleQuoteJobAction = useCallback(async () => {
     if (isCreatingQuote || isOpeningQuoteJob) return;
@@ -7249,7 +7247,7 @@ export function InquiryDetailsPage() {
       }
       trackRecentActivity({
         action: "Opened quote/job",
-        path: `/details/${encodeURIComponent(resolvedUid)}`,
+        path: `/job-details/${encodeURIComponent(resolvedUid)}`,
         pageType: "job-details",
         pageName: "Job Details",
         metadata: {
@@ -7259,7 +7257,7 @@ export function InquiryDetailsPage() {
           job_id: linkedJobValue,
         },
       });
-      navigate(`/details/${encodeURIComponent(resolvedUid)}`);
+      navigate(`/job-details/${encodeURIComponent(resolvedUid)}`);
     } catch (openError) {
       console.error("[InquiryDetails] Failed opening quote/job details", openError);
       error("Open failed", openError?.message || "Unable to open quote/job.");
@@ -7270,9 +7268,7 @@ export function InquiryDetailsPage() {
     error,
     handleOpenCreateQuoteModal,
     hasLinkedQuoteJob,
-    inquiryStatus,
     isCreatingQuote,
-    isQuoteJobDirectlyLinked,
     isOpeningQuoteJob,
     quoteJobIdFromRecord,
     navigate,
@@ -7321,7 +7317,6 @@ export function InquiryDetailsPage() {
         serviceProviderId: providerId || null,
         inquiryTakenById: inquiryTakenById || null,
         quoteDate: quoteCreateDraft.quote_date,
-        followUpDate: quoteCreateDraft.follow_up_date,
       });
       await refreshResolvedInquiry();
       setRelatedRecordsRefreshKey((previous) => previous + 1);
@@ -7354,7 +7349,6 @@ export function InquiryDetailsPage() {
     inquiryPropertyId,
     isCreatingQuote,
     plugin,
-    quoteCreateDraft.follow_up_date,
     quoteCreateDraft.quote_date,
     refreshResolvedInquiry,
     selectedInquiryTakenById,
@@ -8126,7 +8120,7 @@ export function InquiryDetailsPage() {
     (uniqueId) => {
       const nextUid = toText(uniqueId);
       if (!nextUid) return;
-      navigate(`/details/${encodeURIComponent(nextUid)}`);
+      navigate(`/job-details/${encodeURIComponent(nextUid)}`);
     },
     [navigate]
   );
@@ -8770,18 +8764,6 @@ export function InquiryDetailsPage() {
               setQuoteCreateDraft((previous) => ({
                 ...previous,
                 quote_date: String(event?.target?.value || ""),
-              }))
-            }
-          />
-          <InputField
-            label="Follow Up Date"
-            type="date"
-            field="follow_up_date"
-            value={quoteCreateDraft.follow_up_date}
-            onChange={(event) =>
-              setQuoteCreateDraft((previous) => ({
-                ...previous,
-                follow_up_date: String(event?.target?.value || ""),
               }))
             }
           />

@@ -154,9 +154,16 @@ export async function createActivityRecord({ plugin, payload } = {}) {
   const result = await mutation.execute(true).toPromise();
   const { record: createdRecord, id: resolvedId } = parseActivityCreateMutationResult(result);
 
+  const safeCreatedRecord = createdRecord && typeof createdRecord === "object" ? createdRecord : {};
+  const ACTIVITY_BOOL_FIELDS = ["include_in_quote", "include_in_quote_subtotal", "invoice_to_client"];
+  const filteredCreatedRecord = Object.fromEntries(
+    Object.entries(safeCreatedRecord).filter(
+      ([key, val]) => !ACTIVITY_BOOL_FIELDS.includes(key) || (val !== null && val !== undefined)
+    )
+  );
   return normalizeActivityRecord({
     ...(mutationPayload || {}),
-    ...(createdRecord && typeof createdRecord === "object" ? createdRecord : {}),
+    ...filteredCreatedRecord,
     id: resolvedId,
   });
 }
@@ -194,9 +201,16 @@ export async function updateActivityRecord({ plugin, id, payload } = {}) {
     );
   }
 
+  const safeUpdatedRecord = updatedRecord && typeof updatedRecord === "object" ? updatedRecord : {};
+  const ACTIVITY_BOOL_FIELDS = ["include_in_quote", "include_in_quote_subtotal", "invoice_to_client"];
+  const filteredUpdatedRecord = Object.fromEntries(
+    Object.entries(safeUpdatedRecord).filter(
+      ([key, val]) => !ACTIVITY_BOOL_FIELDS.includes(key) || (val !== null && val !== undefined)
+    )
+  );
   return normalizeActivityRecord({
     ...(mutationPayload || {}),
-    ...(updatedRecord && typeof updatedRecord === "object" ? updatedRecord : {}),
+    ...filteredUpdatedRecord,
     id: resolvedId || normalizedId,
   });
 }

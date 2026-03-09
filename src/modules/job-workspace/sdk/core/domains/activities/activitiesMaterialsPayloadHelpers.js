@@ -78,10 +78,10 @@ export function normalizeActivityRecord(rawActivity = {}) {
     note: String(rawActivity?.note || rawActivity?.Note || "").trim(),
     warranty: String(rawActivity?.warranty || rawActivity?.Warranty || "").trim(),
     include_in_quote_subtotal: parseBooleanValue(
-      rawActivity?.include_in_quote_subtotal ?? rawActivity?.Include_In_Quote_Subtotal
+      rawActivity?.include_in_quote_subtotal ?? rawActivity?.Include_in_Quote_Subtotal ?? rawActivity?.Include_In_Quote_Subtotal
     ),
     include_in_quote: parseBooleanValue(
-      rawActivity?.include_in_quote ?? rawActivity?.Include_In_Quote
+      rawActivity?.include_in_quote ?? rawActivity?.Include_in_Quote ?? rawActivity?.Include_In_Quote
     ),
     invoice_to_client: parseBooleanValue(
       rawActivity?.invoice_to_client ?? rawActivity?.Invoice_to_Client
@@ -127,10 +127,10 @@ export function normalizeActivityMutationPayload(payload = {}, { forCreate = fal
       "To Be Scheduled"
   ).trim();
   next.include_in_quote = parseBooleanValue(
-    source?.include_in_quote ?? source?.Include_In_Quote
+    source?.include_in_quote ?? source?.Include_in_Quote ?? source?.Include_In_Quote
   );
   next.include_in_quote_subtotal = parseBooleanValue(
-    source?.include_in_quote_subtotal ?? source?.Include_In_Quote_Subtotal ?? true
+    source?.include_in_quote_subtotal ?? source?.Include_in_Quote_Subtotal ?? source?.Include_In_Quote_Subtotal ?? true
   );
   next.invoice_to_client = parseBooleanValue(
     source?.invoice_to_client ?? source?.Invoice_to_Client ?? true

@@ -1,9 +1,0 @@
-/* Legacy compatibility hooks kept for upcoming functionality migration. */
-.pac-container {
-  z-index: 10050 !important;
-}
-
-[data-section-icon] svg *,
-[data-sidebar-toggle] svg * {
-  stroke: currentColor;
-}

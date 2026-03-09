@@ -2,11 +2,6 @@ import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { RecentActivitiesDock } from "../shared/components/RecentActivitiesDock.jsx";
 
-const JobDirectPage = lazy(() =>
-  import("../features/job-direct/pages/JobDirectPage.jsx").then((module) => ({
-    default: module.JobDirectPage,
-  }))
-);
 const DashboardPage = lazy(() =>
   import("../features/dashboard/pages/DashboardPage.jsx").then((module) => ({
     default: module.DashboardPage,
@@ -27,9 +22,9 @@ const NotificationsPage = lazy(() =>
     default: module.NotificationsPage,
   }))
 );
-const JobDetailsPage = lazy(() =>
-  import("../features/job-details/pages/JobDetailsPage.jsx").then((module) => ({
-    default: module.JobDetailsPage,
+const JobDetailsBlankPage = lazy(() =>
+  import("../features/job-details/pages/JobDetailsBlankPage.jsx").then((module) => ({
+    default: module.JobDetailsBlankPage,
   }))
 );
 const InquiryDetailsPage = lazy(() =>
@@ -53,11 +48,6 @@ function AppRouteLoader() {
   );
 }
 
-function LegacyJobDetailsRedirect() {
-  const { uid = "" } = useParams();
-  return <Navigate to={`/details/${encodeURIComponent(String(uid || "").trim())}`} replace />;
-}
-
 function LegacyInquiryDirectRedirect() {
   const { inquiryuid = "" } = useParams();
   const safeUid = String(inquiryuid || "").trim();
@@ -67,21 +57,40 @@ function LegacyInquiryDirectRedirect() {
   return <Navigate to={`/inquiry-details/${encodeURIComponent(safeUid)}`} replace />;
 }
 
+function LegacyJobDetailsRedirect() {
+  const { uid = "" } = useParams();
+  const safeUid = String(uid || "").trim();
+  if (!safeUid) {
+    return <Navigate to="/" replace />;
+  }
+  return <Navigate to={`/job-details/${encodeURIComponent(safeUid)}`} replace />;
+}
+
+function LegacyJobDirectRedirect() {
+  const { jobuid = "" } = useParams();
+  const safeUid = String(jobuid || "").trim();
+  if (!safeUid) {
+    return <Navigate to="/" replace />;
+  }
+  return <Navigate to={`/job-details/${encodeURIComponent(safeUid)}`} replace />;
+}
+
 export default function App() {
   return (
     <Suspense fallback={<AppRouteLoader />}>
       <>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/job-direct" element={<JobDirectPage />} />
-          <Route path="/job-direct/:jobuid" element={<JobDirectPage />} />
           <Route path="/inquiry-direct" element={<Navigate to="/inquiry-details/new" replace />} />
           <Route path="/inquiry-direct/new" element={<Navigate to="/inquiry-details/new" replace />} />
           <Route path="/inquiry-direct/:inquiryuid" element={<LegacyInquiryDirectRedirect />} />
           <Route path="/inquiry-details/new" element={<InquiryDetailsPage />} />
           <Route path="/inquiry-details/:uid" element={<InquiryDetailsPage />} />
-          <Route path="/job-details/:uid" element={<LegacyJobDetailsRedirect />} />
-          <Route path="/details/:uid" element={<JobDetailsPage />} />
+          <Route path="/job-details/new" element={<JobDetailsBlankPage />} />
+          <Route path="/job-details/:uid" element={<JobDetailsBlankPage />} />
+          <Route path="/details/:uid" element={<LegacyJobDetailsRedirect />} />
+          <Route path="/job-direct" element={<Navigate to="/" replace />} />
+          <Route path="/job-direct/:jobuid" element={<LegacyJobDirectRedirect />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />

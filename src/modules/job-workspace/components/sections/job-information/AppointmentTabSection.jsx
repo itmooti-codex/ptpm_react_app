@@ -201,6 +201,7 @@ export function AppointmentTabSection({
   layoutMode = "split",
   onRequestCreate = null,
   onRequestEdit = null,
+  onSubmitSuccess = null,
   hideStatusFieldInForm = false,
   eventRowTintOpacity = 1,
 }) {
@@ -964,6 +965,7 @@ export function AppointmentTabSection({
 
     setIsCreating(true);
     try {
+      let savedRecord = null;
       if (isEditMode) {
         const targetId = normalizeTextValue(resolvedEditingId);
         if (!targetId) {
@@ -975,10 +977,12 @@ export function AppointmentTabSection({
           id: targetId,
           payload,
         });
+        savedRecord = updatedRecord;
         storeActions.upsertEntityRecord("appointments", updatedRecord, { idField: "id" });
         success("Appointment updated", "Appointment changes were saved.");
       } else {
         const createdRecord = await createAppointmentRecord({ plugin, payload });
+        savedRecord = createdRecord;
         storeActions.upsertEntityRecord("appointments", createdRecord, { idField: "id" });
         const createdAppointmentId = normalizeTextValue(createdRecord?.id || createdRecord?.ID);
         await emitAnnouncement({
@@ -996,6 +1000,7 @@ export function AppointmentTabSection({
         success("Appointment created", "Appointment was added successfully.");
       }
       resetForm();
+      onSubmitSuccess?.(savedRecord || null);
     } catch (submitError) {
       console.error(
         `[JobDirect] Failed ${isEditMode ? "updating" : "creating"} appointment`,
@@ -1026,6 +1031,7 @@ export function AppointmentTabSection({
     shouldHideStatusFieldInForm,
     storeActions,
     success,
+    onSubmitSuccess,
   ]);
 
   const handleMarkComplete = useCallback(

@@ -5,7 +5,7 @@ import {
 } from "@modules/job-workspace/public/sdk.js";
 
 const RELATED_RECORDS_CACHE_TTL_MS = 2 * 60 * 1000;
-const RELATED_RECORDS_STORAGE_KEY_PREFIX = "ptpm:inquiry-details:related-records:v1:";
+const RELATED_RECORDS_STORAGE_KEY_PREFIX = "ptpm:inquiry-details:related-records:v2:";
 const relatedRecordsCache = new Map();
 
 function normalizeAccountType(accountType = "") {

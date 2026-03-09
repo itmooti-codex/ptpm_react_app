@@ -127,6 +127,40 @@ export function jobDirectReducer(state, action) {
       const hasActivities = Array.isArray(payload?.jobData?.activities);
       const hasMaterials = Array.isArray(payload?.jobData?.materials);
 
+      // Boolean fields where the store's value should be preserved if incoming is false
+      // but existing is true. This handles the race condition where a subscription fires
+      // with stale/null data (normalized to false) right after a mutation sets it to true.
+      const ACTIVITY_BOOL_FIELDS = ["include_in_quote", "include_in_quote_subtotal", "invoice_to_client"];
+
+      function mergeActivityCollection(incoming, existing) {
+        if (!isNormalizedCollection(existing) || existing.ids.length === 0) return incoming;
+        const mergedById = {};
+        for (const id of incoming.ids) {
+          const incomingRecord = incoming.byId[id];
+          const existingRecord = existing.byId[id];
+          if (!existingRecord) {
+            mergedById[id] = incomingRecord;
+          } else {
+            const merged = { ...incomingRecord };
+            for (const field of ACTIVITY_BOOL_FIELDS) {
+              // Preserve existing true when incoming is false — subscription may be stale
+              if (merged[field] === false && existingRecord[field] === true) {
+                merged[field] = true;
+              }
+            }
+            mergedById[id] = merged;
+          }
+        }
+        return { ids: incoming.ids, byId: mergedById };
+      }
+
+      const incomingActivities = hasActivities
+        ? createNormalizedCollection(payload?.jobData?.activities, { idField: "id" })
+        : null;
+      const nextActivities = incomingActivities
+        ? mergeActivityCollection(incomingActivities, state.entities.activities)
+        : state.entities.activities;
+
       return {
         ...state,
         jobUid: payload.jobUid || state.jobUid,
@@ -137,9 +171,7 @@ export function jobDirectReducer(state, action) {
           companies: normalizedLookupData.companies,
           properties: normalizedLookupData.properties,
           serviceProviders: normalizedLookupData.serviceProviders,
-          activities: hasActivities
-            ? createNormalizedCollection(payload?.jobData?.activities, { idField: "id" })
-            : state.entities.activities,
+          activities: nextActivities,
           materials: hasMaterials
             ? createNormalizedCollection(payload?.jobData?.materials, { idField: "id" })
             : state.entities.materials,

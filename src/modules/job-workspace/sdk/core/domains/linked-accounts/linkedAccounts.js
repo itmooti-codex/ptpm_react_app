@@ -37,7 +37,7 @@ async function fetchDealsByAccountId({ plugin, accountType, accountId } = {}) {
       .deSelectAll()
       .select(["id"])
       .include("Deals", (dealQuery) =>
-        dealQuery.deSelectAll().select(["id", "unique_id", "deal_name"])
+        dealQuery.deSelectAll().select(["id", "unique_id", "deal_name", "inquiry_status"])
       );
 
     query.getOrInitQueryCalc?.();
@@ -104,9 +104,11 @@ async function fetchJobsByAccountId({ plugin, accountType, accountId } = {}) {
         (jobQuery) =>
           jobQuery
             .deSelectAll()
-            .select(["id", "unique_id"])
+            .select(["id", "unique_id", "job_status", "quote_status"])
             .include("Property", (propertyQuery) =>
-              propertyQuery.deSelectAll().select(["property_name"])
+              propertyQuery
+                .deSelectAll()
+                .select(["property_name", "unique_id", "address_1", "suburb_town", "state"])
             )
       );
 

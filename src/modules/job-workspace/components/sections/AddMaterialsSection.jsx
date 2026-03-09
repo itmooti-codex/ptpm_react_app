@@ -363,12 +363,27 @@ function ServiceProviderSearch({
   );
 }
 
-export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
+export function AddMaterialsSection({
+  plugin,
+  jobData,
+  preloadedLookupData,
+  layoutMode = "split",
+  mode = "create",
+  editingMaterialId = "",
+  onRequestCreate = null,
+  onRequestEdit = null,
+  onSubmitSuccess = null,
+}) {
   const jobId = toText(jobData?.id || jobData?.ID);
   const inquiryId = toText(jobData?.inquiry_record_id || jobData?.Inquiry_Record_ID);
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
   const materials = useJobDirectSelector(selectMaterials);
+  const resolvedLayoutMode = String(layoutMode || "split").trim().toLowerCase();
+  const isTableOnlyLayout = resolvedLayoutMode === "table";
+  const isFormOnlyLayout = resolvedLayoutMode === "form";
+  const showFormPanel = !isTableOnlyLayout;
+  const showTablePanel = !isFormOnlyLayout;
   const { serviceProviders, addServiceProvider } = useServiceProviderLookupData(plugin, {
     initialProviders: preloadedLookupData?.serviceProviders || [],
     skipInitialFetch: true,
@@ -466,6 +481,21 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
     [addServiceProvider, providerById]
   );
 
+  useEffect(() => {
+    if (!isFormOnlyLayout) return;
+    const normalizedEditingId = toText(editingMaterialId);
+    if (String(mode || "").trim().toLowerCase() === "update" && normalizedEditingId) {
+      const matched = (materials || []).find(
+        (material) => toText(material?.id || material?.ID) === normalizedEditingId
+      );
+      if (matched) {
+        handleEdit(matched);
+      }
+      return;
+    }
+    resetForm();
+  }, [editingMaterialId, handleEdit, isFormOnlyLayout, materials, mode, resetForm]);
+
   const handleSubmit = useCallback(
     async (event) => {
       event.preventDefault();
@@ -557,6 +587,7 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
         }
 
         setSubmitStage("saving");
+        let savedMaterial = null;
 
         if (isEditing) {
           const updatedMaterial = await updateMaterialRecord({
@@ -564,12 +595,14 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
             id: toId(form.id),
             payload,
           });
+          savedMaterial = updatedMaterial;
           if (updatedMaterial) {
             storeActions.upsertEntityRecord("materials", updatedMaterial, { idField: "id" });
           }
           success("Material updated", "Material changes have been saved.");
         } else {
           const createdMaterial = await createMaterialRecord({ plugin, payload });
+          savedMaterial = createdMaterial;
           if (createdMaterial) {
             storeActions.upsertEntityRecord("materials", createdMaterial, { idField: "id" });
             const materialId = toText(createdMaterial?.id || createdMaterial?.ID);
@@ -586,6 +619,9 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
             });
           }
           success("Material added", "New material created successfully.");
+        }
+        if (typeof onSubmitSuccess === "function") {
+          onSubmitSuccess(savedMaterial || null);
         }
         resetForm();
       } catch (submitError) {
@@ -611,6 +647,7 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
       isEditing,
       resetForm,
       storeActions,
+      onSubmitSuccess,
       success,
       error,
     ]
@@ -652,7 +689,8 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
 
   return (
     <>
-      <JobDirectSplitSection dataSection="add-materials">
+      <JobDirectSplitSection dataSection="add-materials" className={(isTableOnlyLayout || isFormOnlyLayout) ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 xl:grid-cols-[440px_1fr]"}>
+        {showFormPanel ? (
         <JobDirectCardFormPanel title={isEditing ? "Edit Material" : "Add Material"}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <InputField
@@ -808,8 +846,24 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
             </JobDirectFormActionsRow>
           </form>
         </JobDirectCardFormPanel>
+        ) : null}
 
-        <JobDirectCardTablePanel title="Materials">
+        {showTablePanel ? (
+        <JobDirectCardTablePanel className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="type-subheadline text-slate-800">Materials</div>
+            {isTableOnlyLayout && typeof onRequestCreate === "function" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="h-8 whitespace-nowrap px-3 text-xs"
+                onClick={() => onRequestCreate()}
+              >
+                Add Material
+              </Button>
+            ) : null}
+          </div>
           <JobDirectTable className="table-fixed" minWidthClass="min-w-[920px]">
               <thead className="border-b border-slate-200 text-slate-500">
                 <tr>
@@ -868,7 +922,13 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
                               <EyeActionIcon />
                             </JobDirectIconActionButton>
                             <JobDirectIconActionButton
-                              onClick={() => handleEdit(material)}
+                              onClick={() => {
+                                if (isTableOnlyLayout && typeof onRequestEdit === "function") {
+                                  onRequestEdit(material);
+                                  return;
+                                }
+                                handleEdit(material);
+                              }}
                               disabled={isSubmitting || isBusy}
                               title="Edit Material"
                             >
@@ -907,6 +967,7 @@ export function AddMaterialsSection({ plugin, jobData, preloadedLookupData }) {
             </div>
           ) : null}
         </JobDirectCardTablePanel>
+        ) : null}
       </JobDirectSplitSection>
 
       <Modal

@@ -1,6 +1,4 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
-@import "./features/job-direct/styles/jobDirectOverrides.css";
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -166,7 +164,8 @@
   }
 
   .service-provider-allocation-root input[data-field="service_provider_allocation"],
-  .service-provider-allocation-root input[data-field="inquiry_taken_by_allocation"] {
+  .service-provider-allocation-root input[data-field="inquiry_taken_by_allocation"],
+  .service-provider-allocation-root input[data-field="job_taken_by_allocation"] {
     height: 32px;
     padding-top: 0;
     padding-bottom: 0;
@@ -219,6 +218,55 @@
   }
 
   [data-page="inquiry-details"] .service-provider-allocation-legend {
+    font-size: calc(10px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(14px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] {
+    --inquiry-details-font-scale-factor: var(--inquiry-details-font-scale, 1);
+  }
+
+  [data-page="job-details"] .text-\[9px\] {
+    font-size: calc(9px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] .text-\[10px\] {
+    font-size: calc(10px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] .text-\[11px\] {
+    font-size: calc(11px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] .text-\[12px\] {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] .text-\[13px\] {
+    font-size: calc(13px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] .text-base {
+    font-size: calc(13px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(16px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] .text-sm {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(15px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] .text-xs {
+    font-size: calc(11px * var(--inquiry-details-font-scale-factor));
+    line-height: calc(14px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] .uid-text,
+  [data-page="job-details"] .uid-link {
+    font-size: calc(12px * var(--inquiry-details-font-scale-factor));
+  }
+
+  [data-page="job-details"] .service-provider-allocation-legend {
     font-size: calc(10px * var(--inquiry-details-font-scale-factor));
     line-height: calc(14px * var(--inquiry-details-font-scale-factor));
   }

@@ -511,7 +511,7 @@ export function DashboardPage() {
         });
         return;
       }
-      navigate(`/details/${encodeURIComponent(uid)}`, {
+      navigate(`/job-details/${encodeURIComponent(uid)}`, {
         state: {
           sourceTab: activeTab,
           sourceId: row?.id ?? "",

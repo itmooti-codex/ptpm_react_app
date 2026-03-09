@@ -32,3 +32,9 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+
+# Other files
+AI_AGENT_HANDOFF.md
+CLAUDE.md
+vitalStatsSdkGuide.md

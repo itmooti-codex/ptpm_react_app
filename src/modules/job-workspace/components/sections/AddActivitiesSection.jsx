@@ -248,16 +248,18 @@ function createFormFromActivity(activity = {}, serviceMap = new Map()) {
     note: toText(activity?.note || activity?.Note),
     invoice_to_client:
       activity?.invoice_to_client === true ||
-      toText(activity?.invoice_to_client || activity?.Invoice_to_Client).toLowerCase() ===
-        "true",
+      activity?.Invoice_to_Client === true ||
+      toText(activity?.invoice_to_client ?? activity?.Invoice_to_Client).toLowerCase() === "true",
     include_in_quote_subtotal:
       activity?.include_in_quote_subtotal === true ||
-      toText(
-        activity?.include_in_quote_subtotal || activity?.Include_In_Quote_Subtotal
-      ).toLowerCase() === "true",
+      activity?.Include_in_Quote_Subtotal === true ||
+      activity?.Include_In_Quote_Subtotal === true ||
+      toText(activity?.include_in_quote_subtotal ?? activity?.Include_in_Quote_Subtotal ?? activity?.Include_In_Quote_Subtotal).toLowerCase() === "true",
     include_in_quote:
       activity?.include_in_quote === true ||
-      toText(activity?.include_in_quote || activity?.Include_In_Quote).toLowerCase() === "true",
+      activity?.Include_in_Quote === true ||
+      activity?.Include_In_Quote === true ||
+      toText(activity?.include_in_quote ?? activity?.Include_in_Quote ?? activity?.Include_In_Quote).toLowerCase() === "true",
   };
 }
 
@@ -284,7 +286,18 @@ function CheckIndicator({ active }) {
   );
 }
 
-export function AddActivitiesSection({ plugin, jobData, highlightActivityId = "" }) {
+export function AddActivitiesSection({
+  plugin,
+  jobData,
+  highlightActivityId = "",
+  layoutMode = "split",
+  mode = "create",
+  editingActivityId = "",
+  onRequestCreate = null,
+  onRequestEdit = null,
+  onSubmitSuccess = null,
+  onActivitySaved = null,
+}) {
   const jobId = toText(jobData?.id || jobData?.ID);
   const inquiryId = toText(jobData?.inquiry_record_id || jobData?.Inquiry_Record_ID);
   const { success, error } = useToast();
@@ -300,6 +313,11 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
     () => normalizeActivityId(highlightActivityId),
     [highlightActivityId]
   );
+  const resolvedLayoutMode = String(layoutMode || "split").trim().toLowerCase();
+  const isTableOnlyLayout = resolvedLayoutMode === "table";
+  const isFormOnlyLayout = resolvedLayoutMode === "form";
+  const showFormPanel = !isTableOnlyLayout;
+  const showTablePanel = !isFormOnlyLayout;
   const {
     hasMore: hasMoreActivities,
     remainingCount: remainingActivitiesCount,
@@ -653,6 +671,21 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
     [serviceById]
   );
 
+  useEffect(() => {
+    if (!isFormOnlyLayout) return;
+    const normalizedEditingId = normalizeActivityId(editingActivityId);
+    if (String(mode || "").trim().toLowerCase() === "update" && normalizedEditingId) {
+      const matched = (activities || []).find(
+        (activity) => normalizeActivityId(activity?.id || activity?.ID) === normalizedEditingId
+      );
+      if (matched) {
+        setForm(createFormFromActivity(matched, serviceById));
+      }
+      return;
+    }
+    resetForm();
+  }, [activities, editingActivityId, isFormOnlyLayout, mode, resetForm, serviceById]);
+
   const handleSubmit = useCallback(
     async (event) => {
       event.preventDefault();
@@ -742,7 +775,13 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
             });
           }
         }
+        if (savedActivity && typeof onActivitySaved === "function") {
+          onActivitySaved(savedActivity);
+        }
         resetForm();
+        if (typeof onSubmitSuccess === "function") {
+          onSubmitSuccess(savedActivity || null);
+        }
       } catch (submitError) {
         console.error("[JobDirect] Activity save failed", submitError);
         showMutationErrorToast(error, {
@@ -763,6 +802,7 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
       storeActions,
       success,
       error,
+      onSubmitSuccess,
       resetForm,
       existingCombinationSet,
       nextValidCombinationSet,
@@ -798,7 +838,8 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
 
   return (
     <>
-      <JobDirectSplitSection dataSection="add-activities">
+      <JobDirectSplitSection dataSection="add-activities" className={(isTableOnlyLayout || isFormOnlyLayout) ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 xl:grid-cols-[440px_1fr]"}>
+        {showFormPanel ? (
         <JobDirectCardFormPanel title={isEditing ? "Edit Activity" : "Add New Activity"}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -942,8 +983,24 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
             </JobDirectFormActionsRow>
           </form>
         </JobDirectCardFormPanel>
+        ) : null}
 
-        <JobDirectCardTablePanel title="Activities">
+        {showTablePanel ? (
+        <JobDirectCardTablePanel className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="type-subheadline text-slate-800">Activities</div>
+            {isTableOnlyLayout && typeof onRequestCreate === "function" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="h-8 whitespace-nowrap px-3 text-xs"
+                onClick={() => onRequestCreate()}
+              >
+                Add Activity
+              </Button>
+            ) : null}
+          </div>
           <JobDirectTable className="table-fixed" minWidthClass="min-w-[920px]">
               <thead className="border-b border-slate-200 text-slate-500">
                 <tr>
@@ -1013,7 +1070,13 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
                               <EyeActionIcon />
                             </JobDirectIconActionButton>
                             <JobDirectIconActionButton
-                              onClick={() => handleEdit(activity)}
+                              onClick={() => {
+                                if (isTableOnlyLayout && typeof onRequestEdit === "function") {
+                                  onRequestEdit(activity);
+                                  return;
+                                }
+                                handleEdit(activity);
+                              }}
                               disabled={isSubmitting || isBusy}
                               title="Edit Activity"
                             >
@@ -1052,6 +1115,7 @@ export function AddActivitiesSection({ plugin, jobData, highlightActivityId = ""
             </div>
           ) : null}
         </JobDirectCardTablePanel>
+        ) : null}
       </JobDirectSplitSection>
 
       <Modal
