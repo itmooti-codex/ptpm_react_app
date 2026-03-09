@@ -22,9 +22,9 @@ const NotificationsPage = lazy(() =>
     default: module.NotificationsPage,
   }))
 );
-const JobDetailsBlankPage = lazy(() =>
-  import("../features/job-details/pages/JobDetailsBlankPage.jsx").then((module) => ({
-    default: module.JobDetailsBlankPage,
+const JobDetailsPage = lazy(() =>
+  import("../features/job-details/pages/JobDetailsPage.jsx").then((module) => ({
+    default: module.JobDetailsPage,
   }))
 );
 const InquiryDetailsPage = lazy(() =>
@@ -86,8 +86,8 @@ export default function App() {
           <Route path="/inquiry-direct/:inquiryuid" element={<LegacyInquiryDirectRedirect />} />
           <Route path="/inquiry-details/new" element={<InquiryDetailsPage />} />
           <Route path="/inquiry-details/:uid" element={<InquiryDetailsPage />} />
-          <Route path="/job-details/new" element={<JobDetailsBlankPage />} />
-          <Route path="/job-details/:uid" element={<JobDetailsBlankPage />} />
+          <Route path="/job-details/new" element={<JobDetailsPage />} />
+          <Route path="/job-details/:uid" element={<JobDetailsPage />} />
           <Route path="/details/:uid" element={<LegacyJobDetailsRedirect />} />
           <Route path="/job-direct" element={<Navigate to="/" replace />} />
           <Route path="/job-direct/:jobuid" element={<LegacyJobDirectRedirect />} />

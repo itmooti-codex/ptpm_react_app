@@ -8,6 +8,10 @@ import { useGoogleAddressLookup } from "../../../shared/hooks/useGoogleAddressLo
 import { TasksModal } from "../../../modules/job-workspace/components/modals/TasksModal.jsx";
 import { ContactDetailsModal } from "../../../modules/job-workspace/components/modals/ContactDetailsModal.jsx";
 import { JobDirectStoreProvider } from "../../../modules/job-workspace/hooks/useJobDirectStore.jsx";
+import {
+  useServiceProviderLookup,
+  useAdminProviderLookup,
+} from "@modules/job-workspace/public/hooks.js";
 import { useToast } from "../../../shared/providers/ToastProvider.jsx";
 import { APP_USER } from "../../../config/userConfig.js";
 import {
@@ -41,7 +45,6 @@ import {
   fetchPropertiesForSearch,
   fetchLinkedPropertiesByAccount,
   fetchServicesForActivities,
-  fetchServiceProvidersForSearch,
   searchContactsForLookup,
   searchCompaniesForLookup,
   searchPropertiesForLookup,
@@ -50,13 +53,14 @@ import {
   updatePropertyRecord,
 } from "../../../modules/job-workspace/sdk/core/runtime.js";
 import {
+  AccountDetailsSection,
   AddPropertyModal,
   AppointmentTabSection,
   ColorMappedSelectInput,
-  EditActionIcon as EditIcon,
   TrashActionIcon as TrashIcon,
   normalizePropertyId,
   PropertyTabSection,
+  RelatedRecordsSection,
   SearchDropdownInput,
   SelectInput,
   TitleBackIcon,
@@ -67,23 +71,53 @@ import {
   extractStatusFailure,
   isPersistedId,
   normalizeObjectList,
+  fetchCompanyAccountRecordById,
+  fetchContactAccountRecordById,
+  normalizePropertyLookupRecord,
+  getPropertyLookupKey,
+  dedupePropertyLookupRecords,
+  mergePropertyLookupRecords,
+  getPropertyRecordSignature,
+  arePropertyRecordCollectionsEqual,
+  mergePropertyCollectionsIfChanged,
+  resolvePropertyLookupLabel,
+  buildComparablePropertyAddress,
+  normalizeAddressText,
 } from "@modules/job-workspace/public/sdk.js";
 import {
+  toText,
+  fullName,
+  toTelHref,
   formatDate,
   formatFileSize,
   formatRelativeTime,
-  fullName,
   getAuthorName,
   getMemoFileMeta,
+  mergeMemosPreservingComments,
+  formatServiceProviderAllocationLabel,
+  formatServiceProviderInputLabel,
+  formatContactLookupLabel,
+  joinAddress,
+  compactStringFields,
+  toMailHref,
+  toGoogleMapsHref,
+} from "@shared/utils/formatters.js";
+import {
   isBodyCorpCompanyAccountType,
   isCompanyAccountType,
   isContactAccountType,
   isLikelyEmailValue,
   isLikelyPhoneValue,
-  mergeMemosPreservingComments,
-  toTelHref,
-  toText,
-} from "../../job-details/pages/jobDetailsPageHelpers.js";
+} from "@shared/utils/accountTypeUtils.js";
+import {
+  ChevronDownIcon,
+  CopyIcon,
+} from "@shared/components/icons/index.jsx";
+import { DetailsCard } from "@shared/components/ui/DetailsCard.jsx";
+import { CardField } from "@shared/components/ui/CardField.jsx";
+import { CardNote } from "@shared/components/ui/CardNote.jsx";
+import { CardTagList } from "@shared/components/ui/CardTagList.jsx";
+import { SectionLoadingState } from "@shared/components/ui/SectionLoadingState.jsx";
 import {
   parseListSelectionValue,
   serializeListSelectionValue,
@@ -103,54 +137,6 @@ import {
   PEST_ACTIVE_TIME_OPTIONS,
   PEST_LOCATION_OPTIONS,
 } from "../../inquiry/shared/inquiryInformationConstants.js";
-
-function ChevronDownIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden="true"
-      className="shrink-0"
-    >
-      <path
-        d="M6 9l6 6 6-6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.7" />
-      <path
-        d="M5 15V6C5 4.89543 5.89543 4 7 4H16"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function SmallCloseIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M6 6l12 12M18 6L6 18"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
 
 function normalizeServiceInquiryId(value) {
   const text = toText(value);
@@ -198,24 +184,6 @@ async function resolveAddressFromGoogleLookup(addressText) {
   }
 }
 
-function joinAddress(parts = []) {
-  const cleaned = (Array.isArray(parts) ? parts : [])
-    .map((value) => toText(value))
-    .filter(Boolean);
-  return cleaned.length ? cleaned.join(", ") : "";
-}
-
-function toMailHref(value) {
-  const text = toText(value);
-  return text ? `mailto:${text}` : "";
-}
-
-function toGoogleMapsHref(value) {
-  const text = toText(value);
-  if (!text || text === "—") return "";
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(text)}`;
-}
-
 function toDateInput(value) {
   if (value === null || value === undefined || value === "") return "";
   const text = String(value).trim();
@@ -257,222 +225,6 @@ function toNullableText(value) {
   return text || null;
 }
 
-function formatServiceProviderAllocationLabel(provider = {}) {
-  const id = toText(provider?.id || provider?.ID);
-  const name = fullName(provider?.first_name, provider?.last_name);
-  const email = toText(provider?.work_email || provider?.Work_Email || provider?.email);
-  const phone = toText(provider?.mobile_number || provider?.Mobile_Number || provider?.sms_number);
-  const resolvedName = name || email || (id ? `Provider #${id}` : "Provider");
-  return `${resolvedName} [${email || "-"}] | [${phone || "-"}]`;
-}
-
-function formatServiceProviderInputLabel(provider = {}) {
-  const id = toText(provider?.id || provider?.ID);
-  const name = fullName(provider?.first_name, provider?.last_name);
-  const email = toText(provider?.work_email || provider?.Work_Email || provider?.email);
-  const phone = toText(provider?.mobile_number || provider?.Mobile_Number || provider?.sms_number);
-  const resolvedName = name || email || (id ? `Provider #${id}` : "Provider");
-  return `${resolvedName} [${email || "-"}] | [${phone || "-"}]`;
-}
-
-function formatContactLookupLabel(contact = {}) {
-  const id = toText(contact?.id || contact?.ID);
-  const name = fullName(contact?.first_name, contact?.last_name);
-  const email = toText(contact?.email || contact?.Email);
-  const phone = toText(contact?.sms_number || contact?.SMS_Number);
-  const resolvedName = name || email || (id ? `Contact #${id}` : "Contact");
-  return `${resolvedName} [${email || "-"}] | [${phone || "-"}]`;
-}
-
-function compactStringFields(source = {}) {
-  const output = {};
-  Object.entries(source || {}).forEach(([key, value]) => {
-    const trimmed = toText(value);
-    if (trimmed) output[key] = trimmed;
-  });
-  return output;
-}
-
-function normalizePropertyLookupRecord(record = {}) {
-  const id = normalizePropertyId(record?.id || record?.ID || record?.Property_ID);
-  const uniqueId = toText(record?.unique_id || record?.Unique_ID || record?.Property_Unique_ID);
-  const propertyName = toText(
-    record?.property_name || record?.Property_Name || record?.Property_Property_Name
-  );
-  const address1 = toText(record?.address_1 || record?.Address_1 || record?.address || record?.Address);
-  const address2 = toText(record?.address_2 || record?.Address_2);
-  const suburbTown = toText(
-    record?.suburb_town || record?.Suburb_Town || record?.city || record?.City
-  );
-  const state = toText(record?.state || record?.State);
-  const postalCode = toText(
-    record?.postal_code || record?.Postal_Code || record?.zip_code || record?.Zip_Code
-  );
-  const country = toText(record?.country || record?.Country);
-  const propertyType = toText(record?.property_type || record?.Property_Type);
-  const buildingType = toText(record?.building_type || record?.Building_Type);
-  const buildingTypeOther = toText(record?.building_type_other || record?.Building_Type_Other);
-  const foundationType = toText(record?.foundation_type || record?.Foundation_Type);
-  const bedrooms = toText(record?.bedrooms || record?.Bedrooms);
-  const stories = toText(record?.stories || record?.Stories);
-  const buildingAge = toText(record?.building_age || record?.Building_Age);
-  const buildingFeaturesValue =
-    record?.building_features ||
-    record?.Building_Features ||
-    record?.building_features_options_as_text ||
-    record?.Building_Features_Options_As_Text ||
-    "";
-  const manholeValue = record?.manhole ?? record?.Manhole;
-  const manhole =
-    manholeValue === true || String(manholeValue || "").trim().toLowerCase() === "true";
-
-  return {
-    ...record,
-    id,
-    unique_id: uniqueId,
-    property_name: propertyName || address1 || uniqueId,
-    lot_number: toText(record?.lot_number || record?.Lot_Number),
-    unit_number: toText(record?.unit_number || record?.Unit_Number),
-    address_1: address1,
-    address_2: address2,
-    address: address1 || address2,
-    suburb_town: suburbTown,
-    city: suburbTown,
-    state,
-    postal_code: postalCode,
-    country,
-    property_type: propertyType,
-    building_type: buildingType,
-    building_type_other: buildingTypeOther,
-    foundation_type: foundationType,
-    bedrooms,
-    manhole,
-    stories,
-    building_age: buildingAge,
-    building_features: buildingFeaturesValue,
-  };
-}
-
-function getPropertyLookupKey(record = {}) {
-  const id = normalizePropertyId(record?.id || record?.ID || record?.Property_ID);
-  if (id) return `property-id:${id}`;
-  return [
-    "property",
-    toText(record?.unique_id || record?.Unique_ID),
-    toText(record?.property_name || record?.Property_Name),
-    toText(record?.address_1 || record?.Address_1 || record?.address || record?.Address),
-    toText(record?.suburb_town || record?.Suburb_Town || record?.city || record?.City),
-  ].join("|");
-}
-
-function dedupePropertyLookupRecords(records = []) {
-  const hasMeaningfulValue = (value) => {
-    if (value === null || value === undefined) return false;
-    if (typeof value === "string") return value.trim() !== "";
-    if (Array.isArray(value)) return value.length > 0;
-    return true;
-  };
-  const mergePreferMeaningfulValues = (base = {}, incoming = {}) => {
-    const merged = { ...base };
-    Object.entries(incoming || {}).forEach(([key, value]) => {
-      if (!(key in merged) || hasMeaningfulValue(value)) {
-        merged[key] = value;
-      }
-    });
-    return merged;
-  };
-  const map = new Map();
-  (Array.isArray(records) ? records : []).forEach((record) => {
-    const normalized = normalizePropertyLookupRecord(record);
-    const key = getPropertyLookupKey(normalized);
-    if (!key) return;
-    if (!map.has(key)) {
-      map.set(key, normalized);
-      return;
-    }
-    map.set(key, mergePreferMeaningfulValues(map.get(key), normalized));
-  });
-  return Array.from(map.values());
-}
-
-function mergePropertyLookupRecords(...collections) {
-  return dedupePropertyLookupRecords(collections.flatMap((collection) => collection || []));
-}
-
-function getPropertyRecordSignature(record = {}) {
-  return [
-    normalizePropertyId(record?.id || record?.ID || record?.Property_ID),
-    toText(record?.unique_id || record?.Unique_ID),
-    toText(record?.property_name || record?.Property_Name),
-    toText(record?.address_1 || record?.Address_1 || record?.address || record?.Address),
-    toText(record?.suburb_town || record?.Suburb_Town || record?.city || record?.City),
-    toText(record?.state || record?.State),
-    toText(record?.postal_code || record?.Postal_Code || record?.zip_code || record?.Zip_Code),
-    toText(record?.country || record?.Country),
-    toText(record?.property_type || record?.Property_Type),
-    toText(record?.building_type || record?.Building_Type),
-    toText(record?.building_type_other || record?.Building_Type_Other),
-    toText(record?.foundation_type || record?.Foundation_Type),
-    toText(record?.bedrooms || record?.Bedrooms),
-    toText(record?.stories || record?.Stories),
-    toText(record?.building_age || record?.Building_Age),
-    toText(record?.building_features_options_as_text || record?.building_features),
-    String(Boolean(record?.manhole ?? record?.Manhole)),
-  ].join("::");
-}
-
-function arePropertyRecordCollectionsEqual(left = [], right = []) {
-  const leftList = dedupePropertyLookupRecords(left || []);
-  const rightList = dedupePropertyLookupRecords(right || []);
-  if (leftList.length !== rightList.length) return false;
-
-  const rightMap = new Map(
-    rightList.map((record) => [getPropertyLookupKey(record), getPropertyRecordSignature(record)])
-  );
-  for (const record of leftList) {
-    const key = getPropertyLookupKey(record);
-    const signature = getPropertyRecordSignature(record);
-    if (!rightMap.has(key)) return false;
-    if (rightMap.get(key) !== signature) return false;
-  }
-  return true;
-}
-
-function mergePropertyCollectionsIfChanged(previous = [], ...collections) {
-  const merged = mergePropertyLookupRecords(previous, ...collections);
-  if (arePropertyRecordCollectionsEqual(previous, merged)) {
-    return previous;
-  }
-  return merged;
-}
-
-function resolvePropertyLookupLabel(record = {}) {
-  return toText(
-    record?.property_name ||
-      record?.Property_Name ||
-      record?.address_1 ||
-      record?.Address_1 ||
-      record?.address ||
-      record?.Address ||
-      record?.unique_id ||
-      record?.Unique_ID
-  );
-}
-
-function normalizeAddressText(value) {
-  return toText(value)
-    .toLowerCase()
-    .replace(/[\s,]+/g, " ")
-    .trim();
-}
-
-function buildComparablePropertyAddress(record = {}) {
-  const street = toText(record?.address_1 || record?.Address_1 || record?.address || record?.Address);
-  const suburb = toText(record?.suburb_town || record?.Suburb_Town || record?.city || record?.City);
-  const state = toText(record?.state || record?.State);
-  const postal = toText(record?.postal_code || record?.Postal_Code || record?.zip_code || record?.Zip_Code);
-  return normalizeAddressText([street, suburb, state, postal].filter(Boolean).join(" "));
-}
 
 function buildListSelectionTagItems(value, options = []) {
   const raw = toText(value);
@@ -656,227 +408,6 @@ function getInquiryCompany(inquiry = {}) {
       number_of_employees: toText(inquiry?.Company_Number_Of_Employees1),
     },
   };
-}
-
-function DetailsCard({ title, onEdit, editDisabled = false, className = "", children }) {
-  const showEditAction = typeof onEdit === "function";
-  return (
-    <article className={`rounded border border-slate-200 bg-white ${className}`}>
-      <header className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-2.5 py-1.5">
-        <div className="text-[13px] font-semibold text-slate-900">{title}</div>
-        {showEditAction ? (
-          <button
-            type="button"
-            className="inline-flex items-center justify-center p-0 text-slate-500 transition hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300"
-            onClick={onEdit}
-            disabled={editDisabled}
-            aria-label={`Edit ${title}`}
-            title={`Edit ${title}`}
-          >
-            <EditIcon />
-          </button>
-        ) : null}
-      </header>
-      <div className="p-2.5">{children}</div>
-    </article>
-  );
-}
-
-function isMissingFieldValue(value) {
-  const text = toText(value);
-  return !text || text === "—" || text === "-";
-}
-
-function CardField({
-  label,
-  value,
-  mono = false,
-  className = "",
-  href = "",
-  openInNewTab = false,
-  copyable = false,
-  copyValue = "",
-  onCopy = null,
-}) {
-  const displayValue = toText(value);
-  if (isMissingFieldValue(displayValue)) return null;
-  const canLink = Boolean(toText(href));
-  const copyText = toText(copyValue || value);
-  const canCopy = Boolean(copyable && copyText);
-  const valueMaxWidthClass = canCopy ? "max-w-[calc(100%-1.5rem)]" : "max-w-full";
-  const handleCopyClick = async () => {
-    if (!canCopy) return;
-    if (typeof onCopy === "function") {
-      await onCopy({ label, value: copyText });
-      return;
-    }
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(copyText);
-    }
-  };
-  return (
-    <div className={`group min-w-0 ${className}`}>
-      <div className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="mt-0.5 flex w-full min-w-0 items-start gap-2">
-        {canLink ? (
-          <a
-            href={href}
-            target={openInNewTab ? "_blank" : undefined}
-            rel={openInNewTab ? "noreferrer" : undefined}
-            className={`inline-block min-w-0 ${valueMaxWidthClass} truncate text-[12px] font-medium text-blue-700 underline underline-offset-2 hover:text-blue-800 ${
-              mono ? "font-mono" : ""
-            }`}
-            title={displayValue}
-          >
-            {displayValue}
-          </a>
-        ) : (
-          <div
-            className={`inline-block min-w-0 ${valueMaxWidthClass} truncate text-[12px] font-medium text-slate-800 ${
-              mono ? "font-mono" : ""
-            }`}
-            title={displayValue}
-          >
-            {displayValue}
-          </div>
-        )}
-        {canCopy ? (
-          <button
-            type="button"
-            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-slate-200 text-slate-400 transition hover:border-slate-300 hover:text-slate-700"
-            onClick={handleCopyClick}
-            aria-label={`Copy ${label}`}
-            title={`Copy ${label}`}
-          >
-            <CopyIcon />
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function CardNote({ label, value, className = "" }) {
-  const displayValue = toText(value);
-  if (isMissingFieldValue(displayValue)) return null;
-  return (
-    <div className={`rounded border border-slate-200 bg-slate-50 p-1.5 ${className}`}>
-      <div className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="max-h-[72px] overflow-auto whitespace-pre-wrap text-[12px] leading-4 text-slate-700">
-        {displayValue}
-      </div>
-    </div>
-  );
-}
-
-function CardTagList({
-  label,
-  tags = [],
-  className = "",
-  compact = false,
-  onRemoveTag = null,
-  isTagRemoving = null,
-  isRemovalDisabled = false,
-}) {
-  const safeTags = (Array.isArray(tags) ? tags : [])
-    .map((item) => {
-      if (!item) return null;
-      if (typeof item === "string") {
-        const text = toText(item);
-        if (!text) return null;
-        return {
-          key: text,
-          code: "",
-          label: text,
-        };
-      }
-      const labelValue = toText(item?.label || item?.value || item?.code);
-      const keyValue = toText(item?.key || item?.code || labelValue);
-      if (!labelValue || !keyValue) return null;
-      return {
-        key: keyValue,
-        code: toText(item?.code),
-        label: labelValue,
-      };
-    })
-    .filter(Boolean);
-  if (!safeTags.length) return null;
-  return (
-    <div className={`min-w-0 ${className}`}>
-      <div className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div
-        className={`mt-1 min-h-0 ${
-          compact ? "max-h-7 overflow-x-auto overflow-y-hidden" : "max-h-[72px] overflow-auto"
-        }`}
-      >
-        <div className={`flex gap-1 ${compact ? "flex-nowrap whitespace-nowrap pr-1" : "flex-wrap"}`}>
-          {safeTags.map((tag) => {
-            const tagKey = toText(tag?.key);
-            const tagLabel = toText(tag?.label);
-            const canRemove = typeof onRemoveTag === "function";
-            const removing = typeof isTagRemoving === "function" ? Boolean(isTagRemoving(tag)) : false;
-            return (
-              <span
-                key={`${label}-${tagKey}`}
-                className="inline-flex items-center rounded border border-sky-200 px-2 py-0.5 text-[11px] text-sky-800"
-              >
-                <span>{tagLabel}</span>
-                {canRemove ? (
-                  <button
-                    type="button"
-                    className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => onRemoveTag(tag)}
-                    disabled={isRemovalDisabled || removing}
-                    aria-label={`Remove ${tagLabel}`}
-                    title={`Remove ${tagLabel}`}
-                  >
-                    <SmallCloseIcon />
-                  </button>
-                ) : null}
-              </span>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SectionLoadingState({
-  label = "Loading",
-  blocks = 4,
-  columnsClass = "sm:grid-cols-2",
-  className = "",
-}) {
-  const placeholderItems = Array.from(
-    { length: Math.max(1, Number.parseInt(blocks, 10) || 1) },
-    (_, index) => index
-  );
-  return (
-    <div className={`space-y-2 ${className}`}>
-      <div className="inline-flex items-center gap-2 text-[11px] font-medium text-slate-500">
-        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
-        <span>{label}</span>
-      </div>
-      <div className={`grid grid-cols-1 gap-2 ${columnsClass}`}>
-        {placeholderItems.map((item) => (
-          <div
-            key={`section-loader-${label}-${item}`}
-            className="rounded border border-slate-200 bg-slate-50 p-2"
-          >
-            <div className="h-2.5 w-20 animate-pulse rounded bg-slate-200" />
-            <div className="mt-2 h-3 w-full animate-pulse rounded bg-slate-200" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 const RECENT_ADMIN_ACTIVITY_STORAGE_KEY = "ptpm_admin_recent_activity_v1";
@@ -4384,7 +3915,6 @@ export function InquiryDetailsPage() {
   const { plugin, isReady: isSdkReady } = useVitalStatsPlugin();
   const { uid = "" } = useParams();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
-  const [isBodyCorpDetailsOpen, setIsBodyCorpDetailsOpen] = useState(false);
   const [isTasksModalOpen, setIsTasksModalOpen] = useState(false);
   const [contactModalState, setContactModalState] = useState({
     open: false,
@@ -4399,8 +3929,10 @@ export function InquiryDetailsPage() {
   const [isContextLoading, setIsContextLoading] = useState(false);
   const [serviceInquiryName, setServiceInquiryName] = useState("");
   const [serviceProviderFallback, setServiceProviderFallback] = useState(null);
-  const [serviceProviderLookup, setServiceProviderLookup] = useState([]);
-  const [isServiceProviderLookupLoading, setIsServiceProviderLookupLoading] = useState(false);
+  const { records: serviceProviderLookup, isLoading: isServiceProviderLookupLoading } =
+    useServiceProviderLookup({ plugin, isSdkReady });
+  const { records: inquiryTakenByLookup, isLoading: isInquiryTakenByLookupLoading } =
+    useAdminProviderLookup({ plugin, isSdkReady });
   const [serviceProviderSearch, setServiceProviderSearch] = useState("");
   const [selectedServiceProviderId, setSelectedServiceProviderId] = useState("");
   const [isAllocatingServiceProvider, setIsAllocatingServiceProvider] = useState(false);
@@ -4408,8 +3940,6 @@ export function InquiryDetailsPage() {
   const [linkedJobSelectionOverride, setLinkedJobSelectionOverride] = useState(undefined);
   const [relatedJobIdByUid, setRelatedJobIdByUid] = useState({});
   const [relatedRecordsRefreshKey, setRelatedRecordsRefreshKey] = useState(0);
-  const [inquiryTakenByLookup, setInquiryTakenByLookup] = useState([]);
-  const [isInquiryTakenByLookupLoading, setIsInquiryTakenByLookupLoading] = useState(false);
   const [inquiryTakenByFallback, setInquiryTakenByFallback] = useState(null);
   const [inquiryTakenBySearch, setInquiryTakenBySearch] = useState("");
   const [selectedInquiryTakenById, setSelectedInquiryTakenById] = useState("");
@@ -5670,7 +5200,7 @@ export function InquiryDetailsPage() {
       email: inquiryPrimaryContact?.email,
       sms_number: inquiryPrimaryContact?.sms_number,
     });
-    const serviceLabel = toText(statusServiceName);
+    const serviceLabel = toText(serviceInquiryName);
     const title = [safeUid, serviceLabel].filter(Boolean).join(" | ");
     const details = [
       serviceLabel ? `Service:\n${serviceLabel}` : "",
@@ -5694,9 +5224,9 @@ export function InquiryDetailsPage() {
     inquiryContactId,
     inquiryPrimaryContact,
     safeUid,
+    serviceInquiryName,
     serviceProviderIdResolved,
     serviceProviderPrefillLabel,
-    statusServiceName,
   ]);
 
   useEffect(() => {
@@ -5709,10 +5239,6 @@ export function InquiryDetailsPage() {
     document.addEventListener("mousedown", onDocumentClick);
     return () => document.removeEventListener("mousedown", onDocumentClick);
   }, [isMoreOpen]);
-
-  useEffect(() => {
-    setIsBodyCorpDetailsOpen(false);
-  }, [safeUid]);
 
   useEffect(() => {
     if (isQuickInquiryBookingMode) {
@@ -6179,64 +5705,6 @@ export function InquiryDetailsPage() {
       isActive = false;
     };
   }, [inquiryDetailsForm.service_inquiry_id, isInquiryDetailsModalOpen, plugin, serviceInquiryLabelById]);
-
-  useEffect(() => {
-    if (!isSdkReady || !plugin) {
-      setServiceProviderLookup([]);
-      setIsServiceProviderLookupLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsServiceProviderLookupLoading(true);
-    fetchServiceProvidersForSearch({ plugin })
-      .then((records) => {
-        if (cancelled) return;
-        setServiceProviderLookup(Array.isArray(records) ? records : []);
-      })
-      .catch((lookupError) => {
-        if (cancelled) return;
-        console.error("[InquiryDetails] Failed to fetch service provider lookup", lookupError);
-        setServiceProviderLookup([]);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsServiceProviderLookupLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isSdkReady, plugin]);
-
-  useEffect(() => {
-    if (!isSdkReady || !plugin) {
-      setInquiryTakenByLookup([]);
-      setIsInquiryTakenByLookupLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsInquiryTakenByLookupLoading(true);
-    fetchServiceProvidersForSearch({ plugin, providerType: "Admin", status: "" })
-      .then((records) => {
-        if (cancelled) return;
-        setInquiryTakenByLookup(Array.isArray(records) ? records : []);
-      })
-      .catch((lookupError) => {
-        if (cancelled) return;
-        console.error("[InquiryDetails] Failed to fetch inquiry taken by lookup", lookupError);
-        setInquiryTakenByLookup([]);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsInquiryTakenByLookupLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isSdkReady, plugin]);
 
   useEffect(() => {
     if (!isSdkReady || !plugin || !hasUid) {
@@ -7318,6 +6786,10 @@ export function InquiryDetailsPage() {
         inquiryTakenById: inquiryTakenById || null,
         quoteDate: quoteCreateDraft.quote_date,
       });
+      const createdJobId = toText(createdJob?.id || createdJob?.ID);
+      if (createdJobId) {
+        setLinkedJobSelectionOverride(createdJobId);
+      }
       await refreshResolvedInquiry();
       setRelatedRecordsRefreshKey((previous) => previous + 1);
       trackRecentActivity({
@@ -8298,6 +7770,7 @@ export function InquiryDetailsPage() {
                         isAllocatingServiceProvider ? "Allocating..." : "Confirm Allocation"
                       }
                       closeOnSelect={false}
+                      autoConfirmOnClose
                       emptyText={
                         isServiceProviderLookupLoading
                           ? "Loading service providers..."
@@ -8329,6 +7802,7 @@ export function InquiryDetailsPage() {
                       onAdd={handleConfirmInquiryTakenBy}
                       addButtonLabel={isSavingInquiryTakenBy ? "Saving..." : "Confirm Selection"}
                       closeOnSelect={false}
+                      autoConfirmOnClose
                       emptyText={
                         isInquiryTakenByLookupLoading
                           ? "Loading admins..."
@@ -8929,156 +8403,43 @@ export function InquiryDetailsPage() {
         ) : null}
 
         <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2 xl:grid-cols-3">
-          <DetailsCard
-            title="Account Details"
-            onEdit={handleOpenAccountEditor}
+          <AccountDetailsSection
+            isLoading={isInquiryInitialLoadInProgress}
             editDisabled={!inquiryNumericId}
-          >
-            {isInquiryInitialLoadInProgress ? (
-              <SectionLoadingState
-                label="Loading account details"
-                blocks={6}
-                columnsClass="sm:grid-cols-2"
-              />
-            ) : (
-              <div className="space-y-2">
-                <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                  <CardField
-                    label="UID"
-                    value={safeUid}
-                    mono
-                    copyable
-                    copyValue={safeUid}
-                    onCopy={handleCopyFieldValue}
-                  />
-                  <CardField label="Account Type" value={accountType} />
-                </div>
-
-                {showContactDetails && hasAccountContactFields ? (
-                  <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                    <CardField label="Contact Name" value={accountContactName} />
-                    <CardField
-                      label="Contact Email"
-                      value={accountContactEmail}
-                      href={accountContactEmailHref}
-                      copyable
-                      copyValue={accountContactEmail}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField
-                      label="Contact Phone"
-                      value={accountContactPhone}
-                      href={accountContactPhoneHref}
-                      copyable
-                      copyValue={accountContactPhone}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField
-                      label="Contact Address"
-                      value={accountContactAddress}
-                      href={accountContactAddressHref}
-                      openInNewTab
-                      copyable
-                      copyValue={accountContactAddressHref ? accountContactAddress : ""}
-                      onCopy={handleCopyFieldValue}
-                      className="sm:col-span-2"
-                    />
-                  </div>
-                ) : null}
-
-                {showCompanyDetails && hasAccountCompanyFields ? (
-                  <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                    <CardField label="Company" value={accountCompanyName} />
-                    <CardField
-                      label="Company Phone"
-                      value={accountCompanyPhone}
-                      href={accountCompanyPhoneHref}
-                      copyable
-                      copyValue={accountCompanyPhone}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField label="Company Primary" value={accountCompanyPrimaryName} />
-                    <CardField
-                      label="Primary Email"
-                      value={accountCompanyPrimaryEmail}
-                      href={accountCompanyPrimaryEmailHref}
-                      copyable
-                      copyValue={accountCompanyPrimaryEmail}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField
-                      label="Primary Phone"
-                      value={accountCompanyPrimaryPhone}
-                      href={accountCompanyPrimaryPhoneHref}
-                      copyable
-                      copyValue={accountCompanyPrimaryPhone}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField
-                      label="Company Address"
-                      value={accountCompanyAddress}
-                      href={accountCompanyAddressHref}
-                      openInNewTab
-                      copyable
-                      copyValue={accountCompanyAddressHref ? accountCompanyAddress : ""}
-                      onCopy={handleCopyFieldValue}
-                      className="sm:col-span-2"
-                    />
-                  </div>
-                ) : null}
-
-                {showCompanyDetails && isBodyCorpAccount && hasBodyCorpDetails ? (
-                  <div className="rounded border border-slate-200 bg-slate-50">
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 px-2 py-2 text-left"
-                      onClick={() => setIsBodyCorpDetailsOpen((previous) => !previous)}
-                      aria-expanded={isBodyCorpDetailsOpen}
-                      aria-controls="body-corp-company-details"
-                    >
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                        Body Corp Company
-                      </span>
-                      <span
-                        className={`text-slate-500 transition-transform ${
-                          isBodyCorpDetailsOpen ? "rotate-180" : ""
-                        }`}
-                      >
-                        <ChevronDownIcon />
-                      </span>
-                    </button>
-                    {isBodyCorpDetailsOpen ? (
-                      <div
-                        id="body-corp-company-details"
-                        className="grid grid-cols-1 gap-x-3 gap-y-2 px-2 pb-2 sm:grid-cols-2"
-                      >
-                        <CardField label="Body Corp Name" value={accountBodyCorpName} />
-                        <CardField label="Body Corp Type" value={accountBodyCorpType} />
-                        <CardField
-                          label="Body Corp Phone"
-                          value={accountBodyCorpPhone}
-                          href={accountBodyCorpPhoneHref}
-                          copyable
-                          copyValue={accountBodyCorpPhone}
-                          onCopy={handleCopyFieldValue}
-                        />
-                        <CardField
-                          label="Body Corp Address"
-                          value={accountBodyCorpAddress}
-                          href={accountBodyCorpAddressHref}
-                          openInNewTab
-                          copyable
-                          copyValue={accountBodyCorpAddressHref ? accountBodyCorpAddress : ""}
-                          onCopy={handleCopyFieldValue}
-                          className="sm:col-span-2"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </DetailsCard>
+            onEdit={handleOpenAccountEditor}
+            onCopy={handleCopyFieldValue}
+            safeUid={safeUid}
+            accountType={accountType}
+            showContactDetails={showContactDetails}
+            hasAccountContactFields={hasAccountContactFields}
+            accountContactName={accountContactName}
+            accountContactEmail={accountContactEmail}
+            accountContactEmailHref={accountContactEmailHref}
+            accountContactPhone={accountContactPhone}
+            accountContactPhoneHref={accountContactPhoneHref}
+            accountContactAddress={accountContactAddress}
+            accountContactAddressHref={accountContactAddressHref}
+            showCompanyDetails={showCompanyDetails}
+            hasAccountCompanyFields={hasAccountCompanyFields}
+            accountCompanyName={accountCompanyName}
+            accountCompanyPhone={accountCompanyPhone}
+            accountCompanyPhoneHref={accountCompanyPhoneHref}
+            accountCompanyPrimaryName={accountCompanyPrimaryName}
+            accountCompanyPrimaryEmail={accountCompanyPrimaryEmail}
+            accountCompanyPrimaryEmailHref={accountCompanyPrimaryEmailHref}
+            accountCompanyPrimaryPhone={accountCompanyPrimaryPhone}
+            accountCompanyPrimaryPhoneHref={accountCompanyPrimaryPhoneHref}
+            accountCompanyAddress={accountCompanyAddress}
+            accountCompanyAddressHref={accountCompanyAddressHref}
+            isBodyCorpAccount={isBodyCorpAccount}
+            hasBodyCorpDetails={hasBodyCorpDetails}
+            accountBodyCorpName={accountBodyCorpName}
+            accountBodyCorpType={accountBodyCorpType}
+            accountBodyCorpPhone={accountBodyCorpPhone}
+            accountBodyCorpPhoneHref={accountBodyCorpPhoneHref}
+            accountBodyCorpAddress={accountBodyCorpAddress}
+            accountBodyCorpAddressHref={accountBodyCorpAddressHref}
+          />
 
           <DetailsCard
             title="Inquiry & Request Details"
@@ -9292,131 +8653,20 @@ export function InquiryDetailsPage() {
                     }
                     isActive={activeWorkspaceTab === "related-records"}
                   >
-                    {!relatedRecordsAccountId ? (
-                      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                        Link a contact/company on this inquiry to load related records.
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {isRelatedRecordsLoading &&
-                        !filteredRelatedDeals.length &&
-                        !relatedJobs.length ? (
-                          <div className="text-[11px] text-slate-500">
-                            Loading related inquiries and jobs...
-                          </div>
-                        ) : null}
-                        {relatedRecordsError ? (
-                          <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
-                            {relatedRecordsError}
-                          </div>
-                        ) : null}
-
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                          <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2">
-                            <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">
-                              Related Inquiries
-                            </div>
-                            {filteredRelatedDeals.length ? (
-                              <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
-                                {filteredRelatedDeals.slice(0, 12).map((deal) => {
-                                  const dealUid = toText(deal?.unique_id);
-                                  const dealName = toText(deal?.deal_name);
-                                  const fallbackId = toText(deal?.id);
-                                  const dealIdentifier = dealUid || fallbackId;
-                                  if (!dealIdentifier && !dealName) return null;
-                                  return (
-                                    <button
-                                      key={dealUid || fallbackId || dealName}
-                                      type="button"
-                                      className="w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-left hover:border-slate-300"
-                                      onClick={() => openRelatedRecord(dealUid)}
-                                      disabled={!dealUid}
-                                    >
-                                      <div className="truncate text-[11px] font-semibold text-sky-700 underline">
-                                        {dealIdentifier}
-                                      </div>
-                                      {dealName ? (
-                                        <div className="truncate text-[11px] text-slate-600">
-                                          {dealName}
-                                        </div>
-                                      ) : null}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <div className="text-[11px] text-slate-500">
-                                {isRelatedRecordsLoading
-                                  ? "Loading related inquiries..."
-                                  : "No related inquiries found."}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2">
-                            <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">
-                              Related Jobs
-                            </div>
-                            {relatedJobs.length ? (
-                              <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
-                                {relatedJobs.slice(0, 12).map((job) => {
-                                  const jobId = toText(job?.id || job?.ID);
-                                  const jobUid = toText(job?.unique_id || job?.Unique_ID);
-                                  const jobIdentifier = jobUid || jobId;
-                                  const resolvedJobId = jobId || toText(relatedJobIdByUid[jobUid]);
-                                  const propertyName = toText(job?.property_name);
-                                  if (!jobIdentifier && !propertyName) return null;
-                                  const isSelected =
-                                    Boolean(selectedRelatedJobId) &&
-                                    (selectedRelatedJobId === resolvedJobId ||
-                                      selectedRelatedJobId === jobUid);
-                                  return (
-                                    <div
-                                      key={jobUid || jobId || propertyName}
-                                      className={`rounded border bg-white px-2 py-1.5 ${
-                                        isSelected ? "border-sky-400" : "border-slate-200"
-                                      }`}
-                                    >
-                                      <div className="flex items-start justify-between gap-2">
-                                        <div className="min-w-0">
-                                          <button
-                                            type="button"
-                                            className="truncate text-[11px] font-semibold text-sky-700 underline"
-                                            onClick={() => openRelatedRecord(jobUid)}
-                                            disabled={!jobUid}
-                                          >
-                                            {jobIdentifier}
-                                          </button>
-                                          {propertyName ? (
-                                            <div className="truncate text-[11px] text-slate-600">
-                                              {propertyName}
-                                            </div>
-                                          ) : null}
-                                        </div>
-                                        <input
-                                          type="checkbox"
-                                          className="h-3.5 w-3.5 shrink-0 accent-[#003882]"
-                                          checked={isSelected}
-                                          disabled={(!resolvedJobId && !jobUid) || isSavingLinkedJob}
-                                          onChange={() => handleToggleRelatedJobLink(job)}
-                                          aria-label={`Link inquiry to job ${jobUid || jobId || ""}`}
-                                        />
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <div className="text-[11px] text-slate-500">
-                                {isRelatedRecordsLoading
-                                  ? "Loading related jobs..."
-                                  : "No related jobs found."}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    <RelatedRecordsSection
+                      deals={filteredRelatedDeals}
+                      jobs={relatedJobs}
+                      isLoading={isRelatedRecordsLoading}
+                      error={relatedRecordsError}
+                      hasAccount={Boolean(relatedRecordsAccountId)}
+                      noAccountMessage="Link a contact/company on this inquiry to load related records."
+                      linkedJobId={selectedRelatedJobId}
+                      jobIdByUid={relatedJobIdByUid}
+                      onToggleJobLink={handleToggleRelatedJobLink}
+                      isLinkingJob={isSavingLinkedJob}
+                      onNavigateToDeal={(uid) => openRelatedRecord(uid)}
+                      onNavigateToJob={(uid) => openRelatedRecord(uid)}
+                    />
                   </WorkspaceTabPanel>
 
                   <WorkspaceTabPanel

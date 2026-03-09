@@ -79,7 +79,21 @@ export {
   createContactRecord,
   updateContactRecord,
   createCompanyRecord,
+  fetchCompanyAccountRecordById,
+  fetchContactAccountRecordById,
 } from "./domains/contacts/contacts.js";
+export {
+  normalizePropertyLookupRecord,
+  getPropertyLookupKey,
+  dedupePropertyLookupRecords,
+  mergePropertyLookupRecords,
+  getPropertyRecordSignature,
+  arePropertyRecordCollectionsEqual,
+  mergePropertyCollectionsIfChanged,
+  resolvePropertyLookupLabel,
+  buildComparablePropertyAddress,
+  normalizeAddressText,
+} from "./domains/properties/propertyRecordNormalization.js";
 export {
   fetchPropertyUploads,
   createPropertyUploadFromFile,

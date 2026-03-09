@@ -129,8 +129,16 @@ export function PropertyOptionCard({
         <div className="min-w-0">
           {property?.unique_id ? <div className="uid-text">{property.unique_id}</div> : null}
           <div className="mt-1 text-sm font-semibold text-neutral-700">
-            {property?.property_name || "Untitled Property"}
+            {property?.property_name ||
+              property?.address_1 ||
+              property?.suburb_town ||
+              "Untitled Property"}
           </div>
+          {property?.property_name && (property?.address_1 || property?.suburb_town) ? (
+            <div className="text-xs text-slate-500">
+              {[property.address_1, property.suburb_town].filter(Boolean).join(", ")}
+            </div>
+          ) : null}
         </div>
         <div className="mt-0.5 flex items-center gap-1.5">
           <input

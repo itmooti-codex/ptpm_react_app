@@ -3,6 +3,7 @@ import { fetchDirectWithTimeout, isTimeoutError } from "../../transport.js";
 import { extractRecords } from "../../../utils/sdkResponseUtils.js";
 import { normalizeIdentifier } from "../shared/sharedHelpers.js";
 import { PROPERTY_RECORD_SELECT_FIELDS } from "../properties/propertyHelpers.js";
+import { createTtlCache } from "@shared/utils/ttlCache.js";
 import {
   resolveLinkedAccountType,
   resolveLinkedAccountModelName,
@@ -20,6 +21,8 @@ import {
   extractPropertiesFromAccountRecord,
   dedupeProperties,
 } from "./linkedAccountsNormalizationHelpers.js";
+
+const linkedPropertiesCache = createTtlCache("ptpm:linked-props:v1:", 2 * 60 * 1000);
 
 async function fetchDealsByAccountId({ plugin, accountType, accountId } = {}) {
   const resolvedPlugin = resolvePlugin(plugin);
@@ -184,6 +187,10 @@ export async function fetchLinkedPropertiesByAccount({ plugin, accountType, acco
   const normalizedId = normalizeIdentifier(accountId);
   if (!normalizedId) return [];
 
+  const cacheKey = `${resolvedType}:${normalizedId}`;
+  const cached = linkedPropertiesCache.get(cacheKey);
+  if (cached) return cached;
+
   try {
     const query = resolvedPlugin
       .switchTo(modelName)
@@ -201,7 +208,9 @@ export async function fetchLinkedPropertiesByAccount({ plugin, accountType, acco
     const propertiesFromAllRows = accountRecords.flatMap((record) =>
       extractPropertiesFromAccountRecord(record)
     );
-    return dedupeProperties(propertiesFromAllRows);
+    const result = dedupeProperties(propertiesFromAllRows);
+    linkedPropertiesCache.set(cacheKey, result);
+    return result;
   } catch (includeError) {
     if (!isTimeoutError(includeError)) {
       console.warn(
@@ -227,6 +236,7 @@ export async function fetchLinkedPropertiesByAccount({ plugin, accountType, acco
     const customProperties = dedupeProperties(
       customRecords.flatMap((record) => extractPropertiesFromAccountRecord(record))
     );
+    linkedPropertiesCache.set(cacheKey, customProperties);
     return customProperties;
   } catch (customError) {
     if (!isTimeoutError(customError)) {

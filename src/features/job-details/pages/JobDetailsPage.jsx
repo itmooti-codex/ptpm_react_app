@@ -17,38 +17,51 @@ import {
   AddActivitiesSection,
   AddPropertyModal,
   AddMaterialsSection,
+  AccountDetailsSection,
   AppointmentTabSection,
   ContactDetailsModal,
-  EditActionIcon as EditIcon,
   InvoiceSection,
   PropertyAffiliationModal,
   PropertyTabSection,
+  RelatedRecordsSection,
   SearchDropdownInput,
   TasksModal,
   TitleBackIcon,
+  TrashActionIcon as TrashIcon,
   UploadsSection,
 } from "@modules/job-workspace/public/components.js";
-import { JobDirectStoreProvider } from "@modules/job-workspace/public/hooks.js";
+import {
+  JobDirectStoreProvider,
+  useServiceProviderLookup,
+  useAdminProviderLookup,
+  useSearchCallback,
+} from "@modules/job-workspace/public/hooks.js";
 import {
   extractFirstRecord,
   fetchLinkedPropertiesByAccount,
   fetchActivitiesByJobId,
   fetchMaterialsByJobId,
   fetchPropertiesForSearch,
-  fetchServiceProvidersForSearch,
   searchPropertiesForLookup,
   subscribeActivitiesByJobId,
   subscribeMaterialsByJobId,
 } from "@modules/job-workspace/public/sdk.js";
 import {
+  createMemoCommentForDetails,
+  createMemoPostForDetails,
+  deleteMemoCommentForDetails,
+  deleteMemoPostForDetails,
+  fetchMemosForDetails,
   fetchPropertyAffiliationsForDetails,
   fetchTasksForDetails,
   savePropertyForDetails,
+  subscribeMemosForDetails,
   updateCompanyFieldsById,
   updateContactFieldsById,
   updateInquiryFieldsById,
   updateJobFieldsById,
 } from "@modules/job-records/public/sdk.js";
+import { APP_USER } from "../../../config/userConfig.js";
 import {
   createAffiliationRecord,
   createCompanyRecord,
@@ -56,114 +69,47 @@ import {
   searchCompaniesForLookup,
   searchContactsForLookup,
   updateAffiliationRecord,
+  fetchCompanyAccountRecordById,
+  fetchContactAccountRecordById,
+  normalizePropertyLookupRecord,
+  mergePropertyLookupRecords,
+  uploadMaterialFile,
 } from "@modules/job-workspace/sdk/core/runtime.js";
 import { useRelatedRecordsData } from "../../inquiry/shared/useRelatedRecordsData.js";
-
-function CopyIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.7" />
-      <path
-        d="M5 15V6C5 4.89543 5.89543 4 7 4H16"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M6 9l6 6 6-6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ChevronRightIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M9 6l6 6-6 6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function toText(value) {
-  return String(value || "").trim();
-}
-
-function toBoolean(value) {
-  if (value === true || value === false) return value;
-  const text = toText(value).toLowerCase();
-  if (!text) return false;
-  if (text === "true" || text === "1" || text === "yes" || text === "y") return true;
-  if (text === "false" || text === "0" || text === "no" || text === "n") return false;
-  return Boolean(value);
-}
-
-function isContactAccountType(value) {
-  const normalized = toText(value).toLowerCase();
-  return normalized === "contact" || normalized === "individual";
-}
-
-function isCompanyAccountType(value) {
-  const normalized = toText(value).toLowerCase();
-  return normalized === "company" || normalized === "entity";
-}
-
-function isBodyCorpCompanyAccountType(value) {
-  const normalized = toText(value).toLowerCase();
-  if (!normalized) return false;
-  const collapsed = normalized.replace(/[^a-z0-9]+/g, "");
-  return (
-    normalized.includes("body corp") ||
-    normalized.includes("body corporate") ||
-    collapsed.includes("bodycorp")
-  );
-}
-
-function isLikelyEmailValue(value) {
-  const text = toText(value);
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
-}
-
-function isLikelyPhoneValue(value) {
-  const text = toText(value);
-  if (!text) return false;
-  const digits = text.replace(/\D+/g, "");
-  return digits.length >= 6;
-}
-
-function toTelHref(value) {
-  const text = toText(value);
-  if (!text) return "";
-  const normalized = text.replace(/[^\d+]+/g, "");
-  return normalized ? `tel:${normalized}` : "";
-}
-
-function toMailHref(value) {
-  const text = toText(value);
-  return text ? `mailto:${text}` : "";
-}
-
-function toGoogleMapsHref(value) {
-  const text = toText(value);
-  if (!text || text === "—") return "";
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(text)}`;
-}
+import {
+  toText,
+  toBoolean,
+  fullName,
+  joinAddress,
+  compactStringFields,
+  toMailHref,
+  toTelHref,
+  toGoogleMapsHref,
+  formatServiceProviderAllocationLabel,
+  formatServiceProviderInputLabel,
+  formatContactLookupLabel,
+  formatCompanyLookupLabel,
+  formatFileSize,
+  formatRelativeTime,
+  getAuthorName,
+  getMemoFileMeta,
+  mergeMemosPreservingComments,
+} from "@shared/utils/formatters.js";
+import {
+  isContactAccountType,
+  isCompanyAccountType,
+  isBodyCorpCompanyAccountType,
+  isLikelyEmailValue,
+  isLikelyPhoneValue,
+} from "@shared/utils/accountTypeUtils.js";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CopyIcon,
+} from "@shared/components/icons/index.jsx";
+import { DetailsCard } from "@shared/components/ui/DetailsCard.jsx";
+import { CardField } from "@shared/components/ui/CardField.jsx";
+import { SectionLoadingState } from "@shared/components/ui/SectionLoadingState.jsx";
 
 function parseDateLikeValue(value) {
   const text = toText(value);
@@ -188,22 +134,6 @@ function formatDateDisplay(value) {
   return `${day}/${month}/${year}`;
 }
 
-function joinAddress(parts = []) {
-  const cleaned = (Array.isArray(parts) ? parts : [])
-    .map((value) => toText(value))
-    .filter(Boolean);
-  return cleaned.length ? cleaned.join(", ") : "";
-}
-
-function compactStringFields(source = {}) {
-  const output = {};
-  Object.entries(source || {}).forEach(([key, value]) => {
-    const trimmed = toText(value);
-    if (trimmed) output[key] = trimmed;
-  });
-  return output;
-}
-
 function pickBooleanValue(record = {}, keys = []) {
   for (const key of Array.isArray(keys) ? keys : []) {
     if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
@@ -216,53 +146,6 @@ function toPromiseLike(result) {
   if (result && typeof result.then === "function") return result;
   if (result && typeof result.toPromise === "function") return result.toPromise();
   return Promise.resolve(result);
-}
-
-function fullName(firstName, lastName) {
-  return [toText(firstName), toText(lastName)].filter(Boolean).join(" ").trim();
-}
-
-function formatServiceProviderAllocationLabel(provider = {}) {
-  const id = toText(provider?.id || provider?.ID);
-  const name = fullName(provider?.first_name, provider?.last_name);
-  const email = toText(provider?.work_email || provider?.Work_Email || provider?.email);
-  const phone = toText(provider?.mobile_number || provider?.Mobile_Number || provider?.sms_number);
-  const resolvedName = name || email || (id ? `Provider #${id}` : "Provider");
-  return `${resolvedName} [${email || "-"}] | [${phone || "-"}]`;
-}
-
-function formatServiceProviderInputLabel(provider = {}) {
-  const id = toText(provider?.id || provider?.ID);
-  const name = fullName(provider?.first_name, provider?.last_name);
-  const email = toText(provider?.work_email || provider?.Work_Email || provider?.email);
-  const phone = toText(provider?.mobile_number || provider?.Mobile_Number || provider?.sms_number);
-  const resolvedName = name || email || (id ? `Provider #${id}` : "Provider");
-  return `${resolvedName} [${email || "-"}] | [${phone || "-"}]`;
-}
-
-function formatContactLookupLabel(contact = {}) {
-  const id = toText(contact?.id || contact?.ID || contact?.Contact_ID);
-  const name = fullName(contact?.first_name || contact?.First_Name, contact?.last_name || contact?.Last_Name);
-  const email = toText(contact?.email || contact?.Email);
-  const phone = toText(
-    contact?.sms_number ||
-      contact?.SMS_Number ||
-      contact?.mobile_number ||
-      contact?.Mobile_Number
-  );
-  const resolvedName = name || email || (id ? `Contact #${id}` : "Contact");
-  const metadata = [email, phone].filter(Boolean).join(" | ");
-  return metadata ? `${resolvedName} [${metadata}]` : resolvedName;
-}
-
-function formatCompanyLookupLabel(company = {}) {
-  const id = toText(company?.id || company?.ID || company?.Company_ID);
-  const name = toText(company?.name || company?.Name);
-  const phone = toText(company?.phone || company?.Phone);
-  const accountType = toText(company?.account_type || company?.Account_Type);
-  const resolvedName = name || (id ? `Company #${id}` : "Company");
-  const metadata = [accountType, phone].filter(Boolean).join(" | ");
-  return metadata ? `${resolvedName} [${metadata}]` : resolvedName;
 }
 
 function toAffiliationOption(affiliation = {}) {
@@ -508,137 +391,6 @@ function formatCurrencyDisplay(value) {
   });
 }
 
-function DetailsCard({ title, onEdit, editDisabled = false, className = "", children }) {
-  const showEditAction = typeof onEdit === "function";
-  return (
-    <article className={`rounded border border-slate-200 bg-white ${className}`}>
-      <header className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-2.5 py-1.5">
-        <div className="text-[13px] font-semibold text-slate-900">{title}</div>
-        {showEditAction ? (
-          <button
-            type="button"
-            className="inline-flex items-center justify-center p-0 text-slate-500 transition hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300"
-            onClick={onEdit}
-            disabled={editDisabled}
-            aria-label={`Edit ${title}`}
-            title={`Edit ${title}`}
-          >
-            <EditIcon />
-          </button>
-        ) : null}
-      </header>
-      <div className="p-2.5">{children}</div>
-    </article>
-  );
-}
-
-function isMissingFieldValue(value) {
-  const text = toText(value);
-  return !text || text === "—" || text === "-";
-}
-
-function CardField({
-  label,
-  value,
-  mono = false,
-  className = "",
-  href = "",
-  openInNewTab = false,
-  copyable = false,
-  copyValue = "",
-  onCopy = null,
-}) {
-  const displayValue = toText(value);
-  if (isMissingFieldValue(displayValue)) return null;
-  const canLink = Boolean(toText(href));
-  const copyText = toText(copyValue || value);
-  const canCopy = Boolean(copyable && copyText);
-  const valueMaxWidthClass = canCopy ? "max-w-[calc(100%-1.5rem)]" : "max-w-full";
-  const handleCopyClick = async () => {
-    if (!canCopy) return;
-    if (typeof onCopy === "function") {
-      await onCopy({ label, value: copyText });
-      return;
-    }
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(copyText);
-    }
-  };
-  return (
-    <div className={`group min-w-0 ${className}`}>
-      <div className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="mt-0.5 flex w-full min-w-0 items-start gap-2">
-        {canLink ? (
-          <a
-            href={href}
-            target={openInNewTab ? "_blank" : undefined}
-            rel={openInNewTab ? "noreferrer" : undefined}
-            className={`inline-block min-w-0 ${valueMaxWidthClass} truncate text-[12px] font-medium text-blue-700 underline underline-offset-2 hover:text-blue-800 ${
-              mono ? "font-mono" : ""
-            }`}
-            title={displayValue}
-          >
-            {displayValue}
-          </a>
-        ) : (
-          <div
-            className={`inline-block min-w-0 ${valueMaxWidthClass} truncate text-[12px] font-medium text-slate-800 ${
-              mono ? "font-mono" : ""
-            }`}
-            title={displayValue}
-          >
-            {displayValue}
-          </div>
-        )}
-        {canCopy ? (
-          <button
-            type="button"
-            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-slate-200 text-slate-400 transition hover:border-slate-300 hover:text-slate-700"
-            onClick={handleCopyClick}
-            aria-label={`Copy ${label}`}
-            title={`Copy ${label}`}
-          >
-            <CopyIcon />
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function SectionLoadingState({
-  label = "Loading",
-  blocks = 4,
-  columnsClass = "sm:grid-cols-2",
-  className = "",
-}) {
-  const placeholderItems = Array.from(
-    { length: Math.max(1, Number.parseInt(blocks, 10) || 1) },
-    (_, index) => index
-  );
-  return (
-    <div className={`space-y-2 ${className}`}>
-      <div className="inline-flex items-center gap-2 text-[11px] font-medium text-slate-500">
-        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
-        <span>{label}</span>
-      </div>
-      <div className={`grid grid-cols-1 gap-2 ${columnsClass}`}>
-        {placeholderItems.map((item) => (
-          <div
-            key={`section-loader-${label}-${item}`}
-            className="rounded border border-slate-200 bg-slate-50 p-2"
-          >
-            <div className="h-2.5 w-20 animate-pulse rounded bg-slate-200" />
-            <div className="mt-2 h-3 w-full animate-pulse rounded bg-slate-200" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function normalizeJobWhereValue(field, value) {
   const normalizedValue = toText(value);
   if (!normalizedValue) return "";
@@ -792,172 +544,6 @@ async function fetchDetailedJobRecord({ plugin, field = "id", value } = {}) {
   return extractFirstRecord(result);
 }
 
-function normalizeWorkspacePropertyRecord(rawProperty = {}) {
-  return {
-    ...(rawProperty && typeof rawProperty === "object" ? rawProperty : {}),
-    id: toText(
-      rawProperty?.id ||
-        rawProperty?.ID ||
-        rawProperty?.Property_ID ||
-        rawProperty?.PropertiesID
-    ),
-    unique_id: toText(
-      rawProperty?.unique_id ||
-        rawProperty?.Unique_ID ||
-        rawProperty?.Property_Unique_ID ||
-        rawProperty?.Properties_Unique_ID
-    ),
-    property_name: toText(
-      rawProperty?.property_name ||
-        rawProperty?.Property_Name ||
-        rawProperty?.Property_Property_Name ||
-        rawProperty?.Properties_Property_Name
-    ),
-    lot_number: toText(rawProperty?.lot_number || rawProperty?.Lot_Number),
-    unit_number: toText(rawProperty?.unit_number || rawProperty?.Unit_Number),
-    address_1: toText(rawProperty?.address_1 || rawProperty?.Address_1 || rawProperty?.address || rawProperty?.Address),
-    address_2: toText(rawProperty?.address_2 || rawProperty?.Address_2),
-    address: toText(rawProperty?.address || rawProperty?.Address),
-    city: toText(rawProperty?.city || rawProperty?.City),
-    suburb_town: toText(rawProperty?.suburb_town || rawProperty?.Suburb_Town),
-    state: toText(rawProperty?.state || rawProperty?.State),
-    postal_code: toText(
-      rawProperty?.postal_code ||
-        rawProperty?.Postal_Code ||
-        rawProperty?.zip_code ||
-        rawProperty?.Zip_Code
-    ),
-    zip_code: toText(rawProperty?.zip_code || rawProperty?.Zip_Code),
-    country: toText(rawProperty?.country || rawProperty?.Country),
-    property_type: toText(rawProperty?.property_type || rawProperty?.Property_Type),
-    building_type: toText(rawProperty?.building_type || rawProperty?.Building_Type),
-    building_type_other: toText(
-      rawProperty?.building_type_other || rawProperty?.Building_Type_Other
-    ),
-    foundation_type: toText(rawProperty?.foundation_type || rawProperty?.Foundation_Type),
-    bedrooms: toText(rawProperty?.bedrooms || rawProperty?.Bedrooms),
-    manhole: toBoolean(rawProperty?.manhole ?? rawProperty?.Manhole),
-    stories: toText(rawProperty?.stories || rawProperty?.Stories),
-    building_age: toText(rawProperty?.building_age || rawProperty?.Building_Age),
-    building_features: rawProperty?.building_features || rawProperty?.Building_Features || [],
-    building_features_options_as_text: toText(
-      rawProperty?.building_features_options_as_text ||
-        rawProperty?.Building_Features_Options_As_Text ||
-        rawProperty?.building_features
-    ),
-  };
-}
-
-function mergeNormalizedPropertyRecords(...collections) {
-  const byId = new Map();
-  collections
-    .flatMap((records) => (Array.isArray(records) ? records : [records]))
-    .forEach((record) => {
-      const normalized = normalizeWorkspacePropertyRecord(record);
-      const id = toText(normalized?.id || normalized?.ID || normalized?.Property_ID);
-      if (!id) return;
-      const previous = byId.get(id) || {};
-      byId.set(id, { ...previous, ...normalized });
-    });
-  return Array.from(byId.values());
-}
-
-async function fetchCompanyAccountRecordById({ plugin, companyId } = {}) {
-  const normalizedCompanyId = toText(companyId);
-  if (!plugin?.switchTo || !normalizedCompanyId) return null;
-  const whereValue = /^\d+$/.test(normalizedCompanyId)
-    ? Number.parseInt(normalizedCompanyId, 10)
-    : normalizedCompanyId;
-  const query = plugin
-    .switchTo("PeterpmCompany")
-    .query()
-    .where("id", whereValue)
-    .deSelectAll()
-    .select([
-      "id",
-      "name",
-      "type",
-      "description",
-      "phone",
-      "address",
-      "city",
-      "state",
-      "postal_code",
-      "industry",
-      "annual_revenue",
-      "number_of_employees",
-      "account_type",
-      "popup_comment",
-      "xero_contact_id",
-    ])
-    .include("Primary_Person", (personQuery) =>
-      personQuery
-        .deSelectAll()
-        .select(["id", "first_name", "last_name", "email", "sms_number"])
-    )
-    .include("Body_Corporate_Company", (bodyCorpQuery) =>
-      bodyCorpQuery
-        .deSelectAll()
-        .select([
-          "id",
-          "name",
-          "type",
-          "description",
-          "phone",
-          "address",
-          "city",
-          "state",
-          "postal_code",
-          "industry",
-          "annual_revenue",
-          "number_of_employees",
-        ])
-    )
-    .limit(1)
-    .noDestroy();
-  query.getOrInitQueryCalc?.();
-  const result = await toPromiseLike(query.fetchDirect());
-  return extractFirstRecord(result);
-}
-
-async function fetchContactAccountRecordById({ plugin, contactId } = {}) {
-  const normalizedContactId = toText(contactId);
-  if (!plugin?.switchTo || !normalizedContactId) return null;
-  const whereValue = /^\d+$/.test(normalizedContactId)
-    ? Number.parseInt(normalizedContactId, 10)
-    : normalizedContactId;
-  const query = plugin
-    .switchTo("PeterpmContact")
-    .query()
-    .where("id", whereValue)
-    .deSelectAll()
-    .select([
-      "id",
-      "first_name",
-      "last_name",
-      "email",
-      "sms_number",
-      "office_phone",
-      "lot_number",
-      "unit_number",
-      "address",
-      "city",
-      "state",
-      "zip_code",
-      "country",
-      "postal_address",
-      "postal_city",
-      "postal_state",
-      "postal_country",
-      "postal_code",
-      "xero_contact_id",
-    ])
-    .limit(1)
-    .noDestroy();
-  query.getOrInitQueryCalc?.();
-  const result = await toPromiseLike(query.fetchDirect());
-  return extractFirstRecord(result);
-}
 
 async function fetchPropertyRecordById({ plugin, propertyId } = {}) {
   const normalizedPropertyId = toText(propertyId);
@@ -1000,7 +586,7 @@ async function fetchPropertyRecordById({ plugin, propertyId } = {}) {
     .noDestroy();
   query.getOrInitQueryCalc?.();
   const result = await toPromiseLike(query.fetchDirect());
-  return normalizeWorkspacePropertyRecord(extractFirstRecord(result) || {});
+  return normalizePropertyLookupRecord(extractFirstRecord(result) || {});
 }
 
 async function fetchJobTakenByValue({ jobModel, jobId } = {}) {
@@ -1230,7 +816,7 @@ async function fetchInquiryAccountContextById({ plugin, inquiryId } = {}) {
   return extractFirstRecord(result);
 }
 
-export function JobDetailsBlankPage() {
+export function JobDetailsPage() {
   const { success, error } = useToast();
   const { plugin, isReady: isSdkReady } = useVitalStatsPlugin();
   const { uid = "" } = useParams();
@@ -1285,13 +871,13 @@ export function JobDetailsBlankPage() {
   }, [effectiveJobId]);
   const [serviceProviderSearch, setServiceProviderSearch] = useState("");
   const [jobTakenBySearch, setJobTakenBySearch] = useState("");
-  const [serviceProviderLookup, setServiceProviderLookup] = useState([]);
-  const [isServiceProviderLookupLoading, setIsServiceProviderLookupLoading] = useState(false);
+  const { records: serviceProviderLookup, isLoading: isServiceProviderLookupLoading } =
+    useServiceProviderLookup({ plugin, isSdkReady });
+  const { records: jobTakenByLookup, isLoading: isJobTakenByLookupLoading } =
+    useAdminProviderLookup({ plugin, isSdkReady });
   const [allocatedServiceProviderId, setAllocatedServiceProviderId] = useState("");
   const [selectedServiceProviderId, setSelectedServiceProviderId] = useState("");
   const [isAllocatingServiceProvider, setIsAllocatingServiceProvider] = useState(false);
-  const [jobTakenByLookup, setJobTakenByLookup] = useState([]);
-  const [isJobTakenByLookupLoading, setIsJobTakenByLookupLoading] = useState(false);
   const [companyLookupRecords, setCompanyLookupRecords] = useState([]);
   const [contactLookupRecords, setContactLookupRecords] = useState([]);
   const [isCompanyLookupLoading, setIsCompanyLookupLoading] = useState(false);
@@ -1368,7 +954,6 @@ export function JobDetailsBlankPage() {
   const [editingMaterialId, setEditingMaterialId] = useState("");
   const [quotePaymentDetails, setQuotePaymentDetails] = useState(EMPTY_QUOTE_PAYMENT_DETAILS);
   const [isQuoteWorkflowUpdating, setIsQuoteWorkflowUpdating] = useState(false);
-  const [isBodyCorpDetailsOpen, setIsBodyCorpDetailsOpen] = useState(false);
   const [isAccountDetailsLoading, setIsAccountDetailsLoading] = useState(false);
   const [contactModalState, setContactModalState] = useState({
     open: false,
@@ -1379,6 +964,25 @@ export function JobDetailsBlankPage() {
     titleVerb: "Update",
     initialValues: null,
   });
+  const [memos, setMemos] = useState([]);
+  const [isMemosLoading, setIsMemosLoading] = useState(false);
+  const [memosError, setMemosError] = useState("");
+  const [memoText, setMemoText] = useState("");
+  const [isMemoChatOpen, setIsMemoChatOpen] = useState(false);
+  const [areFloatingWidgetsVisible, setAreFloatingWidgetsVisible] = useState(false);
+  const [memoFile, setMemoFile] = useState(null);
+  const [memoReplyDrafts, setMemoReplyDrafts] = useState({});
+  const [isPostingMemo, setIsPostingMemo] = useState(false);
+  const [sendingReplyPostId, setSendingReplyPostId] = useState("");
+  const [memoDeleteTarget, setMemoDeleteTarget] = useState(null);
+  const [isDeletingMemoItem, setIsDeletingMemoItem] = useState(false);
+  const [popupCommentDrafts, setPopupCommentDrafts] = useState({
+    contact: "",
+    company: "",
+  });
+  const [isPopupCommentModalOpen, setIsPopupCommentModalOpen] = useState(false);
+  const [isSavingPopupComment, setIsSavingPopupComment] = useState(false);
+  const memoFileInputRef = useRef(null);
   const menuRootRef = useRef(null);
   const serviceProviderPrefilledRef = useRef(false);
   const jobTakenByAutofillRef = useRef(new Set());
@@ -1470,7 +1074,6 @@ export function JobDetailsBlankPage() {
     setContactLookupRecords([]);
     setIsCompanyLookupLoading(false);
     setIsContactLookupLoading(false);
-    setIsBodyCorpDetailsOpen(false);
     setContactModalState({
       open: false,
       mode: "individual",
@@ -1482,35 +1085,6 @@ export function JobDetailsBlankPage() {
     });
     setIsAccountDetailsLoading(false);
   }, [jobNumericId, safeUid]);
-
-  useEffect(() => {
-    if (!isSdkReady || !plugin) {
-      setServiceProviderLookup([]);
-      setIsServiceProviderLookupLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsServiceProviderLookupLoading(true);
-    fetchServiceProvidersForSearch({ plugin })
-      .then((records) => {
-        if (cancelled) return;
-        setServiceProviderLookup(Array.isArray(records) ? records : []);
-      })
-      .catch((lookupError) => {
-        if (cancelled) return;
-        console.error("[JobDetailsBlank] Failed to fetch service provider lookup", lookupError);
-        setServiceProviderLookup([]);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsServiceProviderLookupLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isSdkReady, plugin]);
 
   useEffect(() => {
     if (!isSdkReady || !plugin || isNewJob) {
@@ -1567,7 +1141,6 @@ export function JobDetailsBlankPage() {
       setMaterialModalMode("create");
       setEditingMaterialId("");
       setQuotePaymentDetails(EMPTY_QUOTE_PAYMENT_DETAILS);
-      setIsBodyCorpDetailsOpen(false);
       setJobEmailContactSearchValue("");
       setAccountsContactSearchValue("");
       setSelectedJobEmailContactId("");
@@ -1634,7 +1207,6 @@ export function JobDetailsBlankPage() {
       setMaterialModalMode("create");
       setEditingMaterialId("");
       setQuotePaymentDetails(EMPTY_QUOTE_PAYMENT_DETAILS);
-      setIsBodyCorpDetailsOpen(false);
       setJobEmailContactSearchValue("");
       setAccountsContactSearchValue("");
       setSelectedJobEmailContactId("");
@@ -1711,7 +1283,6 @@ export function JobDetailsBlankPage() {
         setQuotePaymentDetails(buildQuotePaymentDetailsFromJob(job));
         setAccountContactRecord(null);
         setAccountCompanyRecord(null);
-        setIsBodyCorpDetailsOpen(false);
         setLoadedJobStatus(toText(job?.job_status || job?.job_Status || job?.Job_Status));
         setIsLoadedJobTakenByMissing(Boolean(resolvedId && !resolvedTakenById));
         setIsJobAllocationPrefillResolved(true);
@@ -1776,7 +1347,6 @@ export function JobDetailsBlankPage() {
         setSelectedJobEmailContactId("");
         setSelectedAccountsContactId("");
         setIsSavingQuoteContacts(false);
-        setIsBodyCorpDetailsOpen(false);
         setIsAccountDetailsLoading(false);
       }
     };
@@ -1976,19 +1546,27 @@ export function JobDetailsBlankPage() {
         }
 
         if (resolvedPropertyId) {
-          const normalizedProperty = normalizeWorkspacePropertyRecord(
+          const normalizedProperty = normalizePropertyLookupRecord(
             resolvedJobProperty || { id: resolvedPropertyId }
           );
           setLoadedPropertyId((previous) => toText(previous || normalizedProperty.id));
           setSelectedWorkspacePropertyId((previous) => toText(previous || normalizedProperty.id));
           setWorkspacePropertyLookupRecords((previous) =>
-            mergeNormalizedPropertyRecords(previous, [normalizedProperty])
+            mergePropertyLookupRecords(previous, [normalizedProperty])
           );
           setLinkedProperties((previous) =>
-            mergeNormalizedPropertyRecords(previous, [normalizedProperty])
+            mergePropertyLookupRecords(previous, [normalizedProperty])
           );
         }
 
+        console.warn("[JobDetails] account details resolved", {
+          resolvedJobContact,
+          jobCompany,
+          resolvedContactId,
+          resolvedEntityId: loadedClientEntityId,
+          resolvedIndividualId: loadedClientIndividualId,
+          loadedAccountType,
+        });
         setAccountContactRecord(resolvedJobContact || null);
         setAccountCompanyRecord(jobCompany || null);
       } catch (loadError) {
@@ -2017,35 +1595,6 @@ export function JobDetailsBlankPage() {
     plugin,
     relatedInquiryId,
   ]);
-
-  useEffect(() => {
-    if (!isSdkReady || !plugin) {
-      setJobTakenByLookup([]);
-      setIsJobTakenByLookupLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsJobTakenByLookupLoading(true);
-    fetchServiceProvidersForSearch({ plugin, providerType: "Admin", status: "" })
-      .then((records) => {
-        if (cancelled) return;
-        setJobTakenByLookup(Array.isArray(records) ? records : []);
-      })
-      .catch((lookupError) => {
-        if (cancelled) return;
-        console.error("[JobDetailsBlank] Failed to fetch job taken by lookup", lookupError);
-        setJobTakenByLookup([]);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsJobTakenByLookupLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isSdkReady, plugin]);
 
   const searchCompaniesInDatabase = useCallback(
     async (query = "") => {
@@ -2119,9 +1668,9 @@ export function JobDetailsBlankPage() {
           query: toText(query),
           limit: 50,
         });
-        const normalized = mergeNormalizedPropertyRecords(Array.isArray(records) ? records : []);
+        const normalized = mergePropertyLookupRecords(Array.isArray(records) ? records : []);
         setWorkspacePropertyLookupRecords((previous) =>
-          mergeNormalizedPropertyRecords(previous, normalized)
+          mergePropertyLookupRecords(previous, normalized)
         );
         return normalized;
       } catch (lookupError) {
@@ -2156,7 +1705,7 @@ export function JobDetailsBlankPage() {
       .then((records) => {
         if (cancelled) return;
         setWorkspacePropertyLookupRecords(
-          mergeNormalizedPropertyRecords(Array.isArray(records) ? records : [])
+          mergePropertyLookupRecords(Array.isArray(records) ? records : [])
         );
       })
       .catch((lookupError) => {
@@ -2192,10 +1741,10 @@ export function JobDetailsBlankPage() {
     })
       .then((records) => {
         if (cancelled) return;
-        const normalized = mergeNormalizedPropertyRecords(Array.isArray(records) ? records : []);
+        const normalized = mergePropertyLookupRecords(Array.isArray(records) ? records : []);
         setLinkedProperties(normalized);
         setWorkspacePropertyLookupRecords((previous) =>
-          mergeNormalizedPropertyRecords(previous, normalized)
+          mergePropertyLookupRecords(previous, normalized)
         );
       })
       .catch((loadError) => {
@@ -2375,12 +1924,38 @@ export function JobDetailsBlankPage() {
           (a) => toText(a?.id) === selectedAccountsContactIdText
         )
       : null;
-    const acFirstName = toText(selectedAffiliation?.contact_first_name);
-    const acLastName = toText(selectedAffiliation?.contact_last_name);
-    const acEmail = toText(
-      selectedAffiliation?.contact_email ||
-        selectedAffiliation?.company_as_accounts_contact_email
+    const clientContactFirstName = toText(
+      accountContactRecord?.first_name || accountContactRecord?.First_Name
     );
+    const clientContactLastName = toText(
+      accountContactRecord?.last_name || accountContactRecord?.Last_Name
+    );
+    const clientContactEmail = toText(
+      accountContactRecord?.email || accountContactRecord?.Email
+    );
+    const clientCompanyName = toText(
+      accountCompanyRecord?.name || accountCompanyRecord?.Name
+    );
+    const clientCompanyEmail = toText(
+      accountCompanyRecord?.Primary_Person?.email ||
+        accountCompanyRecord?.Primary_Person?.Email ||
+        accountCompanyRecord?.primary_person?.email ||
+        accountCompanyRecord?.primary_person?.Email
+    );
+    const acFirstName =
+      toText(selectedAffiliation?.contact_first_name) ||
+      (isCompanyAccountType(toText(loadedAccountType).toLowerCase()) ? clientCompanyName : clientContactFirstName);
+    const acLastName =
+      toText(selectedAffiliation?.contact_last_name) ||
+      (isCompanyAccountType(toText(loadedAccountType).toLowerCase()) ? "" : clientContactLastName);
+    const acEmail =
+      toText(
+        selectedAffiliation?.contact_email ||
+          selectedAffiliation?.company_as_accounts_contact_email
+      ) ||
+      (isCompanyAccountType(toText(loadedAccountType).toLowerCase())
+        ? clientCompanyEmail
+        : clientContactEmail);
     const contactXeroId = toText(
       accountContactRecord?.xero_contact_id || accountContactRecord?.Xero_Contact_ID
     );
@@ -2954,10 +2529,13 @@ export function JobDetailsBlankPage() {
   const isContactAccount = isContactAccountType(normalizedAccountType);
   const isCompanyAccount = isCompanyAccountType(normalizedAccountType);
   const hasAccountContactDetails = Boolean(
-    fullName(accountPrimaryContact?.first_name, accountPrimaryContact?.last_name) ||
-      toText(accountPrimaryContact?.email) ||
-      toText(accountPrimaryContact?.sms_number) ||
-      toText(accountPrimaryContact?.address)
+    fullName(
+      accountPrimaryContact?.first_name || accountPrimaryContact?.First_Name,
+      accountPrimaryContact?.last_name || accountPrimaryContact?.Last_Name
+    ) ||
+      toText(accountPrimaryContact?.email || accountPrimaryContact?.Email) ||
+      toText(accountPrimaryContact?.sms_number || accountPrimaryContact?.SMS_Number) ||
+      toText(accountPrimaryContact?.address || accountPrimaryContact?.Address)
   );
   const hasAccountCompanyDetails = Boolean(
     toText(accountCompany?.name || accountCompany?.Name) ||
@@ -2970,13 +2548,22 @@ export function JobDetailsBlankPage() {
   const isBodyCorpAccount = isBodyCorpCompanyAccountType(companyAccountType);
   const showContactDetails = isContactAccount || (!isCompanyAccount && hasAccountContactDetails);
   const showCompanyDetails = isCompanyAccount || (!isContactAccount && hasAccountCompanyDetails);
+  const contactPopupComment = toText(
+    accountContactRecord?.popup_comment || accountContactRecord?.Popup_Comment
+  );
+  const companyPopupComment = toText(
+    accountCompanyRecord?.popup_comment || accountCompanyRecord?.Popup_Comment
+  );
+  const hasPopupCommentsSection = Boolean(showContactDetails || showCompanyDetails);
+  const hasMemoContext = Boolean(effectiveJobId);
+  const currentUserId = toText(APP_USER?.id);
 
   const accountContactName = fullName(
-    accountPrimaryContact?.first_name,
-    accountPrimaryContact?.last_name
+    accountPrimaryContact?.first_name || accountPrimaryContact?.First_Name,
+    accountPrimaryContact?.last_name || accountPrimaryContact?.Last_Name
   );
-  const accountContactEmail = toText(accountPrimaryContact?.email);
-  const accountContactPhone = toText(accountPrimaryContact?.sms_number);
+  const accountContactEmail = toText(accountPrimaryContact?.email || accountPrimaryContact?.Email);
+  const accountContactPhone = toText(accountPrimaryContact?.sms_number || accountPrimaryContact?.SMS_Number || accountPrimaryContact?.office_phone || accountPrimaryContact?.Office_Phone);
   const accountContactEmailHref = isLikelyEmailValue(accountContactEmail)
     ? toMailHref(accountContactEmail)
     : "";
@@ -2984,10 +2571,10 @@ export function JobDetailsBlankPage() {
     ? toTelHref(accountContactPhone)
     : "";
   const accountContactAddress = joinAddress([
-    accountPrimaryContact?.address,
-    accountPrimaryContact?.city,
-    accountPrimaryContact?.state,
-    accountPrimaryContact?.zip_code,
+    accountPrimaryContact?.address || accountPrimaryContact?.Address,
+    accountPrimaryContact?.city || accountPrimaryContact?.City,
+    accountPrimaryContact?.state || accountPrimaryContact?.State,
+    accountPrimaryContact?.zip_code || accountPrimaryContact?.Zip_Code,
   ]);
   const accountContactAddressHref = toGoogleMapsHref(accountContactAddress);
 
@@ -3909,15 +3496,15 @@ export function JobDetailsBlankPage() {
         fetchPropertiesForSearch({ plugin }),
       ]);
 
-      const normalizedLinkedProperties = mergeNormalizedPropertyRecords(
+      const normalizedLinkedProperties = mergePropertyLookupRecords(
         Array.isArray(linkedPropertyRecords) ? linkedPropertyRecords : []
       );
-      const normalizedLookupProperties = mergeNormalizedPropertyRecords(
+      const normalizedLookupProperties = mergePropertyLookupRecords(
         Array.isArray(allPropertyRecords) ? allPropertyRecords : []
       );
       setLinkedProperties(normalizedLinkedProperties);
       setWorkspacePropertyLookupRecords(
-        mergeNormalizedPropertyRecords(normalizedLookupProperties, normalizedLinkedProperties)
+        mergePropertyLookupRecords(normalizedLookupProperties, normalizedLinkedProperties)
       );
       setIsAddPropertyOpen(false);
       success(
@@ -4082,7 +3669,7 @@ export function JobDetailsBlankPage() {
             : []
           ).find((record) => toText(record?.id || record?.ID || record?.Property_ID) === propertyId);
           return matchedRecord
-            ? mergeNormalizedPropertyRecords(existing, [matchedRecord])
+            ? mergePropertyLookupRecords(existing, [matchedRecord])
             : existing;
         });
         success("Property linked", "Property was linked to this job.");
@@ -4324,6 +3911,271 @@ export function JobDetailsBlankPage() {
     updateJobBooleanField,
   ]);
 
+  useEffect(() => {
+    setPopupCommentDrafts({
+      contact: contactPopupComment,
+      company: companyPopupComment,
+    });
+  }, [companyPopupComment, contactPopupComment, loadedClientEntityId, loadedClientIndividualId]);
+
+  const refreshMemos = useCallback(async () => {
+    if (!plugin || !isSdkReady || !hasMemoContext) {
+      setMemos([]);
+      return;
+    }
+    const rows = await fetchMemosForDetails({
+      plugin,
+      jobId: effectiveJobId,
+      inquiryId: relatedInquiryId || undefined,
+      limit: 120,
+    });
+    setMemos(Array.isArray(rows) ? rows : []);
+  }, [effectiveJobId, hasMemoContext, isSdkReady, plugin, relatedInquiryId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!plugin || !isSdkReady || !hasMemoContext) {
+      setMemos([]);
+      setIsMemosLoading(false);
+      setMemosError("");
+      return undefined;
+    }
+
+    setIsMemosLoading(true);
+    setMemosError("");
+
+    fetchMemosForDetails({
+      plugin,
+      jobId: effectiveJobId,
+      inquiryId: relatedInquiryId || undefined,
+      limit: 120,
+    })
+      .then((rows) => {
+        if (cancelled) return;
+        setMemos(Array.isArray(rows) ? rows : []);
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        console.error("[JobDetails] Failed to load memos", loadError);
+        setMemos([]);
+        setMemosError(loadError?.message || "Unable to load memos.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsMemosLoading(false);
+      });
+
+    const unsubscribeMemos = subscribeMemosForDetails({
+      plugin,
+      jobId: effectiveJobId,
+      inquiryId: relatedInquiryId || undefined,
+      limit: 120,
+      onChange: (rows) => {
+        if (cancelled) return;
+        setMemos((previous) =>
+          mergeMemosPreservingComments(previous, Array.isArray(rows) ? rows : [])
+        );
+        setMemosError("");
+        setIsMemosLoading(false);
+      },
+      onError: (streamError) => {
+        if (cancelled) return;
+        console.error("[JobDetails] Memo subscription failed", streamError);
+        setMemosError((previous) => previous || "Live memo updates are unavailable.");
+      },
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeMemos?.();
+    };
+  }, [effectiveJobId, hasMemoContext, isSdkReady, plugin, relatedInquiryId]);
+
+  const handleMemoFileChange = useCallback((event) => {
+    const nextFile = Array.from(event?.target?.files || [])[0] || null;
+    setMemoFile(nextFile);
+    if (event?.target) event.target.value = "";
+  }, []);
+
+  const handleSendMemo = useCallback(async () => {
+    const text = toText(memoText);
+    if (!hasMemoContext) {
+      error("Post failed", "No job context found for memos.");
+      return;
+    }
+    if (!text && !memoFile) {
+      error("Post failed", "Enter a message or attach a file.");
+      return;
+    }
+    if (isPostingMemo) return;
+
+    setIsPostingMemo(true);
+    try {
+      let memoFilePayload = "";
+      if (memoFile) {
+        const uploaded = await uploadMaterialFile({
+          file: memoFile,
+          uploadPath: `forum-memos/${effectiveJobId || safeUid || "job-details"}`,
+        });
+        memoFilePayload = JSON.stringify(uploaded?.fileObject || {});
+      }
+
+      await createMemoPostForDetails({
+        plugin,
+        payload: {
+          post_copy: text,
+          post_status: "Published",
+          related_job_id: effectiveJobId || null,
+          related_inquiry_id: relatedInquiryId || null,
+          created_at: Math.floor(Date.now() / 1000),
+          file: memoFilePayload || "",
+        },
+      });
+
+      setMemoText("");
+      setMemoFile(null);
+      await refreshMemos();
+      success("Memo posted", "Your memo was added to the thread.");
+    } catch (postError) {
+      console.error("[JobDetails] Failed posting memo", postError);
+      error("Post failed", postError?.message || "Unable to post memo.");
+    } finally {
+      setIsPostingMemo(false);
+    }
+  }, [
+    effectiveJobId,
+    error,
+    hasMemoContext,
+    isPostingMemo,
+    memoFile,
+    memoText,
+    plugin,
+    refreshMemos,
+    relatedInquiryId,
+    safeUid,
+    success,
+  ]);
+
+  const handleSendMemoReply = useCallback(
+    async (postId) => {
+      const normalizedPostId = toText(postId);
+      const text = toText(memoReplyDrafts?.[normalizedPostId]);
+      if (!normalizedPostId || !text) return;
+      if (sendingReplyPostId) return;
+
+      setSendingReplyPostId(normalizedPostId);
+      try {
+        await createMemoCommentForDetails({
+          plugin,
+          payload: {
+            forum_post_id: normalizedPostId,
+            comment: text,
+            comment_status: "Published",
+            created_at: Math.floor(Date.now() / 1000),
+          },
+        });
+        setMemoReplyDrafts((previous) => ({
+          ...(previous || {}),
+          [normalizedPostId]: "",
+        }));
+        await refreshMemos();
+        success("Reply posted", "Your reply was added.");
+      } catch (replyError) {
+        console.error("[JobDetails] Failed posting memo reply", replyError);
+        error("Reply failed", replyError?.message || "Unable to post reply.");
+      } finally {
+        setSendingReplyPostId("");
+      }
+    },
+    [error, memoReplyDrafts, plugin, refreshMemos, sendingReplyPostId, success]
+  );
+
+  const confirmDeleteMemoItem = useCallback(async () => {
+    if (!memoDeleteTarget || isDeletingMemoItem) return;
+    const deleteType = toText(memoDeleteTarget?.type);
+    const targetId = toText(memoDeleteTarget?.id);
+    if (!deleteType || !targetId) return;
+
+    setIsDeletingMemoItem(true);
+    try {
+      if (deleteType === "post") {
+        await deleteMemoPostForDetails({ plugin, postId: targetId });
+      } else {
+        await deleteMemoCommentForDetails({ plugin, commentId: targetId });
+      }
+      setMemoDeleteTarget(null);
+      await refreshMemos();
+      success("Deleted", deleteType === "post" ? "Memo deleted." : "Reply deleted.");
+    } catch (deleteError) {
+      console.error("[JobDetails] Failed deleting memo item", deleteError);
+      error("Delete failed", deleteError?.message || "Unable to delete item.");
+    } finally {
+      setIsDeletingMemoItem(false);
+    }
+  }, [error, isDeletingMemoItem, memoDeleteTarget, plugin, refreshMemos, success]);
+
+  const handleSavePopupComments = useCallback(async () => {
+    if (isSavingPopupComment) return;
+
+    const nextContactComment = toText(popupCommentDrafts?.contact);
+    const nextCompanyComment = toText(popupCommentDrafts?.company);
+    const contactChanged = nextContactComment !== contactPopupComment;
+    const companyChanged = nextCompanyComment !== companyPopupComment;
+
+    if (!contactChanged && !companyChanged) {
+      setIsPopupCommentModalOpen(false);
+      return;
+    }
+
+    try {
+      setIsSavingPopupComment(true);
+
+      if (contactChanged) {
+        if (!loadedClientIndividualId) {
+          throw new Error("Primary contact is missing.");
+        }
+        await updateContactFieldsById({
+          plugin,
+          contactId: loadedClientIndividualId,
+          payload: {
+            popup_comment: nextContactComment || null,
+          },
+        });
+      }
+
+      if (companyChanged) {
+        if (!loadedClientEntityId) {
+          throw new Error("Company is missing.");
+        }
+        await updateCompanyFieldsById({
+          plugin,
+          companyId: loadedClientEntityId,
+          payload: {
+            popup_comment: nextCompanyComment || null,
+          },
+        });
+      }
+
+      success("Saved", "Popup comment updated.");
+      setIsPopupCommentModalOpen(false);
+    } catch (saveError) {
+      console.error("[JobDetails] Popup comment save failed", saveError);
+      error("Save failed", saveError?.message || "Unable to update popup comment.");
+    } finally {
+      setIsSavingPopupComment(false);
+    }
+  }, [
+    companyPopupComment,
+    contactPopupComment,
+    error,
+    isSavingPopupComment,
+    loadedClientEntityId,
+    loadedClientIndividualId,
+    plugin,
+    popupCommentDrafts,
+    success,
+  ]);
+
   const toggleMenu = (menuKey) => {
     setOpenMenu((previous) => (previous === menuKey ? "" : menuKey));
   };
@@ -4411,6 +4263,7 @@ export function JobDetailsBlankPage() {
                   onAdd={handleConfirmServiceProviderAllocation}
                   addButtonLabel={isAllocatingServiceProvider ? "Allocating..." : "Confirm Allocation"}
                   closeOnSelect={false}
+                  autoConfirmOnClose
                   emptyText={
                     isServiceProviderLookupLoading
                       ? "Loading service providers..."
@@ -4443,6 +4296,7 @@ export function JobDetailsBlankPage() {
                   onAdd={handleConfirmJobTakenBy}
                   addButtonLabel={isSavingJobTakenBy ? "Saving..." : "Confirm Selection"}
                   closeOnSelect={false}
+                  autoConfirmOnClose
                   emptyText={
                     isJobTakenByLookupLoading ? "Loading admins..." : "No admin records found."
                   }
@@ -4621,18 +4475,20 @@ export function JobDetailsBlankPage() {
                 ) : null}
               </div>
 
-              <Button
-                variant={isMarkComplete ? "outline" : "primary"}
-                size="sm"
-                className={`h-8 whitespace-nowrap px-3 !text-xs ${
-                  isMarkComplete
-                    ? "!border-emerald-600 !bg-emerald-600 !text-white hover:!bg-emerald-700"
-                    : ""
-                }`}
-                onClick={handleMarkCompleteClick}
-              >
-                {isMarkComplete ? "Complete" : "Mark Complete"}
-              </Button>
+              {(hasQuoteAcceptedDateValue || quoteStatusNormalized === "accepted" || isMarkComplete) ? (
+                <Button
+                  variant={isMarkComplete ? "outline" : "primary"}
+                  size="sm"
+                  className={`h-8 whitespace-nowrap px-3 !text-xs ${
+                    isMarkComplete
+                      ? "!border-emerald-600 !bg-emerald-600 !text-white hover:!bg-emerald-700"
+                      : ""
+                  }`}
+                  onClick={handleMarkCompleteClick}
+                >
+                  {isMarkComplete ? "Complete" : "Mark Complete"}
+                </Button>
+              ) : null}
 
               <div className="relative">
                 <Button
@@ -4679,160 +4535,43 @@ export function JobDetailsBlankPage() {
 
       <section className="w-full px-2 py-2" data-page="job-details">
         <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2 xl:grid-cols-3">
-          <DetailsCard
-            title="Account Details"
-            onEdit={handleOpenAccountEditor}
+          <AccountDetailsSection
+            isLoading={isAccountDetailsLoading}
             editDisabled={!effectiveJobId}
-          >
-            {isAccountDetailsLoading ? (
-              <SectionLoadingState
-                label="Loading account details"
-                blocks={6}
-                columnsClass="sm:grid-cols-2"
-              />
-            ) : (
-              <div className="space-y-2">
-                <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                  <CardField
-                    label="UID"
-                    value={safeUid}
-                    mono
-                    copyable
-                    copyValue={safeUid}
-                    onCopy={handleCopyFieldValue}
-                  />
-                  <CardField label="Account Type" value={accountType} />
-                </div>
-
-                {showContactDetails && hasAccountContactFields ? (
-                  <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                    <CardField label="Contact Name" value={accountContactName} />
-                    <CardField
-                      label="Contact Email"
-                      value={accountContactEmail}
-                      href={accountContactEmailHref}
-                      copyable
-                      copyValue={accountContactEmail}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField
-                      label="Contact Phone"
-                      value={accountContactPhone}
-                      href={accountContactPhoneHref}
-                      copyable
-                      copyValue={accountContactPhone}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField
-                      label="Contact Address"
-                      value={accountContactAddress}
-                      href={accountContactAddressHref}
-                      openInNewTab
-                      copyable
-                      copyValue={accountContactAddressHref ? accountContactAddress : ""}
-                      onCopy={handleCopyFieldValue}
-                      className="sm:col-span-2"
-                    />
-                  </div>
-                ) : null}
-
-                {showCompanyDetails && hasAccountCompanyFields ? (
-                  <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                    <CardField label="Company" value={accountCompanyName} />
-                    <CardField
-                      label="Company Phone"
-                      value={accountCompanyPhone}
-                      href={accountCompanyPhoneHref}
-                      copyable
-                      copyValue={accountCompanyPhone}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField label="Company Primary" value={accountCompanyPrimaryName} />
-                    <CardField
-                      label="Primary Email"
-                      value={accountCompanyPrimaryEmail}
-                      href={accountCompanyPrimaryEmailHref}
-                      copyable
-                      copyValue={accountCompanyPrimaryEmail}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField
-                      label="Primary Phone"
-                      value={accountCompanyPrimaryPhone}
-                      href={accountCompanyPrimaryPhoneHref}
-                      copyable
-                      copyValue={accountCompanyPrimaryPhone}
-                      onCopy={handleCopyFieldValue}
-                    />
-                    <CardField
-                      label="Company Address"
-                      value={accountCompanyAddress}
-                      href={accountCompanyAddressHref}
-                      openInNewTab
-                      copyable
-                      copyValue={accountCompanyAddressHref ? accountCompanyAddress : ""}
-                      onCopy={handleCopyFieldValue}
-                      className="sm:col-span-2"
-                    />
-                  </div>
-                ) : null}
-
-                {showCompanyDetails && isBodyCorpAccount && hasBodyCorpDetails ? (
-                  <div className="rounded border border-slate-200 bg-slate-50">
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 px-2 py-2 text-left"
-                      onClick={() => setIsBodyCorpDetailsOpen((previous) => !previous)}
-                      aria-expanded={isBodyCorpDetailsOpen}
-                      aria-controls="body-corp-company-details"
-                    >
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                        Body Corp Company
-                      </span>
-                      <span
-                        className={`text-slate-500 transition-transform ${
-                          isBodyCorpDetailsOpen ? "rotate-180" : ""
-                        }`}
-                      >
-                        <ChevronDownIcon />
-                      </span>
-                    </button>
-                    {isBodyCorpDetailsOpen ? (
-                      <div
-                        id="body-corp-company-details"
-                        className="grid grid-cols-1 gap-x-3 gap-y-2 px-2 pb-2 sm:grid-cols-2"
-                      >
-                        <CardField label="Body Corp Name" value={accountBodyCorpName} />
-                        <CardField label="Body Corp Type" value={accountBodyCorpType} />
-                        <CardField
-                          label="Body Corp Phone"
-                          value={accountBodyCorpPhone}
-                          href={accountBodyCorpPhoneHref}
-                          copyable
-                          copyValue={accountBodyCorpPhone}
-                          onCopy={handleCopyFieldValue}
-                        />
-                        <CardField
-                          label="Body Corp Address"
-                          value={accountBodyCorpAddress}
-                          href={accountBodyCorpAddressHref}
-                          openInNewTab
-                          copyable
-                          copyValue={accountBodyCorpAddressHref ? accountBodyCorpAddress : ""}
-                          onCopy={handleCopyFieldValue}
-                          className="sm:col-span-2"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {!hasAccountContactFields && !hasAccountCompanyFields && !hasBodyCorpDetails ? (
-                  <div className="text-sm text-slate-500">No account details available.</div>
-                ) : null}
-              </div>
-            )}
-          </DetailsCard>
+            onEdit={handleOpenAccountEditor}
+            onCopy={handleCopyFieldValue}
+            safeUid={safeUid}
+            accountType={accountType}
+            showContactDetails={showContactDetails}
+            hasAccountContactFields={hasAccountContactFields}
+            accountContactName={accountContactName}
+            accountContactEmail={accountContactEmail}
+            accountContactEmailHref={accountContactEmailHref}
+            accountContactPhone={accountContactPhone}
+            accountContactPhoneHref={accountContactPhoneHref}
+            accountContactAddress={accountContactAddress}
+            accountContactAddressHref={accountContactAddressHref}
+            showCompanyDetails={showCompanyDetails}
+            hasAccountCompanyFields={hasAccountCompanyFields}
+            accountCompanyName={accountCompanyName}
+            accountCompanyPhone={accountCompanyPhone}
+            accountCompanyPhoneHref={accountCompanyPhoneHref}
+            accountCompanyPrimaryName={accountCompanyPrimaryName}
+            accountCompanyPrimaryEmail={accountCompanyPrimaryEmail}
+            accountCompanyPrimaryEmailHref={accountCompanyPrimaryEmailHref}
+            accountCompanyPrimaryPhone={accountCompanyPrimaryPhone}
+            accountCompanyPrimaryPhoneHref={accountCompanyPrimaryPhoneHref}
+            accountCompanyAddress={accountCompanyAddress}
+            accountCompanyAddressHref={accountCompanyAddressHref}
+            isBodyCorpAccount={isBodyCorpAccount}
+            hasBodyCorpDetails={hasBodyCorpDetails}
+            accountBodyCorpName={accountBodyCorpName}
+            accountBodyCorpType={accountBodyCorpType}
+            accountBodyCorpPhone={accountBodyCorpPhone}
+            accountBodyCorpPhoneHref={accountBodyCorpPhoneHref}
+            accountBodyCorpAddress={accountBodyCorpAddress}
+            accountBodyCorpAddressHref={accountBodyCorpAddressHref}
+          />
 
           <DetailsCard title="Job Payment & Quote Details" className="xl:col-span-2">
             {!effectiveJobId || isNewJob ? (
@@ -5092,150 +4831,20 @@ export function JobDetailsBlankPage() {
                 isMounted={Boolean(mountedWorkspaceTabs["related-data"])}
                 isActive={activeWorkspaceTab === "related-data"}
               >
-                {!relatedRecordsAccountId ? (
-                  <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    Link a contact/company on this job to load related records.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {relatedRecords?.isLoading &&
-                    !relatedRecords?.relatedDeals?.length &&
-                    !relatedRecords?.relatedJobs?.length ? (
-                      <div className="text-[11px] text-slate-500">
-                        Loading related inquiries and jobs...
-                      </div>
-                    ) : null}
-                    {relatedRecords?.error ? (
-                      <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
-                        {toText(relatedRecords.error)}
-                      </div>
-                    ) : null}
-
-                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2">
-                        <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">
-                          Related Inquiries
-                        </div>
-                        {Array.isArray(relatedRecords?.relatedDeals) && relatedRecords.relatedDeals.length ? (
-                          <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
-                            {relatedRecords.relatedDeals.slice(0, 12).map((deal) => {
-                              const dealId = toText(deal?.id || deal?.ID);
-                              const dealUid = toText(deal?.unique_id || deal?.Unique_ID || deal?.id || deal?.ID);
-                              const dealName = toText(deal?.deal_name || deal?.Deal_Name);
-                              if (!dealUid) return null;
-                              const isSelected = Boolean(relatedInquiryId) && relatedInquiryId === dealId;
-                              return (
-                                <div
-                                  key={dealUid}
-                                  className={`rounded border bg-white px-2 py-1.5 ${
-                                    isSelected ? "border-sky-400" : "border-slate-200"
-                                  }`}
-                                >
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0">
-                                      <button
-                                        type="button"
-                                        className="truncate text-[11px] font-semibold text-sky-700 underline"
-                                        onClick={() =>
-                                          navigate(`/inquiry-details/${encodeURIComponent(dealUid)}`)
-                                        }
-                                      >
-                                        {dealUid}
-                                      </button>
-                                      {dealName ? (
-                                        <div className="truncate text-[11px] text-slate-600">{dealName}</div>
-                                      ) : null}
-                                    </div>
-                                    <input
-                                      type="checkbox"
-                                      className="h-3.5 w-3.5 shrink-0 accent-[#003882]"
-                                      checked={isSelected}
-                                      disabled={!dealId || isSavingLinkedInquiry}
-                                      onChange={() => handleToggleRelatedInquiryLink(deal)}
-                                      aria-label={`Link job to inquiry ${dealUid}`}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-slate-500">
-                            {relatedRecords?.isLoading
-                              ? "Loading related inquiries..."
-                              : "No related inquiries found."}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2">
-                        <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">
-                          Related Jobs
-                        </div>
-                        {Array.isArray(relatedRecords?.relatedJobs) && relatedRecords.relatedJobs.length ? (
-                          <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
-                            {relatedRecords.relatedJobs.slice(0, 12).map((jobRecord) => {
-                              const jobUid = toText(
-                                jobRecord?.unique_id || jobRecord?.Unique_ID || jobRecord?.id || jobRecord?.ID
-                              );
-                              const jobId = toText(jobRecord?.id || jobRecord?.ID);
-                              const propertyName = toText(jobRecord?.property_name || jobRecord?.Property_Name);
-                              const jobStatusText = toText(jobRecord?.job_status || jobRecord?.Job_Status);
-                              const quoteStatusText = toText(jobRecord?.quote_status || jobRecord?.Quote_Status);
-                              const isCurrentJob = Boolean(effectiveJobId) && effectiveJobId === jobId;
-                              if (!jobUid) return null;
-                              return (
-                                <div
-                                  key={jobUid}
-                                  className={`rounded border bg-white px-2 py-1.5 ${
-                                    isCurrentJob ? "border-sky-400" : "border-slate-200"
-                                  }`}
-                                >
-                                  <button
-                                    type="button"
-                                    className="truncate text-[11px] font-semibold text-sky-700 underline"
-                                    onClick={() => navigate(`/job-details/${encodeURIComponent(jobUid)}`)}
-                                  >
-                                    {jobUid}
-                                  </button>
-                                  {propertyName ? (
-                                    <div className="truncate text-[11px] text-slate-600">{propertyName}</div>
-                                  ) : null}
-                                  {jobStatusText || quoteStatusText ? (
-                                    <div className="mt-1 flex flex-wrap gap-1">
-                                      {jobStatusText ? (
-                                        <span
-                                          className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                                          style={resolveJobStatusStyle(jobStatusText)}
-                                        >
-                                          {jobStatusText}
-                                        </span>
-                                      ) : null}
-                                      {quoteStatusText ? (
-                                        <span
-                                          className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                                          style={resolveQuoteStatusStyle(quoteStatusText)}
-                                        >
-                                          {quoteStatusText}
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-slate-500">
-                            {relatedRecords?.isLoading
-                              ? "Loading related jobs..."
-                              : "No related jobs found."}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <RelatedRecordsSection
+                  deals={relatedRecords?.relatedDeals}
+                  jobs={relatedRecords?.relatedJobs}
+                  isLoading={relatedRecords?.isLoading}
+                  error={relatedRecords?.error}
+                  hasAccount={Boolean(relatedRecordsAccountId)}
+                  noAccountMessage="Link a contact/company on this job to load related records."
+                  linkedDealId={relatedInquiryId}
+                  onToggleDealLink={handleToggleRelatedInquiryLink}
+                  isLinkingDeal={isSavingLinkedInquiry}
+                  currentJobId={effectiveJobId}
+                  onNavigateToDeal={(uid) => navigate(`/inquiry-details/${encodeURIComponent(uid)}`)}
+                  onNavigateToJob={(uid) => navigate(`/job-details/${encodeURIComponent(uid)}`)}
+                />
               </WorkspaceTabPanel>
 
               <WorkspaceTabPanel
@@ -5604,6 +5213,447 @@ export function JobDetailsBlankPage() {
             : "Are you sure you want to mark this job as incomplete?"}
         </p>
       </Modal>
+
+      <Modal
+        open={isPopupCommentModalOpen}
+        onClose={() => {
+          if (isSavingPopupComment) return;
+          setPopupCommentDrafts({
+            contact: contactPopupComment,
+            company: companyPopupComment,
+          });
+          setIsPopupCommentModalOpen(false);
+        }}
+        title="Popup Comments"
+        widthClass="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setPopupCommentDrafts({
+                  contact: contactPopupComment,
+                  company: companyPopupComment,
+                });
+                setIsPopupCommentModalOpen(false);
+              }}
+              disabled={isSavingPopupComment}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSavePopupComments}
+              disabled={isSavingPopupComment}
+            >
+              {isSavingPopupComment ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {showContactDetails ? (
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">
+                Primary Contact Comment
+              </label>
+              <textarea
+                className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-[#003882] focus:outline-none focus:ring-2 focus:ring-[#003882]/20"
+                rows={5}
+                value={popupCommentDrafts.contact}
+                onChange={(event) =>
+                  setPopupCommentDrafts((previous) => ({
+                    ...(previous || {}),
+                    contact: event.target.value,
+                  }))
+                }
+                placeholder="Add popup comment for primary contact"
+              />
+            </div>
+          ) : null}
+
+          {showCompanyDetails ? (
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">
+                Company Comment
+              </label>
+              <textarea
+                className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-[#003882] focus:outline-none focus:ring-2 focus:ring-[#003882]/20"
+                rows={5}
+                value={popupCommentDrafts.company}
+                onChange={(event) =>
+                  setPopupCommentDrafts((previous) => ({
+                    ...(previous || {}),
+                    company: event.target.value,
+                  }))
+                }
+                placeholder="Add popup comment for company"
+              />
+            </div>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(memoDeleteTarget)}
+        onClose={() => {
+          if (isDeletingMemoItem) return;
+          setMemoDeleteTarget(null);
+        }}
+        title={toText(memoDeleteTarget?.type) === "post" ? "Delete Memo" : "Delete Reply"}
+        widthClass="max-w-md"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMemoDeleteTarget(null)}
+              disabled={isDeletingMemoItem}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={confirmDeleteMemoItem}
+              disabled={isDeletingMemoItem}
+            >
+              {isDeletingMemoItem ? "Deleting..." : "Delete"}
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          {toText(memoDeleteTarget?.type) === "post"
+            ? "Are you sure you want to delete this memo?"
+            : "Are you sure you want to delete this reply?"}
+        </p>
+      </Modal>
+
+      <button
+        type="button"
+        className="pointer-events-auto fixed bottom-[144px] right-[-2px] z-[61] inline-flex h-9 w-9 translate-x-1/2 items-center justify-center rounded-full border border-slate-300/90 bg-white text-slate-700 shadow-[0_8px_20px_rgba(15,23,42,0.2)] transition hover:bg-slate-50"
+        onClick={() => setAreFloatingWidgetsVisible((previous) => !previous)}
+        aria-label={areFloatingWidgetsVisible ? "Hide widgets" : "Show widgets"}
+        title={areFloatingWidgetsVisible ? "Hide widgets" : "Show widgets"}
+      >
+        {hasPopupCommentsSection || memos.length ? (
+          <span className="absolute -top-1 right-[20px] inline-flex h-2 w-2 rounded-full bg-red-500" />
+        ) : null}
+        <svg
+          viewBox="0 0 24 24"
+          width="14"
+          height="14"
+          fill="none"
+          aria-hidden="true"
+          className="-translate-x-[8px]"
+        >
+          {areFloatingWidgetsVisible ? (
+            <path
+              d="M9 6l6 6-6 6"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ) : (
+            <path
+              d="M15 6l-6 6 6 6"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+        </svg>
+      </button>
+
+      <div
+        className={`fixed bottom-5 right-6 z-[60] flex flex-col items-end gap-3 transition-all duration-200 ${
+          areFloatingWidgetsVisible
+            ? "pointer-events-auto translate-x-0 opacity-100"
+            : "pointer-events-none translate-x-4 opacity-0"
+        }`}
+      >
+        <button
+          type="button"
+          className={`pointer-events-auto relative inline-flex h-12 w-12 items-center justify-center rounded-full border border-red-700 bg-red-600 text-white shadow-[0_10px_24px_rgba(220,38,38,0.35)] transition ${
+            hasPopupCommentsSection
+              ? "hover:bg-red-700"
+              : "cursor-not-allowed opacity-45"
+          }`}
+          onClick={() => {
+            if (!hasPopupCommentsSection) return;
+            setIsPopupCommentModalOpen(true);
+          }}
+          disabled={!hasPopupCommentsSection}
+          aria-label="Open popup comments"
+          title={hasPopupCommentsSection ? "Popup comments" : "Popup comments unavailable"}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+            <path
+              d="M12 7.25V13.25"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+            <circle cx="12" cy="17.1" r="1.25" fill="currentColor" />
+          </svg>
+        </button>
+
+        {isMemoChatOpen ? (
+          <section className="pointer-events-auto flex w-[370px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.22)]">
+            <header className="flex items-center justify-between bg-[#003882] px-3 py-2.5 text-white">
+              <div className="text-sm font-semibold">Memos</div>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 items-center justify-center rounded border border-white/30 text-white hover:bg-white/10"
+                onClick={() => setIsMemoChatOpen(false)}
+                aria-label="Close memos chat"
+                title="Close"
+              >
+                ✕
+              </button>
+            </header>
+
+            <div className="max-h-[420px] min-h-[340px] space-y-2 overflow-y-auto bg-slate-50 p-2.5">
+              {!hasMemoContext ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  Memos are available when job is loaded.
+                </div>
+              ) : isMemosLoading ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  Loading memos...
+                </div>
+              ) : memosError ? (
+                <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+                  {memosError}
+                </div>
+              ) : !memos.length ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  No memos yet.
+                </div>
+              ) : (
+                memos.map((memo, memoIndex) => {
+                  const memoId = toText(memo?.id || memo?.ID) || `memo-chat-${memoIndex}`;
+                  const memoAuthor = memo?.Author || {};
+                  const memoIsMine =
+                    Boolean(currentUserId) &&
+                    toText(memo?.author_id || memoAuthor?.id) === currentUserId;
+                  const memoAuthorName = getAuthorName(memoAuthor);
+                  const memoFileMeta = getMemoFileMeta(memo?.file || memo?.File);
+                  const replies = Array.isArray(memo?.ForumComments) ? memo.ForumComments : [];
+                  const isReplySending = sendingReplyPostId === memoId;
+                  return (
+                    <div
+                      key={memoId}
+                      className={`rounded-lg border px-2.5 py-2 ${
+                        memoIsMine ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <div className="truncate text-[11px] font-semibold text-slate-700">
+                          {memoIsMine ? "You" : memoAuthorName}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-slate-500">
+                            {formatRelativeTime(memo?.created_at || memo?.Date_Added)}
+                          </span>
+                          <button
+                            type="button"
+                            className="inline-flex h-5 w-5 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
+                            onClick={() => setMemoDeleteTarget({ type: "post", id: memoId })}
+                            title="Delete memo"
+                            aria-label="Delete memo"
+                          >
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="whitespace-pre-wrap text-xs text-slate-700">
+                        {toText(
+                          memo?.post_copy ||
+                            memo?.Post_Copy ||
+                            memo?.comment ||
+                            memo?.Comment ||
+                            memo?.text ||
+                            memo?.Text ||
+                            memo?.content ||
+                            memo?.Content
+                        ) || "-"}
+                      </p>
+                      {memoFileMeta?.link ? (
+                        <a
+                          href={memoFileMeta.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1.5 inline-flex max-w-full rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-[#003882] underline underline-offset-2"
+                        >
+                          <span className="max-w-[240px] truncate">
+                            {memoFileMeta.name || "View attachment"}
+                            {memoFileMeta.size ? ` (${formatFileSize(memoFileMeta.size)})` : ""}
+                          </span>
+                        </a>
+                      ) : null}
+
+                      {replies.length ? (
+                        <div className="mt-2 space-y-1.5 border-t border-slate-200 pt-2">
+                          {replies.map((reply, replyIndex) => {
+                            const replyId =
+                              toText(reply?.id || reply?.ID) || `${memoId}-reply-${replyIndex}`;
+                            const replyAuthor = reply?.Author || {};
+                            const replyIsMine =
+                              Boolean(currentUserId) &&
+                              toText(reply?.author_id || replyAuthor?.id) === currentUserId;
+                            return (
+                              <div
+                                key={replyId}
+                                className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5"
+                              >
+                                <div className="mb-0.5 flex items-center justify-between gap-2">
+                                  <span className="truncate text-[10px] font-semibold text-slate-700">
+                                    {replyIsMine ? "You" : getAuthorName(replyAuthor)}
+                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] text-slate-500">
+                                      {formatRelativeTime(reply?.created_at)}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
+                                      onClick={() =>
+                                        setMemoDeleteTarget({ type: "comment", id: replyId })
+                                      }
+                                      title="Delete reply"
+                                      aria-label="Delete reply"
+                                    >
+                                      <TrashIcon />
+                                    </button>
+                                  </div>
+                                </div>
+                                <p className="whitespace-pre-wrap text-xs text-slate-700">
+                                  {toText(
+                                    reply?.comment ||
+                                      reply?.Comment ||
+                                      reply?.post_copy ||
+                                      reply?.Post_Copy ||
+                                      reply?.text ||
+                                      reply?.Text ||
+                                      reply?.content ||
+                                      reply?.Content
+                                  ) || "-"}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-2 flex items-end gap-1.5">
+                        <textarea
+                          className="min-h-[34px] flex-1 rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 outline-none focus:border-slate-400"
+                          placeholder="Reply..."
+                          value={toText(memoReplyDrafts?.[memoId])}
+                          onChange={(event) =>
+                            setMemoReplyDrafts((previous) => ({
+                              ...(previous || {}),
+                              [memoId]: event.target.value,
+                            }))
+                          }
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="!px-2 !py-1 !text-xs"
+                          disabled={Boolean(sendingReplyPostId)}
+                          onClick={() => handleSendMemoReply(memoId)}
+                        >
+                          {isReplySending ? "..." : "Send"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <footer className="space-y-2 border-t border-slate-200 bg-white p-2.5">
+              <textarea
+                className="min-h-[52px] w-full rounded border border-slate-300 px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-slate-400"
+                placeholder="Write a memo..."
+                value={memoText}
+                onChange={(event) => setMemoText(event.target.value)}
+                disabled={!hasMemoContext || isPostingMemo}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="!px-2 !py-1 !text-xs"
+                    onClick={() => memoFileInputRef.current?.click()}
+                    disabled={!hasMemoContext || isPostingMemo}
+                  >
+                    Attach
+                  </Button>
+                  <input
+                    ref={memoFileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleMemoFileChange}
+                  />
+                  {memoFile ? (
+                    <span className="max-w-[150px] truncate text-[11px] text-slate-500">
+                      {memoFile.name}
+                    </span>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="!bg-[#003882] !px-2 !py-1 !text-xs !text-white hover:!bg-[#0A4A9E]"
+                  onClick={handleSendMemo}
+                  disabled={!hasMemoContext || isPostingMemo}
+                >
+                  {isPostingMemo ? "Posting..." : "Send"}
+                </Button>
+              </div>
+            </footer>
+          </section>
+        ) : null}
+
+        <button
+          type="button"
+          className="pointer-events-auto relative inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#003882] text-white shadow-[0_10px_24px_rgba(0,56,130,0.35)] transition hover:bg-[#0A4A9E]"
+          onClick={() => setIsMemoChatOpen((previous) => !previous)}
+          aria-label={isMemoChatOpen ? "Close memos chat" : "Open memos chat"}
+          title={isMemoChatOpen ? "Close memos chat" : "Open memos chat"}
+        >
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" aria-hidden="true">
+            <path
+              d="M20 6.5v7A3.5 3.5 0 0 1 16.5 17H9l-4 3v-3A3.5 3.5 0 0 1 1.5 13.5v-7A3.5 3.5 0 0 1 5 3h11.5A3.5 3.5 0 0 1 20 6.5Z"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M6.5 8.5h8M6.5 11.5h6"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+          {memos.length ? (
+            <span className="absolute -right-1 -top-1 inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white">
+              {memos.length > 99 ? "99+" : memos.length}
+            </span>
+          ) : null}
+        </button>
+      </div>
     </main>
   );
 }

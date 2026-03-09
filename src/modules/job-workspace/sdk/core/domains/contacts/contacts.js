@@ -1,4 +1,6 @@
 import { resolvePlugin } from "../../plugin.js";
+import { toPromiseLike } from "../../transport.js";
+import { extractFirstRecord } from "../../../utils/sdkResponseUtils.js";
 import {
   normalizeIdentifier,
 } from "../shared/sharedHelpers.js";
@@ -115,4 +117,99 @@ export async function createCompanyRecord({ plugin, payload } = {}) {
     ...(createdRecord && typeof createdRecord === "object" ? createdRecord : {}),
     id: resolvedId,
   };
+}
+
+export async function fetchCompanyAccountRecordById({ plugin, companyId } = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) return null;
+  const normalizedId = normalizeIdentifier(companyId);
+  if (!normalizedId) return null;
+  const query = resolvedPlugin
+    .switchTo("PeterpmCompany")
+    .query()
+    .where("id", normalizedId)
+    .deSelectAll()
+    .select([
+      "id",
+      "name",
+      "type",
+      "description",
+      "phone",
+      "address",
+      "city",
+      "state",
+      "postal_code",
+      "industry",
+      "annual_revenue",
+      "number_of_employees",
+      "account_type",
+      "popup_comment",
+      "xero_contact_id",
+    ])
+    .include("Primary_Person", (personQuery) =>
+      personQuery
+        .deSelectAll()
+        .select(["id", "first_name", "last_name", "email", "sms_number"])
+    )
+    .include("Body_Corporate_Company", (bodyCorpQuery) =>
+      bodyCorpQuery
+        .deSelectAll()
+        .select([
+          "id",
+          "name",
+          "type",
+          "description",
+          "phone",
+          "address",
+          "city",
+          "state",
+          "postal_code",
+          "industry",
+          "annual_revenue",
+          "number_of_employees",
+        ])
+    )
+    .limit(1)
+    .noDestroy();
+  query.getOrInitQueryCalc?.();
+  const result = await toPromiseLike(query.fetchDirect());
+  return extractFirstRecord(result);
+}
+
+export async function fetchContactAccountRecordById({ plugin, contactId } = {}) {
+  const resolvedPlugin = resolvePlugin(plugin);
+  if (!resolvedPlugin?.switchTo) return null;
+  const normalizedId = normalizeIdentifier(contactId);
+  if (!normalizedId) return null;
+  const query = resolvedPlugin
+    .switchTo("PeterpmContact")
+    .query()
+    .where("id", normalizedId)
+    .deSelectAll()
+    .select([
+      "id",
+      "first_name",
+      "last_name",
+      "email",
+      "sms_number",
+      "office_phone",
+      "lot_number",
+      "unit_number",
+      "address",
+      "city",
+      "state",
+      "zip_code",
+      "country",
+      "postal_address",
+      "postal_city",
+      "postal_state",
+      "postal_country",
+      "postal_code",
+      "xero_contact_id",
+    ])
+    .limit(1)
+    .noDestroy();
+  query.getOrInitQueryCalc?.();
+  const result = await toPromiseLike(query.fetchDirect());
+  return extractFirstRecord(result);
 }

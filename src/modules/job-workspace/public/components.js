@@ -12,8 +12,10 @@ export * from "../components/modals/TasksModal.jsx";
 
 export * from "../components/primitives/JobDirectTable.jsx";
 
+export * from "../components/sections/AccountDetailsSection.jsx";
 export * from "../components/sections/AddActivitiesSection.jsx";
 export * from "../components/sections/AddMaterialsSection.jsx";
+export * from "../components/sections/RelatedRecordsSection.jsx";
 export * from "../components/sections/InvoiceSection.jsx";
 export * from "../components/sections/JobInformationSection.jsx";
 export * from "../components/sections/UploadsSection.jsx";

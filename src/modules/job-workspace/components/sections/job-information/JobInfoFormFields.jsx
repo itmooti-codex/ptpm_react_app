@@ -242,11 +242,14 @@ export function SearchDropdownInput({
   emptyText,
   addButtonLabel,
   closeOnSelect = true,
+  autoConfirmOnClose = false,
   rootData,
 }) {
   const rootRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
   const hasValue = Boolean(String(value || "").trim());
+  const onAddRef = useRef(onAdd);
+  onAddRef.current = onAdd;
 
   const filteredItems = useMemo(() => {
     const query = String(value || "");
@@ -277,11 +280,14 @@ export function SearchDropdownInput({
     if (!isOpen) return undefined;
     const handleClickOutside = (event) => {
       if (!rootRef.current || rootRef.current.contains(event.target)) return;
+      if (autoConfirmOnClose && typeof onAddRef.current === "function") {
+        onAddRef.current();
+      }
       setIsOpen(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isOpen]);
+  }, [autoConfirmOnClose, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
