@@ -935,6 +935,7 @@ export function JobDetailsPage() {
   }));
   const [isTasksModalOpen, setIsTasksModalOpen] = useState(false);
   const [invoiceActiveTab, setInvoiceActiveTab] = useState("");
+  const [invoiceActiveTabVersion, setInvoiceActiveTabVersion] = useState(0);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const [appointmentModalMode, setAppointmentModalMode] = useState("create");
   const [editingAppointmentId, setEditingAppointmentId] = useState("");
@@ -1049,6 +1050,7 @@ export function JobDetailsPage() {
     setMountedWorkspaceTabs({ "related-data": true });
     setIsTasksModalOpen(false);
     setInvoiceActiveTab("");
+    setInvoiceActiveTabVersion(0);
     setIsAppointmentModalOpen(false);
     setAppointmentModalMode("create");
     setEditingAppointmentId("");
@@ -1126,6 +1128,7 @@ export function JobDetailsPage() {
       setMountedWorkspaceTabs({ "related-data": true });
       setIsTasksModalOpen(false);
       setInvoiceActiveTab("");
+    setInvoiceActiveTabVersion(0);
       setIsAppointmentModalOpen(false);
       setAppointmentModalMode("create");
       setEditingAppointmentId("");
@@ -1192,6 +1195,7 @@ export function JobDetailsPage() {
       setMountedWorkspaceTabs({ "related-data": true });
       setIsTasksModalOpen(false);
       setInvoiceActiveTab("");
+    setInvoiceActiveTabVersion(0);
       setIsAppointmentModalOpen(false);
       setAppointmentModalMode("create");
       setEditingAppointmentId("");
@@ -1327,6 +1331,7 @@ export function JobDetailsPage() {
         setMountedWorkspaceTabs({ "related-data": true });
         setIsTasksModalOpen(false);
         setInvoiceActiveTab("");
+    setInvoiceActiveTabVersion(0);
         setIsAppointmentModalOpen(false);
         setAppointmentModalMode("create");
         setEditingAppointmentId("");
@@ -2732,8 +2737,8 @@ export function JobDetailsPage() {
 
     const feedbackSection = residentFeedbackAvailable
       ? `
-      <div class="section-title center">Resident's Feedback</div>
-      <div class="grid-two">
+      <div class="js-section-title js-section-title-center">Resident's Feedback</div>
+      <div class="js-grid-two">
         <div><b>Animals:</b> ${escapeHtml(toText(relatedInquiryRecord?.how_can_we_help))}</div>
         <div><b>Renovations:</b> ${escapeHtml(toText(relatedInquiryRecord?.renovations))}</div>
         <div><b>Building:</b> ${escapeHtml(toText(activeWorkspaceProperty?.building_type || activeWorkspaceProperty?.Building_Type || activeWorkspaceProperty?.property_type || activeWorkspaceProperty?.Property_Type))}</div>
@@ -2745,74 +2750,61 @@ export function JobDetailsPage() {
         <div><b>Building Age:</b> ${escapeHtml(toText(activeWorkspaceProperty?.building_age || activeWorkspaceProperty?.Building_Age))}</div>
         <div><b>Manhole?</b> ${escapeHtml(toText(activeWorkspaceProperty?.manhole || activeWorkspaceProperty?.Manhole))}</div>
       </div>
-      <div class="recommendation"><b>Recommendations:</b> ${escapeHtml(toText(quotePaymentDetails?.admin_recommendation || relatedInquiryRecord?.recommendations))}</div>
+      <div class="js-recommendation"><b>Recommendations:</b> ${escapeHtml(toText(quotePaymentDetails?.admin_recommendation || relatedInquiryRecord?.recommendations))}</div>
       `
       : "";
 
     const logoAbsUrl = `${window.location.origin}${logoUrl}`;
-    return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Job Sheet</title>
-  <style>
-    body { font-family: Arial, sans-serif; color: #111; margin: 0; padding: 12px; font-size: 12px; }
-    .sheet { border: 1px solid #cbd5e1; padding: 10px; }
-    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-    .logo { max-height: 56px; max-width: 180px; object-fit: contain; }
-    .top { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
-    .title { text-align: center; font-weight: 700; font-size: 30px; letter-spacing: .5px; margin: 4px 0 10px; }
-    .muted { color: #334155; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
-    .section-title { font-weight: 700; border-top: 1px solid #111; border-bottom: 1px solid #111; padding: 3px 0; margin: 8px 0 6px; }
-    .section-title.center { text-align: center; }
-    .grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
-    .recommendation { margin-top: 6px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    th, td { border: 1px solid #94a3b8; padding: 4px; text-align: left; font-size: 11px; }
-    th { background: #f1f5f9; }
-  </style>
-</head>
-<body>
-  <div class="sheet">
-    <div class="header">
-      <img src="${logoAbsUrl}" class="logo" alt="Logo" />
-    </div>
-    <div class="top">
-      <div>
-        <div><b>Account Name:</b> ${escapeHtml(toText(accountLabel))}</div>
-        <div><b>Account Type:</b> ${escapeHtml(toText(accountType || "-"))}</div>
-        <div><b>Work Req. By:</b> ${escapeHtml(toText(jobTakenBySearch || jobTakenByPrefillLabel))}</div>
-        <div><b>Work Order #:</b> ${escapeHtml(toText(safeUid))}</div>
-        <div><b>Job Address:</b> ${escapeHtml(toText(activePropertyAddress || accountAddressLabel))}</div>
-        <div><b>Job Suburb:</b> ${escapeHtml(toText(activeWorkspaceProperty?.suburb_town || activeWorkspaceProperty?.Suburb_Town || activeWorkspaceProperty?.city || activeWorkspaceProperty?.City))}</div>
-      </div>
-      <div class="muted"><b>Date:</b> ${escapeHtml(formatDateDisplay(Date.now()))}</div>
-    </div>
-
-    <div class="title">JOB SHEET</div>
-    <div class="section-title">Resident's Details</div>
-    ${residentsRows.length ? residentsRows.map((row) => `<div>${escapeHtml(row)}</div>`).join("") : "<div>-</div>"}
-    ${feedbackSection}
-
-    <div class="section-title">Activities</div>
-    ${
-      activitiesRows.length
-        ? `<table><thead><tr><th>Task</th><th>Option</th><th>Service</th><th>Qty</th><th>Price</th></tr></thead><tbody>${
-            activitiesRows
-              .map(
-                (row) =>
-                  `<tr><td>${escapeHtml(row.task)}</td><td>${escapeHtml(row.option)}</td><td>${escapeHtml(
-                    row.service
-                  )}</td><td>${escapeHtml(row.qty)}</td><td>${escapeHtml(row.price)}</td></tr>`
-              )
-              .join("")
-          }</tbody></table>`
-        : "<div>No activities found.</div>"
-    }
+    return `<style>
+  .js-sheet { font-family: Arial, sans-serif; color: #111; font-size: 12px; border: 1px solid #cbd5e1; padding: 10px; }
+  .js-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .js-logo { max-height: 56px; max-width: 180px; object-fit: contain; }
+  .js-top { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
+  .js-title { text-align: center; font-weight: 700; font-size: 30px; letter-spacing: .5px; margin: 4px 0 10px; }
+  .js-muted { color: #334155; }
+  .js-section-title { font-weight: 700; border-top: 1px solid #111; border-bottom: 1px solid #111; padding: 3px 0; margin: 8px 0 6px; }
+  .js-section-title-center { text-align: center; }
+  .js-grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+  .js-recommendation { margin-top: 6px; }
+  .js-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .js-table th, .js-table td { border: 1px solid #94a3b8; padding: 4px; text-align: left; font-size: 11px; }
+  .js-table th { background: #f1f5f9; }
+</style>
+<div class="js-sheet">
+  <div class="js-header">
+    <img src="${logoAbsUrl}" class="js-logo" alt="Logo" />
   </div>
-</body>
-</html>`;
+  <div class="js-top">
+    <div>
+      <div><b>Account Name:</b> ${escapeHtml(toText(accountLabel))}</div>
+      <div><b>Account Type:</b> ${escapeHtml(toText(accountType || "-"))}</div>
+      <div><b>Work Req. By:</b> ${escapeHtml(toText(jobTakenBySearch || jobTakenByPrefillLabel))}</div>
+      <div><b>Work Order #:</b> ${escapeHtml(toText(safeUid))}</div>
+      <div><b>Job Address:</b> ${escapeHtml(toText(activePropertyAddress || accountAddressLabel))}</div>
+      <div><b>Job Suburb:</b> ${escapeHtml(toText(activeWorkspaceProperty?.suburb_town || activeWorkspaceProperty?.Suburb_Town || activeWorkspaceProperty?.city || activeWorkspaceProperty?.City))}</div>
+    </div>
+    <div class="js-muted"><b>Date:</b> ${escapeHtml(formatDateDisplay(Date.now()))}</div>
+  </div>
+  <div class="js-title">JOB SHEET</div>
+  <div class="js-section-title">Resident's Details</div>
+  ${residentsRows.length ? residentsRows.map((row) => `<div>${escapeHtml(row)}</div>`).join("") : "<div>-</div>"}
+  ${feedbackSection}
+  <div class="js-section-title">Activities</div>
+  ${
+    activitiesRows.length
+      ? `<table class="js-table"><thead><tr><th>Task</th><th>Option</th><th>Service</th><th>Qty</th><th>Price</th></tr></thead><tbody>${
+          activitiesRows
+            .map(
+              (row) =>
+                `<tr><td>${escapeHtml(row.task)}</td><td>${escapeHtml(row.option)}</td><td>${escapeHtml(
+                  row.service
+                )}</td><td>${escapeHtml(row.qty)}</td><td>${escapeHtml(row.price)}</td></tr>`
+            )
+            .join("")
+        }</tbody></table>`
+      : "<div>No activities found.</div>"
+  }
+</div>`;
   }, [
     accountCompanyAddress,
     accountCompanyName,
@@ -2829,6 +2821,71 @@ export function JobDetailsPage() {
     jobTakenBySearch,
     quotePaymentDetails?.admin_recommendation,
     relatedInquiryId,
+    relatedInquiryRecord,
+    residentFeedbackAvailable,
+    safeUid,
+  ]);
+  const quoteHeaderData = useMemo(() => {
+    const accountLabel = isCompanyAccount
+      ? accountCompanyName || accountCompanyPrimaryName
+      : accountContactName;
+    const accountAddressLabel = isCompanyAccount ? accountCompanyAddress : accountContactAddress;
+    return {
+      logoUrl: `${window.location.origin}${logoUrl}`,
+      accountName: toText(accountLabel),
+      accountType: toText(accountType || "—"),
+      workReqBy: toText(jobTakenBySearch || jobTakenByPrefillLabel),
+      workOrderUid: toText(safeUid),
+      jobAddress: toText(activePropertyAddress || accountAddressLabel),
+      jobSuburb: toText(
+        activeWorkspaceProperty?.suburb_town ||
+        activeWorkspaceProperty?.Suburb_Town ||
+        activeWorkspaceProperty?.city ||
+        activeWorkspaceProperty?.City
+      ),
+      date: formatDateDisplay(Date.now()),
+      residentsRows: [
+        [accountContactName, accountContactPhone].filter(Boolean).join("  Ph: "),
+        [accountCompanyPrimaryName, accountCompanyPrimaryPhone].filter(Boolean).join("  Ph: "),
+      ].filter(Boolean),
+      feedback: residentFeedbackAvailable
+        ? {
+            animals: toText(relatedInquiryRecord?.how_can_we_help),
+            renovations: toText(relatedInquiryRecord?.renovations),
+            building: toText(
+              activeWorkspaceProperty?.building_type ||
+              activeWorkspaceProperty?.Building_Type ||
+              activeWorkspaceProperty?.property_type ||
+              activeWorkspaceProperty?.Property_Type
+            ),
+            times: toText(relatedInquiryRecord?.pest_active_times_options_as_text),
+            noises: toText(relatedInquiryRecord?.noise_signs_options_as_text),
+            location: toText(relatedInquiryRecord?.pest_location_options_as_text),
+            resHrs: toText(relatedInquiryRecord?.resident_availability),
+            stories: toText(activeWorkspaceProperty?.stories || activeWorkspaceProperty?.Stories),
+            buildingAge: toText(activeWorkspaceProperty?.building_age || activeWorkspaceProperty?.Building_Age),
+            manhole: toText(activeWorkspaceProperty?.manhole || activeWorkspaceProperty?.Manhole),
+          }
+        : null,
+      recommendation: toText(
+        quotePaymentDetails?.admin_recommendation || relatedInquiryRecord?.recommendations
+      ),
+    };
+  }, [
+    accountCompanyAddress,
+    accountCompanyName,
+    accountCompanyPrimaryName,
+    accountCompanyPrimaryPhone,
+    accountContactAddress,
+    accountContactName,
+    accountContactPhone,
+    accountType,
+    activePropertyAddress,
+    activeWorkspaceProperty,
+    isCompanyAccount,
+    jobTakenByPrefillLabel,
+    jobTakenBySearch,
+    quotePaymentDetails?.admin_recommendation,
     relatedInquiryRecord,
     residentFeedbackAvailable,
     safeUid,
@@ -3012,7 +3069,7 @@ export function JobDetailsPage() {
     success,
   ]);
 
-  const handleAcceptQuote = useCallback(async () => {
+  const handleAcceptQuote = useCallback(async ({ signatureBlob } = {}) => {
     if (isQuoteWorkflowUpdating) return;
     if (quoteStatusNormalized !== "sent") {
       error("Accept failed", "Quote can be accepted only after it is sent.");
@@ -3031,6 +3088,16 @@ export function JobDetailsPage() {
     const now = Math.trunc(Date.now() / 1000);
     setIsQuoteWorkflowUpdating(true);
     try {
+      let signatureUrl = "";
+      if (signatureBlob) {
+        const signatureFile = new File([signatureBlob], "signature.png", { type: "image/png" });
+        const uploaded = await uploadMaterialFile({
+          file: signatureFile,
+          uploadPath: `signatures/${jobId}`,
+        });
+        signatureUrl = String(uploaded?.url || "").trim();
+      }
+
       await updateJobFieldsById({
         plugin,
         jobId,
@@ -3038,6 +3105,8 @@ export function JobDetailsPage() {
           quote_status: "Accepted",
           job_status: "In Progress",
           date_quoted_accepted: now,
+          terms_and_conditions_accepted: true,
+          ...(signatureUrl ? { signature: signatureUrl } : {}),
         },
       });
       setQuotePaymentDetails((previous) => ({
@@ -3061,6 +3130,7 @@ export function JobDetailsPage() {
     plugin,
     quoteStatusNormalized,
     success,
+    uploadMaterialFile,
   ]);
 
   const accountEditorContactInitialValues = useMemo(
@@ -4368,6 +4438,7 @@ export function JobDetailsPage() {
                         setOpenMenu("");
                         setActiveWorkspaceTab("invoice-payment");
                         setInvoiceActiveTab("quote");
+                        setInvoiceActiveTabVersion((v) => v + 1);
                       }}
                     >
                       Review Quote
@@ -4378,6 +4449,8 @@ export function JobDetailsPage() {
                       onClick={() => {
                         setOpenMenu("");
                         setActiveWorkspaceTab("invoice-payment");
+                        setInvoiceActiveTab("client-invoice");
+                        setInvoiceActiveTabVersion((v) => v + 1);
                       }}
                     >
                       Review Invoice
@@ -4510,6 +4583,7 @@ export function JobDetailsPage() {
                         setOpenMenu("");
                         setActiveWorkspaceTab("invoice-payment");
                         setInvoiceActiveTab("quote");
+                        setInvoiceActiveTabVersion((v) => v + 1);
                       }}
                     >
                       Print Job Sheet
@@ -4697,6 +4771,7 @@ export function JobDetailsPage() {
                         onClick={() => {
                           setActiveWorkspaceTab("invoice-payment");
                           setInvoiceActiveTab("quote");
+                          setInvoiceActiveTabVersion((v) => v + 1);
                         }}
                         disabled={isQuoteWorkflowUpdating}
                       >
@@ -4975,11 +5050,12 @@ export function JobDetailsPage() {
                 <InvoiceSection
                   plugin={plugin}
                   jobData={jobDirectBootstrapJobData}
-                  quoteSheetHtml={reviewJobSheetHtml}
+                  quoteHeaderData={quoteHeaderData}
                   onAcceptQuote={handleAcceptQuote}
                   isAcceptingQuote={isQuoteWorkflowUpdating}
                   canAcceptQuote={canAcceptQuote}
                   activeTab={invoiceActiveTab}
+                  activeTabVersion={invoiceActiveTabVersion}
                 />
               </WorkspaceTabPanel>
             </section>

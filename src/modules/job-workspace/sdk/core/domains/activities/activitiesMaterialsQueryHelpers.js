@@ -16,6 +16,7 @@ export const ACTIVITY_RECORD_SELECT_FIELDS = [
   "include_in_quote_subtotal",
   "include_in_quote",
   "invoice_to_client",
+  "quote_accepted",
 ];
 
 export const MATERIAL_RECORD_SELECT_FIELDS = [
@@ -45,7 +46,12 @@ export const ACTIVITY_SERVICE_SELECT_FIELDS = [
 
 export function applyActivityServiceInclude(query) {
   return query.include("Service", (serviceQuery) =>
-    serviceQuery.deSelectAll().select(["id", "service_name"])
+    serviceQuery
+      .deSelectAll()
+      .select(["id", "service_name"])
+      .include("Primary_Service", (psQuery) =>
+        psQuery.deSelectAll().select(["id", "service_name"])
+      )
   );
 }
 
