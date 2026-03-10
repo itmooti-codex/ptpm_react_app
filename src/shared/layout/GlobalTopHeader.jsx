@@ -6,6 +6,10 @@ import { useToast } from "../providers/ToastProvider.jsx";
 import { useVitalStatsPlugin } from "../../platform/vitalstats/useVitalStatsPlugin.js";
 import { createJobRecord } from "../../features/dashboard/sdk/dashboardSdk.js";
 import appLogo from "../../assets/logo.webp";
+import {
+  clearSelectedDemoUserId,
+  isDemoUserSelectionEnabled,
+} from "../../config/userConfig.js";
 
 function BellIcon() {
   return (
@@ -80,6 +84,7 @@ export function GlobalTopHeader() {
     openNotification,
   } = useAnnouncements();
   const { profile, displayName } = useCurrentUserProfile();
+  const demoUserSelectionEnabled = isDemoUserSelectionEnabled();
 
   useEffect(() => {
     const onDocumentClick = (event) => {
@@ -150,9 +155,37 @@ export function GlobalTopHeader() {
   };
 
   const profileMenuItems = [
-    { key: "profile", label: "Profile", path: "/profile" },
-    { key: "settings", label: "Settings", path: "/settings" },
-    { key: "logout", label: "Logout", path: "/" },
+    {
+      key: "profile",
+      label: "Profile",
+      path: "/profile",
+      onSelect: () => navigate("/profile"),
+    },
+    {
+      key: "settings",
+      label: "Settings",
+      path: "/settings",
+      onSelect: () => navigate("/settings"),
+    },
+    ...(demoUserSelectionEnabled
+      ? [
+          {
+            key: "switch-user",
+            label: "Switch User",
+            path: "",
+            onSelect: () => {
+              clearSelectedDemoUserId();
+              window.location.reload();
+            },
+          },
+        ]
+      : []),
+    {
+      key: "logout",
+      label: "Logout",
+      path: "/",
+      onSelect: () => navigate("/"),
+    },
   ];
 
   return (
@@ -325,13 +358,13 @@ export function GlobalTopHeader() {
                     key={item.key}
                     type="button"
                     className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
-                      location.pathname === item.path
+                      item.path && location.pathname === item.path
                         ? "bg-slate-50 font-medium text-[#003882]"
                         : "text-slate-700"
                     }`}
                     onClick={() => {
                       setIsProfileOpen(false);
-                      navigate(item.path);
+                      item.onSelect?.();
                     }}
                   >
                     {item.label}

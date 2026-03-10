@@ -89,10 +89,6 @@ import {
   fullName,
   toTelHref,
   formatDate,
-  formatFileSize,
-  formatRelativeTime,
-  getAuthorName,
-  getMemoFileMeta,
   mergeMemosPreservingComments,
   formatServiceProviderAllocationLabel,
   formatServiceProviderInputLabel,
@@ -117,7 +113,9 @@ import { DetailsCard } from "@shared/components/ui/DetailsCard.jsx";
 import { CardField } from "@shared/components/ui/CardField.jsx";
 import { CardNote } from "@shared/components/ui/CardNote.jsx";
 import { CardTagList } from "@shared/components/ui/CardTagList.jsx";
+import { MemoChatPanel } from "@shared/components/ui/MemoChatPanel.jsx";
 import { SectionLoadingState } from "@shared/components/ui/SectionLoadingState.jsx";
+import { useCurrentUserProfile } from "@shared/hooks/useCurrentUserProfile.js";
 import {
   parseListSelectionValue,
   serializeListSelectionValue,
@@ -4304,7 +4302,50 @@ export function InquiryDetailsPage() {
   const hasPopupCommentsSection = Boolean(showContactDetails || showCompanyDetails);
   const hasAnyPopupComment = Boolean(contactPopupComment || companyPopupComment);
   const hasMemoContext = Boolean(inquiryNumericId);
-  const currentUserId = toText(APP_USER?.id);
+  const { profile: currentUserProfile } = useCurrentUserProfile();
+  const currentUserId = toText(currentUserProfile?.id || APP_USER?.id);
+  const currentUserMemoAuthor = useMemo(
+    () => ({
+      id: currentUserId,
+      display_name: toText(currentUserProfile?.displayName),
+      first_name: toText(currentUserProfile?.firstName),
+      last_name: toText(currentUserProfile?.lastName),
+      profile_image: toText(currentUserProfile?.profileImage),
+      email: toText(currentUserProfile?.email),
+      sms_number: toText(currentUserProfile?.smsNumber),
+    }),
+    [
+      currentUserId,
+      currentUserProfile?.displayName,
+      currentUserProfile?.email,
+      currentUserProfile?.firstName,
+      currentUserProfile?.lastName,
+      currentUserProfile?.profileImage,
+      currentUserProfile?.smsNumber,
+    ]
+  );
+  const resolveMemoAuthor = useCallback(
+    (author = {}, authorId = "") => {
+      if (!currentUserId || toText(authorId) !== currentUserId) {
+        return author || {};
+      }
+
+      return {
+        ...currentUserMemoAuthor,
+        ...(author && typeof author === "object" ? author : {}),
+        id: toText(author?.id) || currentUserMemoAuthor.id,
+        display_name: toText(author?.display_name || author?.Display_Name) || currentUserMemoAuthor.display_name,
+        first_name: toText(author?.first_name || author?.First_Name) || currentUserMemoAuthor.first_name,
+        last_name: toText(author?.last_name || author?.Last_Name) || currentUserMemoAuthor.last_name,
+        profile_image:
+          toText(author?.profile_image || author?.Profile_Image) || currentUserMemoAuthor.profile_image,
+        email: toText(author?.email || author?.Email) || currentUserMemoAuthor.email,
+        sms_number:
+          toText(author?.sms_number || author?.SMS_Number) || currentUserMemoAuthor.sms_number,
+      };
+    },
+    [currentUserId, currentUserMemoAuthor]
+  );
   const relatedRecordsAccountType = useMemo(() => {
     if (isCompanyAccount) return "Company";
     if (isContactAccount) return "Contact";
@@ -6084,6 +6125,44 @@ export function InquiryDetailsPage() {
   }, [hasMemoContext, inquiryNumericId, isSdkReady, plugin]);
 
   useEffect(() => {
+    if (!isMemoChatOpen || !plugin || !isSdkReady || !hasMemoContext) return undefined;
+
+    let cancelled = false;
+    let isPolling = false;
+    const pollMemos = async () => {
+      if (cancelled || isPolling) return;
+      isPolling = true;
+      try {
+        const rows = await fetchMemosForDetails({
+          plugin,
+          inquiryId: inquiryNumericId,
+          limit: 120,
+        });
+        if (cancelled) return;
+        setMemos((previous) =>
+          mergeMemosPreservingComments(previous, Array.isArray(rows) ? rows : [])
+        );
+        setMemosError("");
+      } catch (pollError) {
+        if (cancelled) return;
+        console.warn("[InquiryDetails] Memo polling failed", pollError);
+      } finally {
+        isPolling = false;
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void pollMemos();
+    }, 1000);
+    void pollMemos();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [hasMemoContext, inquiryNumericId, isMemoChatOpen, isSdkReady, plugin]);
+
+  useEffect(() => {
     setOptimisticListSelectionByField({});
     setRemovingListTagKeys({});
     listSelectionDesiredRef.current = {};
@@ -6900,6 +6979,13 @@ export function InquiryDetailsPage() {
     if (event?.target) event.target.value = "";
   }, []);
 
+  const handleClearMemoFile = useCallback(() => {
+    setMemoFile(null);
+    if (memoFileInputRef.current) {
+      memoFileInputRef.current.value = "";
+    }
+  }, []);
+
   const handleSendMemo = useCallback(async () => {
     const text = toText(memoText);
     if (!hasMemoContext) {
@@ -6926,6 +7012,7 @@ export function InquiryDetailsPage() {
       await createMemoPostForDetails({
         plugin,
         payload: {
+          author_id: currentUserId || null,
           post_copy: text,
           post_status: "Published",
           related_inquiry_id: inquiryNumericId || null,
@@ -6946,6 +7033,7 @@ export function InquiryDetailsPage() {
       setIsPostingMemo(false);
     }
   }, [
+    currentUserId,
     error,
     hasMemoContext,
     inquiryNumericId,
@@ -6971,6 +7059,7 @@ export function InquiryDetailsPage() {
         await createMemoCommentForDetails({
           plugin,
           payload: {
+            author_id: currentUserId || null,
             forum_post_id: normalizedPostId,
             comment: text,
             comment_status: "Published",
@@ -6990,7 +7079,7 @@ export function InquiryDetailsPage() {
         setSendingReplyPostId("");
       }
     },
-    [error, memoReplyDrafts, plugin, refreshMemos, sendingReplyPostId, success]
+    [currentUserId, error, memoReplyDrafts, plugin, refreshMemos, sendingReplyPostId, success]
   );
 
   const confirmDeleteMemoItem = useCallback(async () => {
@@ -6998,6 +7087,45 @@ export function InquiryDetailsPage() {
     const deleteType = toText(memoDeleteTarget?.type);
     const targetId = toText(memoDeleteTarget?.id);
     if (!deleteType || !targetId) return;
+
+    const targetAuthorId = (() => {
+      if (deleteType === "post") {
+        const targetMemo = memos.find(
+          (memo, memoIndex) =>
+            (toText(memo?.id || memo?.ID) || `memo-chat-${memoIndex}`) === targetId
+        );
+        if (!targetMemo) return "";
+        const targetMemoAuthor = resolveMemoAuthor(
+          targetMemo?.Author || {},
+          targetMemo?.author_id || targetMemo?.Author_ID
+        );
+        return toText(targetMemo?.author_id || targetMemoAuthor?.id);
+      }
+
+      for (const memo of memos) {
+        const replies = Array.isArray(memo?.ForumComments) ? memo.ForumComments : [];
+        const targetReply = replies.find((reply, replyIndex) => {
+          const replyId =
+            toText(reply?.id || reply?.ID) ||
+            `${toText(memo?.id || memo?.ID) || "memo"}-reply-${replyIndex}`;
+          return replyId === targetId;
+        });
+        if (!targetReply) continue;
+        const targetReplyAuthor = resolveMemoAuthor(
+          targetReply?.Author || {},
+          targetReply?.author_id || targetReply?.Author_ID
+        );
+        return toText(targetReply?.author_id || targetReplyAuthor?.id);
+      }
+
+      return "";
+    })();
+
+    if (!currentUserId || !targetAuthorId || targetAuthorId !== currentUserId) {
+      setMemoDeleteTarget(null);
+      error("Delete failed", "Only the author can delete this item.");
+      return;
+    }
 
     setIsDeletingMemoItem(true);
     try {
@@ -7015,7 +7143,16 @@ export function InquiryDetailsPage() {
     } finally {
       setIsDeletingMemoItem(false);
     }
-  }, [error, isDeletingMemoItem, memoDeleteTarget, plugin, refreshMemos, success]);
+  }, [
+    currentUserId,
+    error,
+    isDeletingMemoItem,
+    memoDeleteTarget,
+    memos,
+    plugin,
+    refreshMemos,
+    success,
+  ]);
 
   const handleSavePopupComments = useCallback(async () => {
     if (isSavingPopupComment) return;
@@ -8900,227 +9037,39 @@ export function InquiryDetailsPage() {
         </button>
 
         {isMemoChatOpen ? (
-          <section className="pointer-events-auto flex w-[370px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.22)]">
-            <header className="flex items-center justify-between bg-[#003882] px-3 py-2.5 text-white">
-              <div className="text-sm font-semibold">Memos</div>
-              <button
-                type="button"
-                className="inline-flex h-7 w-7 items-center justify-center rounded border border-white/30 text-white hover:bg-white/10"
-                onClick={() => setIsMemoChatOpen(false)}
-                aria-label="Close memos chat"
-                title="Close"
-              >
-                ✕
-              </button>
-            </header>
-
-            <div className="max-h-[420px] min-h-[340px] space-y-2 overflow-y-auto bg-slate-50 p-2.5">
-              {!hasMemoContext ? (
-                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-                  Memos are available when inquiry is linked.
-                </div>
-              ) : isMemosLoading ? (
-                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-                  Loading memos...
-                </div>
-              ) : memosError ? (
-                <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
-                  {memosError}
-                </div>
-              ) : !memos.length ? (
-                <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-                  No memos yet.
-                </div>
-              ) : (
-                memos.map((memo, memoIndex) => {
-                  const memoId = toText(memo?.id || memo?.ID) || `memo-chat-${memoIndex}`;
-                  const memoAuthor = memo?.Author || {};
-                  const memoIsMine =
-                    Boolean(currentUserId) && toText(memo?.author_id || memoAuthor?.id) === currentUserId;
-                  const memoAuthorName = getAuthorName(memoAuthor);
-                  const memoFileMeta = getMemoFileMeta(memo?.file || memo?.File);
-                  const replies = Array.isArray(memo?.ForumComments) ? memo.ForumComments : [];
-                  const isReplySending = sendingReplyPostId === memoId;
-                  return (
-                    <div
-                      key={memoId}
-                      className={`rounded-lg border px-2.5 py-2 ${
-                        memoIsMine
-                          ? "border-blue-200 bg-blue-50"
-                          : "border-slate-200 bg-white"
-                      }`}
-                    >
-                      <div className="mb-1 flex items-center justify-between gap-2">
-                        <div className="truncate text-[11px] font-semibold text-slate-700">
-                          {memoIsMine ? "You" : memoAuthorName}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] text-slate-500">
-                            {formatRelativeTime(memo?.created_at || memo?.Date_Added)}
-                          </span>
-                          <button
-                            type="button"
-                            className="inline-flex h-5 w-5 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
-                            onClick={() => setMemoDeleteTarget({ type: "post", id: memoId })}
-                            title="Delete memo"
-                            aria-label="Delete memo"
-                          >
-                            <TrashIcon />
-                          </button>
-                        </div>
-                      </div>
-                      <p className="whitespace-pre-wrap text-xs text-slate-700">
-                        {toText(
-                          memo?.post_copy ||
-                            memo?.Post_Copy ||
-                            memo?.comment ||
-                            memo?.Comment ||
-                            memo?.text ||
-                            memo?.Text ||
-                            memo?.content ||
-                            memo?.Content
-                        ) || "-"}
-                      </p>
-                      {memoFileMeta?.link ? (
-                        <a
-                          href={memoFileMeta.link}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-1.5 inline-flex max-w-full rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-[#003882] underline underline-offset-2"
-                        >
-                          <span className="max-w-[240px] truncate">
-                            {memoFileMeta.name || "View attachment"}
-                            {memoFileMeta.size ? ` (${formatFileSize(memoFileMeta.size)})` : ""}
-                          </span>
-                        </a>
-                      ) : null}
-
-                      {replies.length ? (
-                        <div className="mt-2 space-y-1.5 border-t border-slate-200 pt-2">
-                          {replies.map((reply, replyIndex) => {
-                            const replyId = toText(reply?.id || reply?.ID) || `${memoId}-reply-${replyIndex}`;
-                            const replyAuthor = reply?.Author || {};
-                            const replyIsMine =
-                              Boolean(currentUserId) &&
-                              toText(reply?.author_id || replyAuthor?.id) === currentUserId;
-                            return (
-                              <div
-                                key={replyId}
-                                className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5"
-                              >
-                                <div className="mb-0.5 flex items-center justify-between gap-2">
-                                  <span className="truncate text-[10px] font-semibold text-slate-700">
-                                    {replyIsMine ? "You" : getAuthorName(replyAuthor)}
-                                  </span>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-[10px] text-slate-500">
-                                      {formatRelativeTime(reply?.created_at)}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      className="inline-flex h-5 w-5 items-center justify-center rounded border border-slate-200 bg-white text-red-600 hover:bg-red-50"
-                                      onClick={() =>
-                                        setMemoDeleteTarget({ type: "comment", id: replyId })
-                                      }
-                                      title="Delete reply"
-                                      aria-label="Delete reply"
-                                    >
-                                      <TrashIcon />
-                                    </button>
-                                  </div>
-                                </div>
-                                <p className="whitespace-pre-wrap text-xs text-slate-700">
-                                  {toText(
-                                    reply?.comment ||
-                                      reply?.Comment ||
-                                      reply?.post_copy ||
-                                      reply?.Post_Copy ||
-                                      reply?.text ||
-                                      reply?.Text ||
-                                      reply?.content ||
-                                      reply?.Content
-                                  ) || "-"}
-                                </p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-
-                      <div className="mt-2 flex items-end gap-1.5">
-                        <textarea
-                          className="min-h-[34px] flex-1 rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 outline-none focus:border-slate-400"
-                          placeholder="Reply..."
-                          value={toText(memoReplyDrafts?.[memoId])}
-                          onChange={(event) =>
-                            setMemoReplyDrafts((previous) => ({
-                              ...(previous || {}),
-                              [memoId]: event.target.value,
-                            }))
-                          }
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="!px-2 !py-1 !text-xs"
-                          disabled={Boolean(sendingReplyPostId)}
-                          onClick={() => handleSendMemoReply(memoId)}
-                        >
-                          {isReplySending ? "..." : "Send"}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <footer className="space-y-2 border-t border-slate-200 bg-white p-2.5">
-              <textarea
-                className="min-h-[52px] w-full rounded border border-slate-300 px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-slate-400"
-                placeholder="Write a memo..."
-                value={memoText}
-                onChange={(event) => setMemoText(event.target.value)}
-                disabled={!hasMemoContext || isPostingMemo}
-              />
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="!px-2 !py-1 !text-xs"
-                    onClick={() => memoFileInputRef.current?.click()}
-                    disabled={!hasMemoContext || isPostingMemo}
-                  >
-                    Attach
-                  </Button>
-                  <input
-                    ref={memoFileInputRef}
-                    type="file"
-                    className="hidden"
-                    onChange={handleMemoFileChange}
-                  />
-                  {memoFile ? (
-                    <span className="max-w-[150px] truncate text-[11px] text-slate-500">
-                      {memoFile.name}
-                    </span>
-                  ) : null}
-                </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="!bg-[#003882] !px-2 !py-1 !text-xs !text-white hover:!bg-[#0A4A9E]"
-                  onClick={handleSendMemo}
-                  disabled={!hasMemoContext || isPostingMemo}
-                >
-                  {isPostingMemo ? "Posting..." : "Send"}
-                </Button>
-              </div>
-            </footer>
-          </section>
+          <MemoChatPanel
+            title="Memos"
+            contextDescription="Memo thread for this inquiry."
+            hasMemoContext={hasMemoContext}
+            isLoading={isMemosLoading}
+            errorMessage={memosError}
+            memos={memos}
+            currentUserId={currentUserId}
+            resolveMemoAuthor={resolveMemoAuthor}
+            sendingReplyPostId={sendingReplyPostId}
+            memoReplyDrafts={memoReplyDrafts}
+            onChangeReplyDraft={(memoId, value) =>
+              setMemoReplyDrafts((previous) => ({
+                ...(previous || {}),
+                [memoId]: value,
+              }))
+            }
+            onSendReply={handleSendMemoReply}
+            onDeleteItem={setMemoDeleteTarget}
+            memoText={memoText}
+            onMemoTextChange={setMemoText}
+            isPostingMemo={isPostingMemo}
+            onSendMemo={handleSendMemo}
+            memoFile={memoFile}
+            memoFileInputRef={memoFileInputRef}
+            onMemoFileChange={handleMemoFileChange}
+            onAttachClick={() => memoFileInputRef.current?.click()}
+            onClearMemoFile={handleClearMemoFile}
+            onClose={() => setIsMemoChatOpen(false)}
+            unavailableMessage="Memos are available when the inquiry is linked."
+            emptyMessage="No memos yet. Start the thread with a quick update or attachment."
+            DeleteIcon={TrashIcon}
+          />
         ) : null}
 
         <button

@@ -7,7 +7,7 @@ export function Modal({
   onClose,
   children,
   widthClass = "max-w-2xl",
-  zIndexClass = "z-50",
+  zIndexClass = "z-[80]",
   footer,
   closeOnBackdrop = true,
 }) {

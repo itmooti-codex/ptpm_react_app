@@ -1565,8 +1565,40 @@ export async function deleteUploadForDetails({ plugin, uploadId } = {}) {
   return deleteUploadRecord({ plugin, id: uploadId });
 }
 
-function mapForumCommentRecord(raw = {}, index = 0, postId = "") {
+function mapForumAuthorRecord(raw = {}) {
   const author = raw?.Author || {};
+  return {
+    id: normalizeId(raw?.author_id || raw?.Author_ID || author?.id || author?.ID),
+    first_name: toText(
+      author?.first_name || author?.First_Name || raw?.Author_First_Name || raw?.author_first_name
+    ),
+    last_name: toText(
+      author?.last_name || author?.Last_Name || raw?.Author_Last_Name || raw?.author_last_name
+    ),
+    display_name: toText(
+      author?.display_name ||
+        author?.Display_Name ||
+        raw?.Author_Display_Name ||
+        raw?.author_display_name
+    ),
+    profile_image: toText(
+      author?.profile_image ||
+        author?.Profile_Image ||
+        raw?.Author_Profile_Image ||
+        raw?.author_profile_image
+    ),
+    email: toText(author?.email || author?.Email || raw?.AuthorEmail || raw?.Author_Email),
+    sms_number: toText(
+      author?.sms_number ||
+        author?.SMS_Number ||
+        raw?.Author_SMS_Number ||
+        raw?.Author_Sms_Number
+    ),
+  };
+}
+
+function mapForumCommentRecord(raw = {}, index = 0, postId = "") {
+  const author = mapForumAuthorRecord(raw);
   return {
     id: normalizeId(raw?.id || raw?.ID) || `reply-${postId || "post"}-${index}`,
     author_id: normalizeId(raw?.author_id || raw?.Author_ID || author?.id || author?.ID),
@@ -1582,18 +1614,12 @@ function mapForumCommentRecord(raw = {}, index = 0, postId = "") {
     ),
     comment_status: toText(raw?.comment_status || raw?.Comment_Status),
     created_at: raw?.created_at ?? raw?.Date_Added ?? null,
-    Author: {
-      id: normalizeId(author?.id || author?.ID),
-      first_name: toText(author?.first_name || author?.First_Name),
-      last_name: toText(author?.last_name || author?.Last_Name),
-      display_name: toText(author?.display_name || author?.Display_Name),
-      profile_image: toText(author?.profile_image || author?.Profile_Image),
-    },
+    Author: author,
   };
 }
 
 function mapForumPostRecord(raw = {}, index = 0) {
-  const author = raw?.Author || {};
+  const author = mapForumAuthorRecord(raw);
   const postId = normalizeId(raw?.id || raw?.ID) || `post-${index}`;
   const comments = Array.isArray(raw?.ForumComments)
     ? raw.ForumComments
@@ -1630,13 +1656,7 @@ function mapForumPostRecord(raw = {}, index = 0) {
     ),
     file: raw?.file ?? raw?.File ?? "",
     post_status: toText(raw?.post_status || raw?.Post_Status),
-    Author: {
-      id: normalizeId(author?.id || author?.ID),
-      first_name: toText(author?.first_name || author?.First_Name),
-      last_name: toText(author?.last_name || author?.Last_Name),
-      display_name: toText(author?.display_name || author?.Display_Name),
-      profile_image: toText(author?.profile_image || author?.Profile_Image),
-    },
+    Author: author,
     ForumComments: dedupedComments,
   };
 }
@@ -1675,7 +1695,7 @@ async function fetchForumCommentsByPostId({ plugin, postId } = {}) {
       .include("Author", (authorQuery) =>
         authorQuery
           .deSelectAll()
-          .select(["id", "first_name", "last_name", "display_name", "profile_image"])
+          .select(["id", "first_name", "last_name", "display_name", "profile_image", "email", "sms_number"])
       )
       .orderBy("created_at", "asc")
       .limit(200)
@@ -1751,7 +1771,7 @@ function buildForumPostQuery(plugin, { inquiryId = "", jobId = "", limit = 80 } 
     .include("Author", (authorQuery) =>
       authorQuery
         .deSelectAll()
-        .select(["id", "first_name", "last_name", "display_name", "profile_image"])
+        .select(["id", "first_name", "last_name", "display_name", "profile_image", "email", "sms_number"])
     )
     .include("ForumComments", (commentQuery) =>
       commentQuery
@@ -1760,7 +1780,7 @@ function buildForumPostQuery(plugin, { inquiryId = "", jobId = "", limit = 80 } 
         .include("Author", (authorQuery) =>
           authorQuery
             .deSelectAll()
-            .select(["id", "first_name", "last_name", "display_name", "profile_image"])
+            .select(["id", "first_name", "last_name", "display_name", "profile_image", "email", "sms_number"])
         )
     )
     .orderBy("created_at", "asc")
@@ -1831,6 +1851,35 @@ export function subscribeMemosForDetails({
     return () => {};
   }
 
+  let isRefreshInFlight = false;
+  let shouldRefreshAgain = false;
+  const refreshMemoSnapshot = async () => {
+    if (isRefreshInFlight) {
+      shouldRefreshAgain = true;
+      return;
+    }
+
+    isRefreshInFlight = true;
+    try {
+      const rows = await fetchMemosForDetails({
+        plugin,
+        inquiryId,
+        jobId,
+        limit,
+      });
+      onChange?.(rows);
+    } catch (error) {
+      console.error("[jobDetailsSdk] memo subscription refresh failed", error);
+      onError?.(error);
+    } finally {
+      isRefreshInFlight = false;
+      if (shouldRefreshAgain) {
+        shouldRefreshAgain = false;
+        void refreshMemoSnapshot();
+      }
+    }
+  };
+
   let stream = source;
   if (
     typeof window !== "undefined" &&
@@ -1841,9 +1890,8 @@ export function subscribeMemosForDetails({
   }
 
   const subscription = stream.subscribe({
-    next: (payload) => {
-      const rows = extractRowsFromPayload(payload, "subscribeToForumPosts");
-      onChange?.(normalizeForumPosts(rows));
+    next: () => {
+      void refreshMemoSnapshot();
     },
     error: (error) => {
       console.error("[jobDetailsSdk] memo subscription failed", error);

@@ -158,13 +158,28 @@ export function parseJsonLike(value) {
   }
 }
 
+function isPlaceholderAttachmentValue(value) {
+  const normalized = toText(value).toLowerCase();
+  return (
+    !normalized ||
+    normalized === "-" ||
+    normalized === "—" ||
+    normalized === "null" ||
+    normalized === "undefined" ||
+    normalized === '""' ||
+    normalized === "''" ||
+    normalized === "{}" ||
+    normalized === "[]"
+  );
+}
+
 export function getMemoFileMeta(input) {
   if (!input) return null;
   if (typeof input === "string") {
     const parsed = parseJsonLike(input);
-    if (parsed && typeof parsed === "object") return getMemoFileMeta(parsed);
+    if (parsed !== null) return getMemoFileMeta(parsed);
     const link = toText(input);
-    if (!link) return null;
+    if (isPlaceholderAttachmentValue(link)) return null;
     return { link, name: link.split("/").filter(Boolean).pop() || "Attachment", size: "", type: "" };
   }
   if (typeof input === "object") {
@@ -174,7 +189,7 @@ export function getMemoFileMeta(input) {
     }
     if (input.fileObject) return getMemoFileMeta(input.fileObject);
     const link = toText(input.link || input.url || input.path);
-    if (!link) return null;
+    if (isPlaceholderAttachmentValue(link)) return null;
     return {
       link,
       name: toText(input.name || input.filename) || link.split("/").filter(Boolean).pop() || "Attachment",
