@@ -2777,7 +2777,6 @@ export function JobDetailsPage() {
     serviceProviderSearch,
     workspacePropertySearchValue,
   ]);
-  const residentFeedbackAvailable = Boolean(toText(relatedInquiryId));
   const reviewJobSheetHtml = useMemo(() => {
     const accountLabel = isCompanyAccount ? accountCompanyName || accountCompanyPrimaryName : accountContactName;
     const accountAddressLabel = isCompanyAccount ? accountCompanyAddress : accountContactAddress;
@@ -2800,22 +2799,13 @@ export function JobDetailsPage() {
       }))
       .filter((row) => row.task || row.option || row.service);
 
-    const feedbackSection = residentFeedbackAvailable
+    const recommendationText = toText(
+      quotePaymentDetails?.admin_recommendation || relatedInquiryRecord?.recommendations
+    );
+    const feedbackSection = recommendationText
       ? `
       <div class="js-section-title js-section-title-center">Resident's Feedback</div>
-      <div class="js-grid-two">
-        <div><b>Animals:</b> ${escapeHtml(toText(relatedInquiryRecord?.how_can_we_help))}</div>
-        <div><b>Renovations:</b> ${escapeHtml(toText(relatedInquiryRecord?.renovations))}</div>
-        <div><b>Building:</b> ${escapeHtml(toText(activeWorkspaceProperty?.building_type || activeWorkspaceProperty?.Building_Type || activeWorkspaceProperty?.property_type || activeWorkspaceProperty?.Property_Type))}</div>
-        <div><b>Times:</b> ${escapeHtml(toText(relatedInquiryRecord?.pest_active_times_options_as_text))}</div>
-        <div><b>Noises:</b> ${escapeHtml(toText(relatedInquiryRecord?.noise_signs_options_as_text))}</div>
-        <div><b>Location:</b> ${escapeHtml(toText(relatedInquiryRecord?.pest_location_options_as_text))}</div>
-        <div><b>Res. Hrs:</b> ${escapeHtml(toText(relatedInquiryRecord?.resident_availability))}</div>
-        <div><b>Stories:</b> ${escapeHtml(toText(activeWorkspaceProperty?.stories || activeWorkspaceProperty?.Stories))}</div>
-        <div><b>Building Age:</b> ${escapeHtml(toText(activeWorkspaceProperty?.building_age || activeWorkspaceProperty?.Building_Age))}</div>
-        <div><b>Manhole?</b> ${escapeHtml(toText(activeWorkspaceProperty?.manhole || activeWorkspaceProperty?.Manhole))}</div>
-      </div>
-      <div class="js-recommendation"><b>Recommendations:</b> ${escapeHtml(toText(quotePaymentDetails?.admin_recommendation || relatedInquiryRecord?.recommendations))}</div>
+      <div class="js-recommendation"><b>Recommendations:</b> ${escapeHtml(recommendationText)}</div>
       `
       : "";
 
@@ -2885,9 +2875,7 @@ export function JobDetailsPage() {
     jobTakenByPrefillLabel,
     jobTakenBySearch,
     quotePaymentDetails?.admin_recommendation,
-    relatedInquiryId,
     relatedInquiryRecord,
-    residentFeedbackAvailable,
     safeUid,
   ]);
   const quoteHeaderData = useMemo(() => {
@@ -2913,25 +2901,7 @@ export function JobDetailsPage() {
         [accountContactName, accountContactPhone].filter(Boolean).join("  Ph: "),
         [accountCompanyPrimaryName, accountCompanyPrimaryPhone].filter(Boolean).join("  Ph: "),
       ].filter(Boolean),
-      feedback: residentFeedbackAvailable
-        ? {
-            animals: toText(relatedInquiryRecord?.how_can_we_help),
-            renovations: toText(relatedInquiryRecord?.renovations),
-            building: toText(
-              activeWorkspaceProperty?.building_type ||
-              activeWorkspaceProperty?.Building_Type ||
-              activeWorkspaceProperty?.property_type ||
-              activeWorkspaceProperty?.Property_Type
-            ),
-            times: toText(relatedInquiryRecord?.pest_active_times_options_as_text),
-            noises: toText(relatedInquiryRecord?.noise_signs_options_as_text),
-            location: toText(relatedInquiryRecord?.pest_location_options_as_text),
-            resHrs: toText(relatedInquiryRecord?.resident_availability),
-            stories: toText(activeWorkspaceProperty?.stories || activeWorkspaceProperty?.Stories),
-            buildingAge: toText(activeWorkspaceProperty?.building_age || activeWorkspaceProperty?.Building_Age),
-            manhole: toText(activeWorkspaceProperty?.manhole || activeWorkspaceProperty?.Manhole),
-          }
-        : null,
+      feedback: null,
       recommendation: toText(
         quotePaymentDetails?.admin_recommendation || relatedInquiryRecord?.recommendations
       ),
@@ -2952,7 +2922,6 @@ export function JobDetailsPage() {
     jobTakenBySearch,
     quotePaymentDetails?.admin_recommendation,
     relatedInquiryRecord,
-    residentFeedbackAvailable,
     safeUid,
   ]);
   const quoteStatusValue = toText(quotePaymentDetails?.quote_status);
@@ -3181,22 +3150,8 @@ export function JobDetailsPage() {
       .map((r) => `<div>${escHtml(r)}</div>`)
       .join("");
 
-    const feedbackFields = header.feedback
-      ? [
-          ["Animals", header.feedback.animals],
-          ["Renovations", header.feedback.renovations],
-          ["Building", header.feedback.building],
-          ["Times", header.feedback.times],
-          ["Noises", header.feedback.noises],
-          ["Location", header.feedback.location],
-          ["Res. Hrs", header.feedback.resHrs],
-          ["Stories", header.feedback.stories],
-          ["Building Age", header.feedback.buildingAge],
-          ["Manhole", header.feedback.manhole],
-        ]
-          .filter(([, v]) => v)
-          .map(([k, v]) => `<div><strong>${escHtml(k)}:</strong> ${escHtml(v)}</div>`)
-          .join("")
+    const recommendationHtml = header.recommendation
+      ? `<div style="font-size:11px;margin-bottom:10px"><strong>Recommendations:</strong> ${escHtml(header.recommendation)}</div>`
       : "";
 
     const popup = window.open("", "_blank", "width=960,height=800,scrollbars=yes,resizable=yes");
@@ -3241,8 +3196,7 @@ ${header.logoUrl ? `<img class="logo" src="${escHtml(header.logoUrl)}" alt="Logo
 </div>
 <div class="section-bar">Resident's Details</div>
 <div style="margin-bottom:10px;font-size:11px">${residentsHtml || "<div>-</div>"}</div>
-${feedbackFields ? `<div class="section-bar">Resident's Feedback</div><div class="feedback-grid" style="margin-bottom:10px">${feedbackFields}</div>` : ""}
-${header.recommendation ? `<div style="font-size:11px;margin-bottom:10px"><strong>Recommendations:</strong> ${escHtml(header.recommendation)}</div>` : ""}
+${recommendationHtml ? `<div class="section-bar">Resident's Feedback</div>${recommendationHtml}` : ""}
 <div class="section-bar">Services</div>
 ${activities.length ? `<table>
   <thead><tr><th>Task</th><th>Option</th><th>Service</th><th style="text-align:right">Quoted Price</th></tr></thead>

@@ -43,6 +43,7 @@ function normalizeActivity(activity) {
 function QuoteHeader({ data }) {
   if (!data) return null;
   const { logoUrl, accountName, accountType, workReqBy, workOrderUid, jobAddress, jobSuburb, date, residentsRows, feedback, recommendation } = data;
+  const hasRecommendation = Boolean(toText(recommendation));
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 font-sans text-sm text-slate-800">
@@ -72,24 +73,10 @@ function QuoteHeader({ data }) {
         )}
       </div>
 
-      {feedback ? (
+      {hasRecommendation ? (
         <>
           <div className="mt-2 border-y border-slate-300 py-1 text-center text-xs font-bold">Resident&apos;s Feedback</div>
-          <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
-            {feedback.animals ? <div><span className="font-semibold">Animals:</span> {feedback.animals}</div> : null}
-            {feedback.renovations ? <div><span className="font-semibold">Renovations:</span> {feedback.renovations}</div> : null}
-            {feedback.building ? <div><span className="font-semibold">Building:</span> {feedback.building}</div> : null}
-            {feedback.times ? <div><span className="font-semibold">Times:</span> {feedback.times}</div> : null}
-            {feedback.noises ? <div><span className="font-semibold">Noises:</span> {feedback.noises}</div> : null}
-            {feedback.location ? <div><span className="font-semibold">Location:</span> {feedback.location}</div> : null}
-            {feedback.resHrs ? <div><span className="font-semibold">Res. Hrs:</span> {feedback.resHrs}</div> : null}
-            {feedback.stories ? <div><span className="font-semibold">Stories:</span> {feedback.stories}</div> : null}
-            {feedback.buildingAge ? <div><span className="font-semibold">Building Age:</span> {feedback.buildingAge}</div> : null}
-            {feedback.manhole ? <div><span className="font-semibold">Manhole?</span> {feedback.manhole}</div> : null}
-          </div>
-          {recommendation ? (
-            <div className="mt-1.5 text-xs"><span className="font-semibold">Recommendations:</span> {recommendation}</div>
-          ) : null}
+          <div className="mt-1.5 text-xs"><span className="font-semibold">Recommendations:</span> {recommendation}</div>
         </>
       ) : null}
     </div>

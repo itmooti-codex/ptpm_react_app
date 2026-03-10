@@ -340,10 +340,6 @@ export function PublicJobSheetPage() {
       ? accountCompanyAddress
       : accountContactAddress;
 
-    const residentFeedbackAvailable = Boolean(
-      toText(job?.inquiry_record_id || job?.Inquiry_Record_ID || inquiry?.id || inquiry?.ID)
-    );
-
     return {
       logoUrl: `${window.location.origin}${logoAsset}`,
       accountName: toText(accountName),
@@ -357,27 +353,7 @@ export function PublicJobSheetPage() {
         [accountContactName, accountContactPhone].filter(Boolean).join("  Ph: "),
         [accountCompanyPrimaryName, accountCompanyPrimaryPhone].filter(Boolean).join("  Ph: "),
       ].filter(Boolean),
-      feedback: residentFeedbackAvailable
-        ? {
-            animals: toText(inquiry?.how_can_we_help || inquiry?.How_Can_We_Help),
-            renovations: toText(inquiry?.renovations || inquiry?.Renovations),
-            building: toText(
-              activePropertyRecord?.building_type ||
-                activePropertyRecord?.Building_Type ||
-                activePropertyRecord?.property_type ||
-                activePropertyRecord?.Property_Type
-            ),
-            location: toText(
-              inquiry?.pest_location_options_as_text || inquiry?.Pest_Location_Options_As_Text
-            ),
-            resHrs: toText(inquiry?.resident_availability || inquiry?.Resident_Availability),
-            stories: toText(activePropertyRecord?.stories || activePropertyRecord?.Stories),
-            buildingAge: toText(
-              activePropertyRecord?.building_age || activePropertyRecord?.Building_Age
-            ),
-            manhole: toText(activePropertyRecord?.manhole ?? activePropertyRecord?.Manhole),
-          }
-        : null,
+      feedback: null,
       recommendation: toText(
         job?.admin_recommendation ||
           job?.Admin_Recommendation ||
