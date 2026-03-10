@@ -38,6 +38,7 @@ export const ACTIVITY_SERVICE_SELECT_FIELDS = [
   "service_name",
   "service_description",
   "description",
+  "Price_Guide",
   "service_price",
   "standard_warranty",
   "primary_service_id",

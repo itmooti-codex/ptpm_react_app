@@ -169,6 +169,7 @@ function normalizeServiceRecord(record = {}) {
     name,
     type: inferredType,
     parentId,
+    priceGuide: toText(record?.Price_Guide || record?.price_guide),
     price: toText(
       record?.service_price ||
         record?.Service_Price ||
@@ -190,6 +191,13 @@ function normalizeServiceRecord(record = {}) {
         record?.Description
     ),
   };
+}
+
+function buildPrefilledActivityText(service = null) {
+  const description = toText(service?.description);
+  const priceGuide = toText(service?.priceGuide);
+  if (!priceGuide) return description;
+  return [description, "Price Guide", priceGuide].filter(Boolean).join("\n\n");
 }
 
 function defaultActivityForm() {
@@ -548,7 +556,7 @@ export function AddActivitiesSection({
           service_id: preferredOption.id,
           activity_price: toText(preferredOption.price),
           warranty: toText(preferredOption.warranty),
-          activity_text: toText(preferredOption.description),
+          activity_text: buildPrefilledActivityText(preferredOption),
         };
       }
 
@@ -559,7 +567,7 @@ export function AddActivitiesSection({
         service_id: primaryService?.id || normalizedPrimaryId,
         activity_price: toText(primaryService?.price),
         warranty: toText(primaryService?.warranty),
-        activity_text: toText(primaryService?.description),
+        activity_text: buildPrefilledActivityText(primaryService),
       };
     },
     [serviceById, services]
@@ -658,7 +666,7 @@ export function AddActivitiesSection({
         service_id: optionServiceId,
         activity_price: toText(optionService?.price),
         warranty: toText(optionService?.warranty),
-        activity_text: toText(optionService?.description),
+        activity_text: buildPrefilledActivityText(optionService),
       }));
     },
     [serviceById]

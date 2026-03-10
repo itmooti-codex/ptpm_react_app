@@ -100,6 +100,7 @@ export async function fetchServicesForActivities({ plugin } = {}) {
       .query()
       .deSelectAll()
       .select(ACTIVITY_SERVICE_SELECT_FIELDS)
+      .limit(500)
       .noDestroy();
 
     query.getOrInitQueryCalc?.();
