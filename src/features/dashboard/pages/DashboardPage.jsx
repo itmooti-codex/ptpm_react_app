@@ -356,7 +356,8 @@ export function DashboardPage() {
   const handleOpenTaskModal = useCallback(
     (row) => {
       if (!row?.id) return;
-      const contextType = activeTab === TAB_IDS.INQUIRY ? "deal" : "job";
+      const isInquiry = activeTab === TAB_IDS.INQUIRY || row?.recordType === "inquiry";
+      const contextType = isInquiry ? "deal" : "job";
       setTaskModal({
         open: true,
         row: row || null,
@@ -382,10 +383,14 @@ export function DashboardPage() {
   const handleConfirmDeleteInquiry = useCallback(async () => {
     if (!plugin || !deleteTarget?.id || isDeletingInquiry) return;
     setIsDeletingInquiry(true);
+    // For combined tabs, use the record's own type to determine the correct model.
+    const effectiveTabId = deleteTarget.recordType === "inquiry"
+      ? TAB_IDS.INQUIRY
+      : deleteTarget.tabId;
     try {
       await cancelDashboardRecord({
         plugin,
-        tabId: deleteTarget.tabId,
+        tabId: effectiveTabId,
         recordId: deleteTarget.id,
       });
       success("Record cancelled", "Status has been updated to Cancelled.");
@@ -501,7 +506,8 @@ export function DashboardPage() {
     (row) => {
       const uid = String(row?.uid || "").trim();
       if (!uid) return;
-      if (activeTab === TAB_IDS.INQUIRY) {
+      const isInquiry = activeTab === TAB_IDS.INQUIRY || row?.recordType === "inquiry";
+      if (isInquiry) {
         navigate(`/inquiry-details/${encodeURIComponent(uid)}`, {
           state: {
             sourceTab: activeTab,

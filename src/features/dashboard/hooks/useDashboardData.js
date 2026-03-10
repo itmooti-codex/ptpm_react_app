@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { extractFromPayload } from "@shared/sdk/dashboardCore.js";
+import { extractFromPayload, fetchDirectWithTimeout } from "@shared/sdk/dashboardCore.js";
 import { TAB_IDS } from "../constants/tabs.js";
 import {
   buildRowsCacheKey,
@@ -14,8 +14,12 @@ import {
   buildActiveJobsQuery,
   buildUrgentCallsQuery,
   buildOpenTasksQuery,
+  buildUrgentCallsDealQuery,
+  buildOpenTasksDealQuery,
   fetchTabCountByTab,
 } from "../sdk/dashboardSdk.js";
+
+const COMBINED_TABS = new Set([TAB_IDS.URGENT_CALLS, TAB_IDS.OPEN_TASKS]);
 
 const TAB_QUERY_BUILDERS = {
   [TAB_IDS.INQUIRY]: buildDealsQuery,
@@ -61,6 +65,54 @@ export function useDashboardData({
 
   useEffect(() => {
     if (!plugin) return;
+
+    // ── Combined tabs: run two parallel fetches (jobs + deals) and merge ──
+    if (COMBINED_TABS.has(activeTab)) {
+      setRows([]);
+      setTotalCount(null);
+      setIsLoading(true);
+      setError(null);
+
+      let cancelled = false;
+
+      const jobsBuilder = activeTab === TAB_IDS.URGENT_CALLS ? buildUrgentCallsQuery : buildOpenTasksQuery;
+      const dealsBuilder = activeTab === TAB_IDS.URGENT_CALLS ? buildUrgentCallsDealQuery : buildOpenTasksDealQuery;
+
+      const fetchRows = async (built) => {
+        const { query, normalize } = built;
+        query.getOrInitQueryCalc?.();
+        const payload = await fetchDirectWithTimeout(query, null, 30000);
+        const records = extractFromPayload(payload);
+        return records.map(normalize);
+      };
+
+      Promise.allSettled([
+        fetchRows(jobsBuilder(plugin, appliedFilters, currentPage, pageSize, sortOrder)),
+        fetchRows(dealsBuilder(plugin, appliedFilters, currentPage, pageSize, sortOrder)),
+      ]).then(([jobsResult, dealsResult]) => {
+        if (cancelled) return;
+        if (jobsResult.status === "rejected") {
+          console.warn("[useDashboardData] combined jobs fetch failed:", jobsResult.reason);
+        }
+        if (dealsResult.status === "rejected") {
+          console.warn("[useDashboardData] combined deals fetch failed:", dealsResult.reason);
+        }
+        const jobRows = jobsResult.status === "fulfilled" ? jobsResult.value : [];
+        const dealRows = dealsResult.status === "fulfilled" ? dealsResult.value : [];
+        const merged = [...jobRows, ...dealRows].sort((a, b) =>
+          sortOrder === "desc" ? b._rawTs - a._rawTs : a._rawTs - b._rawTs
+        );
+        setRows(merged);
+        setIsLoading(false);
+      }).catch((err) => {
+        if (cancelled) return;
+        console.error("[useDashboardData] combined fetch error:", err);
+        setError(err);
+        setIsLoading(false);
+      });
+
+      return () => { cancelled = true; };
+    }
 
     const builder = TAB_QUERY_BUILDERS[activeTab];
     if (!builder) {

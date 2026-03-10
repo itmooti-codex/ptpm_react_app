@@ -207,7 +207,7 @@ function SignaturePad({ onAccept, onClear, isAccepted }) {
 const tableHeaderCellClass = "px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500";
 const tableBodyCellClass = "px-3 py-2 text-sm align-top";
 
-export function QuoteSheetPanel({ activities, headerData, onAcceptQuote, isAcceptingQuote, canAcceptQuote }) {
+export function QuoteSheetPanel({ activities, headerData, onAcceptQuote, isAcceptingQuote, canAcceptQuote, canSendQuote, onSendQuote, isSendingQuote, hasAccountsContact }) {
   const normalized = useMemo(
     () => (Array.isArray(activities) ? activities : []).map(normalizeActivity),
     [activities]
@@ -372,6 +372,25 @@ export function QuoteSheetPanel({ activities, headerData, onAcceptQuote, isAccep
           </div>
         </div>
       </div>
+
+      {/* Send Quote */}
+      {canSendQuote ? (
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            className="inline-flex h-9 items-center rounded border border-[#003882] bg-[#003882] px-4 text-sm font-medium text-white hover:bg-[#002d6b] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={onSendQuote}
+            disabled={isSendingQuote || !hasAccountsContact}
+          >
+            {isSendingQuote ? "Sending..." : "Send Quote"}
+          </button>
+          {!hasAccountsContact ? (
+            <p className="text-[11px] text-amber-600">
+              Select an accounts contact in the Quote &amp; Payment section to enable sending.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Accept flow */}
       {canAcceptQuote ? (

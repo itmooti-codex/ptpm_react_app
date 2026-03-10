@@ -106,6 +106,7 @@ export function PropertyTabSection({
   onSameAsContactChange = null,
   showPropertyUploadsSection = true,
   propertyDetailsVariant = "accordion",
+  onAffiliationSaved = null,
 }) {
   const { success, error } = useToast();
   const storeActions = useJobDirectStoreActions();
@@ -514,6 +515,8 @@ export function PropertyTabSection({
       resolvedPropertyId,
       nextAffiliations
     );
+
+    onAffiliationSaved?.();
 
     success(
       existingId ? "Property contact updated" : "Property contact added",

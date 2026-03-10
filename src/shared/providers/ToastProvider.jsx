@@ -56,6 +56,13 @@ export function ToastProvider({ children }) {
     return nextToast.id;
   }, []);
 
+  const update = useCallback((id, input) => {
+    const normalized = normalizeToast(input);
+    setToasts((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...normalized, id } : t))
+    );
+  }, []);
+
   const typedToast = useCallback(
     (type, input, description) => {
       if (typeof input === "string") {
@@ -69,6 +76,7 @@ export function ToastProvider({ children }) {
   const value = useMemo(
     () => ({
       toast,
+      update,
       success: (input, description) => typedToast("success", input, description),
       error: (input, description) => typedToast("error", input, description),
       warning: (input, description) => typedToast("warning", input, description),
@@ -76,7 +84,7 @@ export function ToastProvider({ children }) {
       dismiss,
       clear,
     }),
-    [clear, dismiss, toast, typedToast]
+    [clear, dismiss, toast, update, typedToast]
   );
 
   return (

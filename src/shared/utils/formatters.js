@@ -225,7 +225,8 @@ export function formatServiceProviderInputLabel(provider = {}) {
   const email = toText(provider?.work_email || provider?.Work_Email || provider?.email);
   const phone = toText(provider?.mobile_number || provider?.Mobile_Number || provider?.sms_number);
   const resolvedName = name || email || (id ? `Provider #${id}` : "Provider");
-  return `${resolvedName} [${email || "-"}] | [${phone || "-"}]`;
+  const metadata = [email, phone].filter(Boolean).join(" | ");
+  return metadata ? `${resolvedName} [${metadata}]` : resolvedName;
 }
 
 export function formatContactLookupLabel(contact = {}) {

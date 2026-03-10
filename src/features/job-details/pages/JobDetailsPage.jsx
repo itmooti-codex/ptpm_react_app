@@ -955,6 +955,8 @@ export function JobDetailsPage() {
   const [editingMaterialId, setEditingMaterialId] = useState("");
   const [quotePaymentDetails, setQuotePaymentDetails] = useState(EMPTY_QUOTE_PAYMENT_DETAILS);
   const [isQuoteWorkflowUpdating, setIsQuoteWorkflowUpdating] = useState(false);
+  const [isDuplicatingJob, setIsDuplicatingJob] = useState(false);
+  const [isCreatingCallback, setIsCreatingCallback] = useState(false);
   const [isAccountDetailsLoading, setIsAccountDetailsLoading] = useState(false);
   const [contactModalState, setContactModalState] = useState({
     open: false,
@@ -2449,6 +2451,69 @@ export function JobDetailsPage() {
     };
   }, [effectiveJobId, isSdkReady, plugin]);
 
+  // Real-time sync: update quote/payment status when external changes arrive
+  // (e.g. customer accepts quote on the public job sheet page)
+  useEffect(() => {
+    if (!isSdkReady || !plugin || !effectiveJobId) return;
+
+    const jobModel = plugin.switchTo?.("PeterpmJob");
+    if (!jobModel?.query) return;
+
+    const numericId = /^\d+$/.test(effectiveJobId) ? Number(effectiveJobId) : effectiveJobId;
+    const query = jobModel
+      .query()
+      .where("id", numericId)
+      .deSelectAll()
+      .select(["id", "quote_status", "payment_status"])
+      .noDestroy();
+
+    query.getOrInitQueryCalc?.();
+
+    let stream = null;
+    let subscription = null;
+    try {
+      stream = typeof query.subscribe === "function" ? query.subscribe() : null;
+      if (!stream && typeof query.localSubscribe === "function") {
+        stream = query.localSubscribe();
+      }
+      if (stream && typeof stream.subscribe === "function") {
+        subscription = stream.subscribe({
+          next: (payload) => {
+            const record = extractFirstRecord(payload);
+            if (!record) return;
+            const nextQuoteStatus = toText(record.quote_status || record.Quote_Status);
+            const nextPaymentStatus = toText(record.payment_status || record.Payment_Status);
+            setQuotePaymentDetails((prev) => {
+              if (
+                nextQuoteStatus === prev.quote_status &&
+                nextPaymentStatus === prev.payment_status
+              ) {
+                return prev;
+              }
+              return {
+                ...prev,
+                ...(nextQuoteStatus ? { quote_status: nextQuoteStatus } : {}),
+                ...(nextPaymentStatus ? { payment_status: nextPaymentStatus } : {}),
+              };
+            });
+          },
+          error: (err) => {
+            console.warn("[JobDetailsBlank] Quote status subscription error", err);
+          },
+        });
+      }
+    } catch (err) {
+      console.warn("[JobDetailsBlank] Failed to set up quote status subscription", err);
+    }
+
+    return () => {
+      try {
+        subscription?.unsubscribe?.();
+        query?.destroy?.();
+      } catch (_) {}
+    };
+  }, [effectiveJobId, isSdkReady, plugin]);
+
   const handleToggleRelatedInquiryLink = useCallback(
     async (deal = {}) => {
       if (isSavingLinkedInquiry || !effectiveJobId) return;
@@ -3069,6 +3134,131 @@ export function JobDetailsPage() {
     success,
   ]);
 
+  const handlePrintJobSheet = useCallback(() => {
+    const header = quoteHeaderData || {};
+    const activities = (Array.isArray(jobActivities) ? jobActivities : []).filter((a) => {
+      const v = a?.include_in_quote ?? a?.Include_in_Quote ?? a?.Include_In_Quote;
+      return v === true || String(v).toLowerCase() === "true" || v === 1 || v === "1";
+    });
+
+    const formatCurrencyAud = (value) => {
+      const n = Number(String(value ?? "").replace(/[^0-9.-]+/g, ""));
+      return Number.isFinite(n)
+        ? new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(n)
+        : "$0.00";
+    };
+
+    const total = activities.reduce((sum, a) => {
+      const price = Number(a?.quoted_price ?? a?.Quoted_Price ?? a?.activity_price ?? 0);
+      return sum + (Number.isFinite(price) ? price : 0);
+    }, 0);
+    const gst = total / 11;
+
+    const escHtml = (s) =>
+      String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    const rowsHtml = activities
+      .map((a) => {
+        const serviceParts = [
+          a.service_name || a.Service_Service_Name || a.Service?.service_name || "",
+          a.Service?.Primary_Service?.service_name || a.Service_Service_Name1 || "",
+        ].filter(Boolean);
+        const serviceLabel = serviceParts.join(" - ");
+        const price = Number(a?.quoted_price ?? a?.Quoted_Price ?? a?.activity_price ?? 0);
+        return `<tr>
+          <td>${escHtml(a.task || a.Task || "-")}</td>
+          <td>${escHtml(a.option || a.Option || "-")}</td>
+          <td>${escHtml(serviceLabel || "-")}${a.quoted_text || a.Quoted_Text ? `<br><small>${escHtml(a.quoted_text || a.Quoted_Text)}</small>` : ""}${a.warranty || a.Warranty ? `<br><small>Warranty: ${escHtml(a.warranty || a.Warranty)}</small>` : ""}</td>
+          <td style="text-align:right;font-weight:600">${escHtml(formatCurrencyAud(price))}</td>
+        </tr>`;
+      })
+      .join("");
+
+    const residentsHtml = (header.residentsRows || [])
+      .map((r) => `<div>${escHtml(r)}</div>`)
+      .join("");
+
+    const feedbackFields = header.feedback
+      ? [
+          ["Animals", header.feedback.animals],
+          ["Renovations", header.feedback.renovations],
+          ["Building", header.feedback.building],
+          ["Times", header.feedback.times],
+          ["Noises", header.feedback.noises],
+          ["Location", header.feedback.location],
+          ["Res. Hrs", header.feedback.resHrs],
+          ["Stories", header.feedback.stories],
+          ["Building Age", header.feedback.buildingAge],
+          ["Manhole", header.feedback.manhole],
+        ]
+          .filter(([, v]) => v)
+          .map(([k, v]) => `<div><strong>${escHtml(k)}:</strong> ${escHtml(v)}</div>`)
+          .join("")
+      : "";
+
+    const popup = window.open("", "_blank", "width=960,height=800,scrollbars=yes,resizable=yes");
+    if (!popup) {
+      error("Popup blocked", "Please allow popups to print the job sheet.");
+      return;
+    }
+    popup.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Job Sheet — ${escHtml(header.workOrderUid || "")}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #1e293b; padding: 24px; }
+  .logo { max-height: 56px; max-width: 180px; object-fit: contain; display: block; margin-bottom: 12px; }
+  .title { text-align: center; font-size: 18px; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 12px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 24px; margin-bottom: 12px; font-size: 11px; }
+  .section-bar { border-top: 1px solid #94a3b8; border-bottom: 1px solid #94a3b8; padding: 3px 0; font-size: 11px; font-weight: 700; margin: 10px 0 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 12px; }
+  th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 600; }
+  .totals { border: 1px solid #e2e8f0; padding: 10px 14px; margin-bottom: 12px; }
+  .total-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 12px; }
+  .total-row.grand { font-weight: 700; font-size: 13px; border-top: 1px solid #cbd5e1; margin-top: 4px; padding-top: 4px; }
+  .feedback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 24px; font-size: 11px; }
+  small { font-size: 10px; color: #64748b; }
+  @media print { body { padding: 12px; } button { display: none !important; } }
+</style>
+</head>
+<body>
+${header.logoUrl ? `<img class="logo" src="${escHtml(header.logoUrl)}" alt="Logo">` : ""}
+<div class="title">JOB SHEET</div>
+<div class="info-grid">
+  ${header.accountName ? `<div><strong>Account Name:</strong> ${escHtml(header.accountName)}</div>` : ""}
+  ${header.accountType ? `<div><strong>Account Type:</strong> ${escHtml(header.accountType)}</div>` : ""}
+  ${header.workReqBy ? `<div><strong>Work Req. By:</strong> ${escHtml(header.workReqBy)}</div>` : ""}
+  ${header.workOrderUid ? `<div><strong>Work Order #:</strong> ${escHtml(header.workOrderUid)}</div>` : ""}
+  ${header.jobAddress ? `<div><strong>Job Address:</strong> ${escHtml(header.jobAddress)}</div>` : ""}
+  ${header.jobSuburb ? `<div><strong>Job Suburb:</strong> ${escHtml(header.jobSuburb)}</div>` : ""}
+  <div style="text-align:right;grid-column:2"><strong>Date:</strong> ${escHtml(header.date || "")}</div>
+</div>
+<div class="section-bar">Resident's Details</div>
+<div style="margin-bottom:10px;font-size:11px">${residentsHtml || "<div>-</div>"}</div>
+${feedbackFields ? `<div class="section-bar">Resident's Feedback</div><div class="feedback-grid" style="margin-bottom:10px">${feedbackFields}</div>` : ""}
+${header.recommendation ? `<div style="font-size:11px;margin-bottom:10px"><strong>Recommendations:</strong> ${escHtml(header.recommendation)}</div>` : ""}
+<div class="section-bar">Services</div>
+${activities.length ? `<table>
+  <thead><tr><th>Task</th><th>Option</th><th>Service</th><th style="text-align:right">Quoted Price</th></tr></thead>
+  <tbody>${rowsHtml}</tbody>
+</table>` : "<p style='font-size:11px;color:#64748b;margin-bottom:10px'>No activities added to quote.</p>"}
+<div class="totals">
+  <div class="total-row"><span>GST (incl.)</span><span>${escHtml(formatCurrencyAud(gst))}</span></div>
+  <div class="total-row grand"><span>Quote Total (incl. GST)</span><span>${escHtml(formatCurrencyAud(total))}</span></div>
+</div>
+<div style="text-align:center;margin-top:16px"><button onclick="window.print()" style="padding:8px 20px;font-size:12px;cursor:pointer;background:#003882;color:#fff;border:none;border-radius:4px">Print / Save as PDF</button></div>
+</body>
+</html>`);
+    popup.document.close();
+    popup.focus();
+  }, [error, jobActivities, quoteHeaderData]);
+
   const handleAcceptQuote = useCallback(async ({ signatureBlob } = {}) => {
     if (isQuoteWorkflowUpdating) return;
     if (quoteStatusNormalized !== "sent") {
@@ -3132,6 +3322,34 @@ export function JobDetailsPage() {
     success,
     uploadMaterialFile,
   ]);
+
+  const handleDuplicateJob = useCallback(async () => {
+    if (!isSdkReady || !effectiveJobId || isDuplicatingJob) return;
+    setIsDuplicatingJob(true);
+    try {
+      await updateJobFieldsById({ plugin, jobId: effectiveJobId, payload: { duplicate_job: true } });
+      success("Job duplicated", "A duplicate of this job has been queued.");
+    } catch (dupError) {
+      console.error("[JobDetailsBlank] Failed duplicating job", dupError);
+      error("Duplicate failed", dupError?.message || "Unable to duplicate this job.");
+    } finally {
+      setIsDuplicatingJob(false);
+    }
+  }, [effectiveJobId, error, isDuplicatingJob, isSdkReady, plugin, success]);
+
+  const handleCreateCallback = useCallback(async () => {
+    if (!isSdkReady || !effectiveJobId || isCreatingCallback) return;
+    setIsCreatingCallback(true);
+    try {
+      await updateJobFieldsById({ plugin, jobId: effectiveJobId, payload: { create_a_callback: true } });
+      success("Callback created", "A callback has been created for this job.");
+    } catch (cbError) {
+      console.error("[JobDetailsBlank] Failed creating callback", cbError);
+      error("Callback failed", cbError?.message || "Unable to create a callback.");
+    } finally {
+      setIsCreatingCallback(false);
+    }
+  }, [effectiveJobId, error, isCreatingCallback, isSdkReady, plugin, success]);
 
   const accountEditorContactInitialValues = useMemo(
     () => ({
@@ -3445,6 +3663,18 @@ export function JobDetailsPage() {
   const handleAddAccountsContact = useCallback(() => {
     openAddAffiliationModal({ autoSelect: true });
   }, [openAddAffiliationModal]);
+
+  const handleAffiliationSaved = useCallback(() => {
+    const propertyId = toText(selectedWorkspacePropertyId || loadedPropertyId);
+    if (!plugin || !propertyId) return;
+    fetchPropertyAffiliationsForDetails({ plugin, propertyId })
+      .then((records) => {
+        setAffiliations(Array.isArray(records) ? records : []);
+      })
+      .catch((err) => {
+        console.warn("[JobDetailsBlank] Failed to refresh affiliations after save", err);
+      });
+  }, [loadedPropertyId, plugin, selectedWorkspacePropertyId]);
 
   const closeAffiliationModal = useCallback(() => {
     setAffiliationModalState({
@@ -4568,22 +4798,35 @@ export function JobDetailsPage() {
                   <ChevronDownIcon />
                 </Button>
                 {openMenu === "more" ? (
-                  <div className="absolute right-0 top-full z-40 mt-1 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+                  <div className="absolute right-0 top-full z-40 mt-1 min-w-[180px] rounded-md border border-slate-200 bg-white py-1 shadow-lg">
                     <button
                       type="button"
-                      className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
-                      onClick={() => setOpenMenu("")}
+                      disabled={isDuplicatingJob}
+                      className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                      onClick={() => {
+                        setOpenMenu("");
+                        handleDuplicateJob();
+                      }}
                     >
-                      Duplicate Job
+                      {isDuplicatingJob ? "Duplicating..." : "Duplicate Job"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isCreatingCallback}
+                      className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                      onClick={() => {
+                        setOpenMenu("");
+                        handleCreateCallback();
+                      }}
+                    >
+                      {isCreatingCallback ? "Creating..." : "Create Callback"}
                     </button>
                     <button
                       type="button"
                       className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
                       onClick={() => {
                         setOpenMenu("");
-                        setActiveWorkspaceTab("invoice-payment");
-                        setInvoiceActiveTab("quote");
-                        setInvoiceActiveTabVersion((v) => v + 1);
+                        handlePrintJobSheet();
                       }}
                     >
                       Print Job Sheet
@@ -4648,149 +4891,6 @@ export function JobDetailsPage() {
               <div className="text-sm text-slate-500">Open an existing job to view quote/payment details.</div>
             ) : (
               <div className="space-y-2">
-                <div className="rounded border border-slate-200 bg-slate-50 p-2">
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Quote Workflow
-                  </div>
-                  {quoteStatusNormalized === "sent" || quoteStatusNormalized === "accepted" ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="inline-flex max-w-full items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          {isCompanyAccount ? "Job Email Company" : "Job Email Contact"}:
-                        </span>
-                        <span
-                          className="max-w-[280px] truncate text-sm text-slate-700"
-                          title={resolvedJobEmailSelectionLabel || selectedJobEmailContactId || "-"}
-                        >
-                          {resolvedJobEmailSelectionLabel || selectedJobEmailContactId || "-"}
-                        </span>
-                      </span>
-                      <span className="inline-flex max-w-full items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Accounts Contact:
-                        </span>
-                        <span
-                          className="max-w-[280px] truncate text-sm text-slate-700"
-                          title={resolvedAccountsContactSelectionLabel || selectedAccountsContactId || "-"}
-                        >
-                          {resolvedAccountsContactSelectionLabel || selectedAccountsContactId || "-"}
-                        </span>
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <SearchDropdownInput
-                          label={isCompanyAccount ? "Job Email Company" : "Job Email Contact"}
-                          field="job_email_contact_search"
-                          value={jobEmailContactSearchValue}
-                          placeholder={isCompanyAccount ? "Search company" : "Search contact"}
-                          items={jobEmailItems}
-                          onValueChange={setJobEmailContactSearchValue}
-                          onSearchQueryChange={
-                            isCompanyAccount ? searchCompaniesInDatabase : searchContactsInDatabase
-                          }
-                          onSelect={(item) => {
-                            const nextId = toText(item?.id);
-                            setSelectedJobEmailContactId(nextId);
-                            setJobEmailContactSearchValue(toText(item?.label));
-                          }}
-                          onAdd={handleAddJobEmailContact}
-                          addButtonLabel={isCompanyAccount ? "Add New Company" : "Add New Contact"}
-                          emptyText={
-                            isCompanyAccount
-                              ? isCompanyLookupLoading
-                                ? "Loading companies..."
-                                : "No companies found."
-                              : isContactLookupLoading
-                                ? "Loading contacts..."
-                                : "No contacts found."
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <SearchDropdownInput
-                          label="Accounts Contact"
-                          field="accounts_contact_search"
-                          value={accountsContactSearchValue}
-                          placeholder="Search property contact"
-                          items={accountsContactItems}
-                          onValueChange={setAccountsContactSearchValue}
-                          onSearchQueryChange={null}
-                          onSelect={(item) => {
-                            const nextId = toText(item?.id);
-                            setSelectedAccountsContactId(nextId);
-                            setAccountsContactSearchValue(toText(item?.label));
-                          }}
-                          onAdd={handleAddAccountsContact}
-                          addButtonLabel="Add Property Contact"
-                          emptyText={
-                            isAffiliationsLoading
-                              ? "Loading property contacts..."
-                              : affiliationsError
-                                ? affiliationsError
-                                : "No property contacts found."
-                          }
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {quoteStatusNormalized !== "accepted" ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 whitespace-nowrap px-3 !text-xs"
-                        onClick={handleSaveQuoteContacts}
-                        disabled={isSavingQuoteContacts || isQuoteWorkflowUpdating}
-                      >
-                        {isSavingQuoteContacts ? "Saving..." : "Save Contacts"}
-                      </Button>
-                    ) : null}
-                    {canSendQuote ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 whitespace-nowrap px-3 !text-xs"
-                        onClick={handleSendQuote}
-                        disabled={
-                          isQuoteWorkflowUpdating ||
-                          !toText(selectedAccountsContactId)
-                        }
-                      >
-                        {isQuoteWorkflowUpdating ? "Sending..." : "Send Quote"}
-                      </Button>
-                    ) : null}
-                    {canAcceptQuote ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 whitespace-nowrap px-3 !text-xs"
-                        onClick={() => {
-                          setActiveWorkspaceTab("invoice-payment");
-                          setInvoiceActiveTab("quote");
-                          setInvoiceActiveTabVersion((v) => v + 1);
-                        }}
-                        disabled={isQuoteWorkflowUpdating}
-                      >
-                        {isQuoteWorkflowUpdating ? "Accepting..." : "Review and Accept Quote"}
-                      </Button>
-                    ) : null}
-                    {quoteStatusNormalized === "accepted" ? (
-                      <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800">
-                        Quote Accepted
-                      </span>
-                    ) : null}
-                    {hasQuoteStatusValue ? (
-                      <span className="text-xs text-slate-500">
-                        Current quote status: {quoteStatusLabel}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
                   {hasQuoteStatusValue ? (
                     <div className="min-w-0">
@@ -4953,6 +5053,7 @@ export function JobDetailsPage() {
                   onSameAsContactChange={null}
                   showPropertyUploadsSection={false}
                   propertyDetailsVariant="cards"
+                  onAffiliationSaved={handleAffiliationSaved}
                 />
               </WorkspaceTabPanel>
 
@@ -5050,10 +5151,69 @@ export function JobDetailsPage() {
                 <InvoiceSection
                   plugin={plugin}
                   jobData={jobDirectBootstrapJobData}
+                  jobUid={safeUid}
                   quoteHeaderData={quoteHeaderData}
                   onAcceptQuote={handleAcceptQuote}
                   isAcceptingQuote={isQuoteWorkflowUpdating}
                   canAcceptQuote={canAcceptQuote}
+                  canSendQuote={canSendQuote}
+                  onSendQuote={handleSendQuote}
+                  isSendingQuote={isQuoteWorkflowUpdating}
+                  hasAccountsContact={Boolean(toText(selectedAccountsContactId))}
+                  quoteContactSelectorSlot={
+                    <div className="grid grid-cols-2 gap-3">
+                      <SearchDropdownInput
+                        label={isCompanyAccount ? "Job Email Company" : "Job Email Contact"}
+                        field="job_email_contact_search"
+                        value={jobEmailContactSearchValue}
+                        placeholder={isCompanyAccount ? "Search company" : "Search contact"}
+                        items={jobEmailItems}
+                        onValueChange={setJobEmailContactSearchValue}
+                        onSearchQueryChange={
+                          isCompanyAccount ? searchCompaniesInDatabase : searchContactsInDatabase
+                        }
+                        onSelect={(item) => {
+                          const nextId = toText(item?.id);
+                          setSelectedJobEmailContactId(nextId);
+                          setJobEmailContactSearchValue(toText(item?.label));
+                        }}
+                        onAdd={handleAddJobEmailContact}
+                        addButtonLabel={isCompanyAccount ? "Add New Company" : "Add New Contact"}
+                        emptyText={
+                          isCompanyAccount
+                            ? isCompanyLookupLoading
+                              ? "Loading companies..."
+                              : "No companies found."
+                            : isContactLookupLoading
+                              ? "Loading contacts..."
+                              : "No contacts found."
+                        }
+                      />
+                      <SearchDropdownInput
+                        label="Accounts Contact"
+                        field="accounts_contact_search"
+                        value={accountsContactSearchValue}
+                        placeholder="Search property contact"
+                        items={accountsContactItems}
+                        onValueChange={setAccountsContactSearchValue}
+                        onSearchQueryChange={null}
+                        onSelect={(item) => {
+                          const nextId = toText(item?.id);
+                          setSelectedAccountsContactId(nextId);
+                          setAccountsContactSearchValue(toText(item?.label));
+                        }}
+                        onAdd={handleAddAccountsContact}
+                        addButtonLabel="Add Property Contact"
+                        emptyText={
+                          isAffiliationsLoading
+                            ? "Loading property contacts..."
+                            : affiliationsError
+                              ? affiliationsError
+                              : "No property contacts found."
+                        }
+                      />
+                    </div>
+                  }
                   activeTab={invoiceActiveTab}
                   activeTabVersion={invoiceActiveTabVersion}
                 />

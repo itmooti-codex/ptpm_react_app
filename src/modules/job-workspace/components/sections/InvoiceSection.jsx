@@ -415,11 +415,17 @@ function buildServiceProviderSummary(job = {}) {
 export function InvoiceSection({
   plugin,
   jobData,
+  jobUid,
   onExternalUnsavedChange,
   quoteHeaderData,
   onAcceptQuote,
   isAcceptingQuote,
   canAcceptQuote,
+  canSendQuote,
+  onSendQuote,
+  isSendingQuote,
+  hasAccountsContact,
+  quoteContactSelectorSlot,
   activeTab,
   activeTabVersion,
 }) {
@@ -431,6 +437,7 @@ export function InvoiceSection({
   const defaultInvoiceActivityIds = useJobDirectSelector(selectDefaultInvoiceActivityIds);
   const storeMaterialSummary = useJobDirectSelector(selectBillMaterialSummary);
   const [activeBillingTab, setActiveBillingTab] = useState("quote");
+  const [urlCopied, setUrlCopied] = useState(false);
 
   useEffect(() => {
     if (activeTab) setActiveBillingTab(activeTab);
@@ -970,6 +977,7 @@ export function InvoiceSection({
   return (
     <section data-section="invoice" className="mx-auto w-full max-w-full space-y-4 pb-10 xl:w-[60%]">
       <div className="border-b border-slate-300 bg-white pt-1">
+        <div className="flex items-center justify-between">
         <div className="inline-flex items-center">
           <button
             type="button"
@@ -1008,16 +1016,62 @@ export function InvoiceSection({
             Service Provider Bill
           </button>
         </div>
+        {jobUid && activeBillingTab === "quote" ? (
+          <div className="mr-3 flex items-center gap-1">
+            <button
+              type="button"
+              title="Copy public job sheet URL"
+              className="flex items-center gap-1.5 rounded px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              onClick={() => {
+                const url = `${window.location.origin}/quote/${encodeURIComponent(jobUid)}`;
+                navigator.clipboard.writeText(url).then(() => {
+                  setUrlCopied(true);
+                  setTimeout(() => setUrlCopied(false), 2000);
+                });
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                <path d="M12.232 4.232a2.5 2.5 0 0 1 3.536 3.536l-1.225 1.224a.75.75 0 0 0 1.061 1.06l1.224-1.224a4 4 0 0 0-5.656-5.656l-3 3a4 4 0 0 0 .225 5.865.75.75 0 0 0 .977-1.138 2.5 2.5 0 0 1-.142-3.667l3-3z" />
+                <path d="M11.603 7.963a.75.75 0 0 0-.977 1.138 2.5 2.5 0 0 1 .142 3.667l-3 3a2.5 2.5 0 0 1-3.536-3.536l1.225-1.224a.75.75 0 0 0-1.061-1.06l-1.224 1.224a4 4 0 1 0 5.656 5.656l3-3a4 4 0 0 0-.225-5.865z" />
+              </svg>
+              {urlCopied ? "Copied!" : "Copy URL"}
+            </button>
+            <a
+              href={`${window.location.origin}/quote/${encodeURIComponent(jobUid)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open public job sheet in new tab"
+              className="flex items-center rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                <path fillRule="evenodd" d="M4.25 5.5a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-4a.75.75 0 0 1 1.5 0v4A2.25 2.25 0 0 1 12.75 17h-8.5A2.25 2.25 0 0 1 2 14.75v-8.5A2.25 2.25 0 0 1 4.25 4h5a.75.75 0 0 1 0 1.5h-5Z" clipRule="evenodd" />
+                <path fillRule="evenodd" d="M6.194 12.753a.75.75 0 0 0 1.06.053L16.5 4.44v2.81a.75.75 0 0 0 1.5 0v-4.5a.75.75 0 0 0-.75-.75h-4.5a.75.75 0 0 0 0 1.5h2.553l-9.056 8.194a.75.75 0 0 0-.053 1.06Z" clipRule="evenodd" />
+              </svg>
+            </a>
+          </div>
+        ) : null}
+        </div>
       </div>
 
       {activeBillingTab === "quote" ? (
-        <QuoteSheetPanel
-          activities={storeActivities}
-          headerData={quoteHeaderData}
-          onAcceptQuote={onAcceptQuote}
-          isAcceptingQuote={isAcceptingQuote}
-          canAcceptQuote={canAcceptQuote}
-        />
+        <>
+          {quoteContactSelectorSlot ? (
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              {quoteContactSelectorSlot}
+            </div>
+          ) : null}
+          <QuoteSheetPanel
+            activities={storeActivities}
+            headerData={quoteHeaderData}
+            onAcceptQuote={onAcceptQuote}
+            isAcceptingQuote={isAcceptingQuote}
+            canAcceptQuote={canAcceptQuote}
+            canSendQuote={canSendQuote}
+            onSendQuote={onSendQuote}
+            isSendingQuote={isSendingQuote}
+            hasAccountsContact={hasAccountsContact}
+          />
+        </>
       ) : null}
 
       {activeBillingTab === "client-invoice" ? (

@@ -727,6 +727,7 @@ export function AddActivitiesSection({
       }
 
       const selectedServiceId = toText(form.optionServiceId || form.primaryServiceId || form.service_id);
+      const selectedService = serviceById.get(selectedServiceId) || null;
       const payload = {
         job_id: toId(jobId),
         task: normalizedTask,
@@ -776,7 +777,10 @@ export function AddActivitiesSection({
           }
         }
         if (savedActivity && typeof onActivitySaved === "function") {
-          onActivitySaved(savedActivity);
+          const enrichedActivity = toText(savedActivity.service_name)
+            ? savedActivity
+            : { ...savedActivity, service_name: toText(selectedService?.name || "") };
+          onActivitySaved(enrichedActivity);
         }
         resetForm();
         if (typeof onSubmitSuccess === "function") {

@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { RecentActivitiesDock } from "../shared/components/RecentActivitiesDock.jsx";
 
 const DashboardPage = lazy(() =>
@@ -30,6 +30,11 @@ const JobDetailsPage = lazy(() =>
 const InquiryDetailsPage = lazy(() =>
   import("../features/inquiry-details/pages/InquiryDetailsPage.jsx").then((module) => ({
     default: module.InquiryDetailsPage,
+  }))
+);
+const PublicJobSheetPage = lazy(() =>
+  import("../features/job-details/pages/PublicJobSheetPage.jsx").then((module) => ({
+    default: module.PublicJobSheetPage,
   }))
 );
 
@@ -76,6 +81,9 @@ function LegacyJobDirectRedirect() {
 }
 
 export default function App() {
+  const location = useLocation();
+  const isPublicRoute = location.pathname.startsWith("/quote/");
+
   return (
     <Suspense fallback={<AppRouteLoader />}>
       <>
@@ -88,6 +96,7 @@ export default function App() {
           <Route path="/inquiry-details/:uid" element={<InquiryDetailsPage />} />
           <Route path="/job-details/new" element={<JobDetailsPage />} />
           <Route path="/job-details/:uid" element={<JobDetailsPage />} />
+          <Route path="/quote/:uid" element={<PublicJobSheetPage />} />
           <Route path="/details/:uid" element={<LegacyJobDetailsRedirect />} />
           <Route path="/job-direct" element={<Navigate to="/" replace />} />
           <Route path="/job-direct/:jobuid" element={<LegacyJobDirectRedirect />} />
@@ -95,7 +104,7 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
         </Routes>
-        <RecentActivitiesDock />
+        {!isPublicRoute && <RecentActivitiesDock />}
       </>
     </Suspense>
   );

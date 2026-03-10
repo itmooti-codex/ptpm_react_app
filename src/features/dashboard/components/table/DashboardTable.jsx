@@ -10,6 +10,7 @@ import { getQuoteColumns } from "./columns/quoteColumns.jsx";
 import { getJobsColumns } from "./columns/jobsColumns.jsx";
 import { getPaymentColumns } from "./columns/paymentColumns.jsx";
 import { getActiveJobsColumns } from "./columns/activeJobsColumns.jsx";
+import { getCombinedColumns } from "./columns/combinedColumns.jsx";
 
 function getColumns(activeTab, opts) {
   switch (activeTab) {
@@ -25,7 +26,7 @@ function getColumns(activeTab, opts) {
       return getActiveJobsColumns(opts);
     case TAB_IDS.URGENT_CALLS:
     case TAB_IDS.OPEN_TASKS:
-      return getJobsColumns(opts);
+      return getCombinedColumns(opts);
     default:
       return [];
   }

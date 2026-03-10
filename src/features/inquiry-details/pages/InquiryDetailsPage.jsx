@@ -979,6 +979,7 @@ function QuickInquiryBookingModal({
   prefillContext = null,
   configuredAdminProviderId = "",
   onSavingStart = null,
+  onSavingProgress = null,
   onSaved = null,
   onError = null,
 }) {
@@ -1654,8 +1655,15 @@ function QuickInquiryBookingModal({
             value: toText(record?.id || record?.ID),
             label: toText(record?.service_name || record?.Service_Name),
             type: toText(record?.service_type || record?.Service_Type),
+            parentId: toText(record?.primary_service_id || record?.Primary_Service_ID),
           }))
-          .filter((record) => record.value && record.label)
+          .filter((record) => {
+            if (!record.value || !record.label) return false;
+            // Only show primary services (not option sub-services)
+            if (record.parentId && record.parentId !== record.value) return false;
+            if (/option/i.test(record.type)) return false;
+            return true;
+          })
           .sort((left, right) => left.label.localeCompare(right.label));
         setServiceOptions(mapped);
       })
@@ -2065,6 +2073,7 @@ function QuickInquiryBookingModal({
       let resolvedContactId = "";
       let resolvedCompanyId = "";
 
+      onSavingProgress?.("Saving account information...");
       if (resolvedAccountMode === "Contact") {
         const email = toText(individualForm.email);
         if (!email || !isLikelyEmailValue(email)) {
@@ -2174,6 +2183,7 @@ function QuickInquiryBookingModal({
         }
       }
 
+      onSavingProgress?.("Saving property information...");
       let resolvedPropertyId = "";
       let resolvedPropertyRecord = null;
       if (currentFlowRule.showPropertySearch) {
@@ -2272,6 +2282,7 @@ function QuickInquiryBookingModal({
           : null,
       };
 
+      onSavingProgress?.("Saving service information...");
       await updateInquiryFieldsById({
         plugin,
         inquiryId: normalizedInquiryId,
@@ -2505,7 +2516,7 @@ function QuickInquiryBookingModal({
                           }
                         />
                         <InputField
-                          label="Phone"
+                          label="SMS Number"
                           field="quick_individual_phone"
                           value={individualForm.sms_number}
                           onChange={(event) =>
@@ -2596,7 +2607,7 @@ function QuickInquiryBookingModal({
                     {showCompanyOptional ? (
                       <div className="grid grid-cols-1 gap-2 rounded border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2">
                         <InputField
-                          label="Phone"
+                          label="SMS Number"
                           field="quick_company_phone"
                           value={companyForm.company_phone}
                           onChange={(event) =>
@@ -3911,7 +3922,7 @@ async function fetchJobInquiryRecordIdById({ plugin, jobId }) {
 export function InquiryDetailsPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { toast, success, error, dismiss } = useToast();
+  const { toast, update, success, error, dismiss } = useToast();
   const { plugin, isReady: isSdkReady } = useVitalStatsPlugin();
   const { uid = "" } = useParams();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
@@ -5220,7 +5231,8 @@ export function InquiryDetailsPage() {
       sms_number: inquiryPrimaryContact?.sms_number,
     });
     const serviceLabel = toText(serviceInquiryName);
-    const title = [safeUid, serviceLabel].filter(Boolean).join(" | ");
+    const inquiryTypeLabel = toText(inquiry?.type || inquiry?.Type);
+    const title = [safeUid, serviceLabel, inquiryTypeLabel].filter(Boolean).join(" | ");
     const details = [
       serviceLabel ? `Service:\n${serviceLabel}` : "",
       locationLabel ? `Property:\n${locationLabel}` : "",
@@ -5240,6 +5252,7 @@ export function InquiryDetailsPage() {
     };
   }, [
     activeRelatedProperty,
+    inquiry,
     inquiryContactId,
     inquiryPrimaryContact,
     safeUid,
@@ -6627,6 +6640,20 @@ export function InquiryDetailsPage() {
     success,
   ]);
 
+  const handleQuickInquiryBookingSavingProgress = useCallback(
+    (message) => {
+      const toastId = toText(quickInquirySavingToastIdRef.current);
+      if (!toastId || !message) return;
+      update(toastId, {
+        type: "info",
+        title: message,
+        description: "Please wait...",
+        duration: 0,
+      });
+    },
+    [update]
+  );
+
   const handleQuickInquiryBookingError = useCallback(
     (saveError) => {
       dismissQuickInquirySavingToast();
@@ -6793,6 +6820,7 @@ export function InquiryDetailsPage() {
 
     setIsCreatingQuote(true);
     setIsCreateQuoteModalOpen(false);
+    const createQuoteToastId = toast({ type: "info", title: "Creating quote...", description: "Setting up quote record.", duration: 0 });
     try {
       const inquiryPayload = {
         ...(inquiry || {}),
@@ -6805,6 +6833,7 @@ export function InquiryDetailsPage() {
         inquiryPayload.service_provider_id = providerId;
         inquiryPayload.Service_Provider_ID = providerId;
       }
+      update(createQuoteToastId, { type: "info", title: "Creating job record...", description: "Linking inquiry to new job.", duration: 0 });
       const createdJob = await createLinkedJobForInquiry({
         plugin,
         inquiry: inquiryPayload,
@@ -6816,8 +6845,10 @@ export function InquiryDetailsPage() {
       if (createdJobId) {
         setLinkedJobSelectionOverride(createdJobId);
       }
+      update(createQuoteToastId, { type: "info", title: "Refreshing inquiry...", description: "Loading updated details.", duration: 0 });
       await refreshResolvedInquiry();
       setRelatedRecordsRefreshKey((previous) => previous + 1);
+      dismiss(createQuoteToastId);
       trackRecentActivity({
         action: "Created quote/job",
         pageType: "inquiry-details",
@@ -6834,6 +6865,7 @@ export function InquiryDetailsPage() {
         `Quote ${toText(createdJob?.unique_id || createdJob?.Unique_ID) || ""} created.`
       );
     } catch (createError) {
+      dismiss(createQuoteToastId);
       console.error("[InquiryDetails] Create quote failed", createError);
       error("Create failed", createError?.message || "Unable to create quote.");
     } finally {
@@ -6841,6 +6873,7 @@ export function InquiryDetailsPage() {
     }
   }, [
     activeRelatedProperty?.id,
+    dismiss,
     error,
     inquiry,
     inquiryNumericId,
@@ -6856,7 +6889,9 @@ export function InquiryDetailsPage() {
     inquiryTakenByIdResolved,
     safeUid,
     success,
+    toast,
     trackRecentActivity,
+    update,
   ]);
 
   const handleMemoFileChange = useCallback((event) => {
@@ -7873,16 +7908,16 @@ export function InquiryDetailsPage() {
                     Quick View
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="primary"
                     size="sm"
                     className="h-8 whitespace-nowrap px-3 !text-xs"
                     onClick={handleQuoteJobAction}
                     disabled={!inquiryNumericId || isCreatingQuote || isOpeningQuoteJob}
                   >
                     {isCreatingQuote
-                      ? "Creating Quote/Job..."
+                      ? "Creating..."
                       : isOpeningQuoteJob
-                        ? "Opening Quote/Job..."
+                        ? "Opening..."
                         : hasLinkedQuoteJob
                         ? "View Quote/Job"
                         : "Create Quote/Job"}
@@ -7965,6 +8000,7 @@ export function InquiryDetailsPage() {
         prefillContext={quickInquiryPrefillContext}
         configuredAdminProviderId={configuredAdminProviderId}
         onSavingStart={handleQuickInquiryBookingSavingStart}
+        onSavingProgress={handleQuickInquiryBookingSavingProgress}
         onSaved={handleQuickInquiryBookingSaved}
         onError={handleQuickInquiryBookingError}
       />
