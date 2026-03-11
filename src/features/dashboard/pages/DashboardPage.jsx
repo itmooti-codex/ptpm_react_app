@@ -8,6 +8,7 @@ import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
 import { useDashboardBootstrap } from "../hooks/useDashboardBootstrap.js";
 import { useDashboardFilters } from "../hooks/useDashboardFilters.js";
 import { useDashboardData } from "../hooks/useDashboardData.js";
+import { hasAnyDashboardFilterValues } from "../constants/filters.js";
 import {
   cancelDashboardRecord,
   cancelDashboardRecordsByUniqueIds,
@@ -16,7 +17,11 @@ import {
   fetchCalendarDataByTab,
 } from "../sdk/dashboardSdk.js";
 import { TAB_IDS, TAB_LIST } from "../constants/tabs.js";
-import { readDashboardCache, writeDashboardCache } from "../sdk/dashboardCache.js";
+import {
+  buildCalendarCacheKey,
+  readDashboardCache,
+  writeDashboardCache,
+} from "../sdk/dashboardCache.js";
 import { DashboardSidebar } from "../components/DashboardSidebar.jsx";
 import { DashboardContent } from "../components/DashboardContent.jsx";
 import { DashboardBatchDeleteModal } from "../components/modals/DashboardBatchDeleteModal.jsx";
@@ -179,7 +184,6 @@ function ChevronRightIcon() {
 
 const DASHBOARD_UI_PREFS_KEY = "ui-prefs";
 const DASHBOARD_TAB_COUNTS_KEY = "tab-counts";
-const DASHBOARD_CALENDAR_KEY_PREFIX = "calendar";
 const DASHBOARD_COUNTS_TTL_MS = 10 * 60 * 1000;
 const DASHBOARD_CALENDAR_TTL_MS = 5 * 60 * 1000;
 
@@ -246,16 +250,12 @@ export function DashboardPage() {
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [batchDeleteModal, setBatchDeleteModal] = useState(false);
-  const [calendarData, setCalendarData] = useState(() => {
-    const cached = readDashboardCache(`${DASHBOARD_CALENDAR_KEY_PREFIX}:${activeTab}`, {
-      maxAgeMs: DASHBOARD_CALENDAR_TTL_MS,
-    });
-    return cached && typeof cached === "object" ? cached : {};
-  });
+  const [calendarData, setCalendarData] = useState({});
 
   const filterHook = useDashboardFilters();
   const currentFilters = filterHook.getFiltersForTab(activeTab);
   const currentAppliedFilters = filterHook.getAppliedFiltersForTab(activeTab);
+  const hasActiveFilters = hasAnyDashboardFilterValues(currentAppliedFilters);
 
   const handleToggleSortOrder = useCallback(() => {
     setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
@@ -312,29 +312,39 @@ export function DashboardPage() {
   // Fetch calendar card counts for the active tab after primary data settles.
   useEffect(() => {
     if (!plugin) return;
-    const cached = readDashboardCache(`${DASHBOARD_CALENDAR_KEY_PREFIX}:${activeTab}`, {
+    const calendarCacheKey = buildCalendarCacheKey({
+      tab: activeTab,
+      filters: currentAppliedFilters,
+    });
+    const cached = readDashboardCache(calendarCacheKey, {
       maxAgeMs: DASHBOARD_CALENDAR_TTL_MS,
     });
-    if (cached && typeof cached === "object") {
-      setCalendarData(cached);
-    }
+    setCalendarData(cached && typeof cached === "object" ? cached : {});
     fetchCalendarDataByTab({
       plugin,
       activeTab,
+      filters: currentAppliedFilters,
       lookbackDays: 365,
       lookaheadDays: 365,
     })
       .then((nextCalendarData) => {
         setCalendarData(nextCalendarData);
-        writeDashboardCache(`${DASHBOARD_CALENDAR_KEY_PREFIX}:${activeTab}`, nextCalendarData);
+        writeDashboardCache(calendarCacheKey, nextCalendarData);
       })
       .catch((err) => console.warn("[DashboardPage] fetchCalendarDataByTab failed:", err));
-  }, [plugin, activeTab]);
+  }, [plugin, activeTab, currentAppliedFilters]);
 
   // Derive pagination from tab count badge (calc total)
   const totalCount = Number.isFinite(filteredTotalCount)
     ? filteredTotalCount
     : (tabCounts[activeTab] ?? 0);
+  const displayTabCounts = useMemo(() => {
+    if (!hasActiveFilters || !Number.isFinite(filteredTotalCount)) return tabCounts;
+    return {
+      ...tabCounts,
+      [activeTab]: filteredTotalCount,
+    };
+  }, [activeTab, filteredTotalCount, hasActiveFilters, tabCounts]);
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   useEffect(() => {
@@ -667,7 +677,7 @@ export function DashboardPage() {
           <DashboardContent
             activeTab={activeTab}
             onTabChange={handleTabChange}
-            tabCounts={tabCounts}
+            tabCounts={displayTabCounts}
             onEnableBatchDelete={handleEnableBatchDelete}
             onSelectBatchAction={handleSelectBatchAction}
             isBatchMode={isBatchMode}

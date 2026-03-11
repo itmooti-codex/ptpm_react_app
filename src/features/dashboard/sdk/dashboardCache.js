@@ -67,3 +67,14 @@ export function buildRowsCacheKey({
     stableStringify(filters || {}),
   ].join("|");
 }
+
+export function buildCalendarCacheKey({
+  tab = "",
+  filters = {},
+} = {}) {
+  return [
+    "calendar",
+    String(tab || ""),
+    stableStringify(filters || {}),
+  ].join("|");
+}

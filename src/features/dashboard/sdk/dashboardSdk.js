@@ -4,6 +4,7 @@ import {
   formatUnixDate,
   toEpochRange,
 } from "@shared/sdk/dashboardCore.js";
+import { hasAnyDashboardFilterValues } from "../constants/filters.js";
 import {
   extractCancellationMessage,
   extractMutationErrorMessage,
@@ -578,30 +579,6 @@ function resolveBaseFactoryByTab(tabId) {
   }
 }
 
-function hasAnyFilterValues(filters = {}) {
-  const f = filters && typeof filters === "object" ? filters : {};
-  if (String(f.accountName || "").trim()) return true;
-  if (String(f.address || "").trim()) return true;
-  if (String(f.serviceman || "").trim()) return true;
-  if (String(f.quoteNumber || "").trim()) return true;
-  if (String(f.invoiceNumber || "").trim()) return true;
-  if (String(f.recommendation || "").trim()) return true;
-  if (String(f.priceMin || "").trim()) return true;
-  if (String(f.priceMax || "").trim()) return true;
-  if (String(f.dateFrom || "").trim()) return true;
-  if (String(f.dateTo || "").trim()) return true;
-  if (String(f.queryPreset || "").trim()) return true;
-  if (Array.isArray(f.statuses) && f.statuses.length) return true;
-  if (Array.isArray(f.jobStatuses) && f.jobStatuses.length) return true;
-  if (Array.isArray(f.priorities) && f.priorities.length) return true;
-  if (Array.isArray(f.serviceProviders) && f.serviceProviders.length) return true;
-  if (Array.isArray(f.accountTypes) && f.accountTypes.length) return true;
-  if (Array.isArray(f.sources) && f.sources.length) return true;
-  if (String(f.urgentCallsMin || "").trim()) return true;
-  if (String(f.partPaymentMadeMin || "").trim()) return true;
-  return false;
-}
-
 function applyTabFiltersToQuery(q, tabId, filters = {}) {
   const f = filters && typeof filters === "object" ? filters : {};
   if (tabId === TAB_IDS.INQUIRY) {
@@ -751,21 +728,26 @@ function applyCalendarEpochFilter(q, lookbackDays, lookaheadDays) {
 async function fetchCalendarRecordsByPaging(
   baseFactory,
   plugin,
-  { lookbackDays = 180, lookaheadDays = 180, pageSize = 400, maxPages = 300 } = {}
+  {
+    tabId,
+    filters = {},
+    lookbackDays = 180,
+    lookaheadDays = 180,
+    pageSize = 400,
+    maxPages = 300,
+  } = {}
 ) {
   const all = [];
 
   for (let page = 0; page < maxPages; page += 1) {
-    const query = applyCalendarEpochFilter(
-      baseFactory(plugin)
-        .deSelectAll()
-        .select(["id", "created_at"])
-        .orderBy("id", "asc")
-        .limit(pageSize)
-        .offset(page * pageSize),
-      lookbackDays,
-      lookaheadDays
-    ).noDestroy();
+    let query = baseFactory(plugin, filters);
+    query = applyTabFiltersToQuery(query, tabId, filters)
+      .deSelectAll()
+      .select(["id", "created_at"])
+      .orderBy("id", "asc")
+      .limit(pageSize)
+      .offset(page * pageSize);
+    query = applyCalendarEpochFilter(query, lookbackDays, lookaheadDays).noDestroy();
 
     const rows = await fetchDirectRecords(query);
     const size = Array.isArray(rows) ? rows.length : 0;
@@ -1060,7 +1042,7 @@ export async function fetchTabCountByTab({ plugin, tabId, filters = null } = {})
   const baseFactory = resolveBaseFactoryByTab(tabId);
   if (!baseFactory) return 0;
   try {
-    if (hasAnyFilterValues(filters || {})) {
+    if (hasAnyDashboardFilterValues(filters || {})) {
       return await fetchCountByPagedQuery(
         ({ limit, offset }) =>
           buildFilteredCountPageQuery({
@@ -1158,6 +1140,7 @@ export async function fetchServiceProviders({ plugin } = {}) {
 export async function fetchCalendarDataByTab({
   plugin,
   activeTab = TAB_IDS.INQUIRY,
+  filters = {},
   lookbackDays = 180,
   lookaheadDays = 180,
 } = {}) {
@@ -1170,6 +1153,8 @@ export async function fetchCalendarDataByTab({
       baseFactory,
       plugin,
       {
+        tabId: activeTab,
+        filters,
         lookbackDays,
         lookaheadDays,
       }
