@@ -3,6 +3,7 @@ import {
   parseBooleanValue,
   parseUploadFileObject,
 } from "../shared/sharedHelpers.js";
+import { getActivityServiceParts } from "@shared/utils/formatters.js";
 
 function normalizeCurrencyString(value) {
   if (value === null || value === undefined || value === "") return "";
@@ -50,7 +51,14 @@ function normalizeActivityDateRequired(value) {
 }
 
 export function normalizeActivityRecord(rawActivity = {}) {
-  const service = rawActivity?.Service || {};
+  const { service, primaryService, serviceName, primaryServiceName } =
+    getActivityServiceParts(rawActivity);
+  const normalizedService = service
+    ? {
+        ...service,
+        ...(primaryService ? { Primary_Service: primaryService } : {}),
+      }
+    : null;
 
   return {
     id: String(rawActivity?.id || rawActivity?.ID || "").trim(),
@@ -86,13 +94,9 @@ export function normalizeActivityRecord(rawActivity = {}) {
     invoice_to_client: parseBooleanValue(
       rawActivity?.invoice_to_client ?? rawActivity?.Invoice_to_Client
     ),
-    service_name: String(
-      rawActivity?.service_name ||
-        rawActivity?.Service_Service_Name ||
-        service?.service_name ||
-        service?.Service_Name ||
-        ""
-    ).trim(),
+    service_name: serviceName,
+    primary_service_name: primaryServiceName,
+    ...(normalizedService ? { Service: normalizedService } : {}),
   };
 }
 

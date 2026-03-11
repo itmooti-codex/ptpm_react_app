@@ -2,6 +2,21 @@ import { useCallback, useState } from "react";
 import { createInitialFilterState } from "../constants/filters.js";
 import { TAB_LIST, TAB_IDS } from "../constants/tabs.js";
 
+function normalizeFilterState(nextState = {}) {
+  const initialState = createInitialFilterState();
+  const source = nextState && typeof nextState === "object" ? nextState : {};
+  return {
+    ...initialState,
+    ...source,
+    statuses: Array.isArray(source.statuses) ? [...source.statuses] : [],
+    jobStatuses: Array.isArray(source.jobStatuses) ? [...source.jobStatuses] : [],
+    priorities: Array.isArray(source.priorities) ? [...source.priorities] : [],
+    serviceProviders: Array.isArray(source.serviceProviders) ? [...source.serviceProviders] : [],
+    accountTypes: Array.isArray(source.accountTypes) ? [...source.accountTypes] : [],
+    sources: Array.isArray(source.sources) ? [...source.sources] : [],
+  };
+}
+
 function createTabFilterMap() {
   return TAB_LIST.reduce((acc, tabId) => {
     acc[tabId] = createInitialFilterState();
@@ -65,6 +80,20 @@ export function useDashboardFilters() {
     }));
     return next;
   }, [filtersByTab, resolveTab]);
+
+  const applyPresetFilters = useCallback((tabId, nextFilters = {}) => {
+    const resolvedTab = resolveTab(tabId);
+    const next = normalizeFilterState(nextFilters);
+    setFiltersByTab((prev) => ({
+      ...prev,
+      [resolvedTab]: next,
+    }));
+    setAppliedFiltersByTab((prev) => ({
+      ...prev,
+      [resolvedTab]: next,
+    }));
+    return next;
+  }, [resolveTab]);
 
   const resetFilters = useCallback((tabId) => {
     const resolvedTab = resolveTab(tabId);
@@ -152,8 +181,14 @@ export function useDashboardFilters() {
     Object.entries(applied).forEach(([key, value]) => {
       if (Array.isArray(value)) {
         value.forEach((item) => {
-          const label =
-            key === "serviceProviders" ? (spById[item] || item) : item;
+          let label = item;
+          if (key === "serviceProviders") {
+            label = spById[item] || item;
+          } else if (key === "jobStatuses") {
+            label = `Job Status: ${item}`;
+          } else if (key === "priorities") {
+            label = `Priority: ${item}`;
+          }
           chips.push({ key, value: item, label });
         });
       } else if (value) {
@@ -169,7 +204,21 @@ export function useDashboardFilters() {
           dateFrom: "From",
           dateTo: "To",
         };
-        chips.push({ key, value, label: `${labelMap[key] || key}: ${value}` });
+        const label =
+          key === "queryPreset"
+            ? value === "jobs-to-check"
+              ? "Jobs To Check"
+              : value === "list-unpaid-invoices"
+                ? "List Unpaid Invoices"
+                : value === "list-part-payments"
+                  ? "List Part Payments"
+                  : `${value}`
+            : key === "urgentCallsMin"
+            ? `Urgent Calls >= ${value}`
+            : key === "partPaymentMadeMin"
+              ? `Part Payment > ${value}`
+              : `${labelMap[key] || key}: ${value}`;
+        chips.push({ key, value, label });
       }
     });
     return chips;
@@ -183,6 +232,7 @@ export function useDashboardFilters() {
     patchFilter,
     toggleArrayFilter,
     applyFilters,
+    applyPresetFilters,
     applyDateRange,
     resetFilters,
     removeAppliedFilter,

@@ -440,6 +440,43 @@ export function DashboardPage() {
     setBatchSelectedIds([]);
   }, []);
 
+  const handleSelectBatchAction = useCallback((actionId) => {
+    const normalizedActionId = String(actionId || "").trim();
+    if (!normalizedActionId) return;
+
+    if (normalizedActionId === "jobs-to-check") {
+      setActiveTab(TAB_IDS.JOBS);
+      filterHook.applyPresetFilters(TAB_IDS.JOBS, {
+        queryPreset: "jobs-to-check",
+      });
+      setCurrentPage(1);
+      setBatchSelectedIds([]);
+      setIsBatchMode(false);
+      return;
+    }
+
+    if (normalizedActionId === "list-unpaid-invoices") {
+      setActiveTab(TAB_IDS.PAYMENT);
+      filterHook.applyPresetFilters(TAB_IDS.PAYMENT, {
+        queryPreset: "list-unpaid-invoices",
+      });
+      setCurrentPage(1);
+      setBatchSelectedIds([]);
+      setIsBatchMode(false);
+      return;
+    }
+
+    if (normalizedActionId === "list-part-payments") {
+      setActiveTab(TAB_IDS.PAYMENT);
+      filterHook.applyPresetFilters(TAB_IDS.PAYMENT, {
+        queryPreset: "list-part-payments",
+      });
+      setCurrentPage(1);
+      setBatchSelectedIds([]);
+      setIsBatchMode(false);
+    }
+  }, [filterHook]);
+
   const handleBatchDeleteConfirm = useCallback(() => {
     if (!plugin || !batchSelectedIds.length || isBatchDeleting) return;
     setIsBatchDeleting(true);
@@ -632,6 +669,7 @@ export function DashboardPage() {
             onTabChange={handleTabChange}
             tabCounts={tabCounts}
             onEnableBatchDelete={handleEnableBatchDelete}
+            onSelectBatchAction={handleSelectBatchAction}
             isBatchMode={isBatchMode}
             batchSelectedCount={batchSelectedIds.length}
             onBatchDeleteClick={() => setBatchDeleteModal(true)}

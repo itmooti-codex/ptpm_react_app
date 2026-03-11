@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
+import { formatActivityServiceLabel } from "@shared/utils/formatters.js";
 import {
   ANNOUNCEMENT_EVENT_KEYS,
 } from "../../../../shared/announcements/announcementTypes.js";
@@ -258,7 +259,7 @@ function hasRenderableActivityRecord(record = {}) {
   if (!record || typeof record !== "object") return false;
   const task = toText(record?.task || record?.Task);
   const option = toText(record?.option || record?.Option);
-  const serviceName = toText(record?.service_name || record?.Service_Service_Name);
+  const serviceName = formatActivityServiceLabel(record);
   const activityText = toText(record?.activity_text || record?.Activity_Text);
   const note = toText(record?.note || record?.Note);
   const warranty = toText(record?.warranty || record?.Warranty);
@@ -518,7 +519,7 @@ export function InvoiceSection({
         const providerAmount = round2((base * providerRate) / 100);
         return {
           id: toText(record?.id || record?.ID),
-          service: toText(record?.service_name || record?.Service_Service_Name || "-"),
+          service: formatActivityServiceLabel(record) || "-",
           task: toText(record?.task || record?.Task || "-"),
           option: toText(record?.option || record?.Option || "-"),
           amount: providerAmount,

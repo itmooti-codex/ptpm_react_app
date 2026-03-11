@@ -1,6 +1,7 @@
 import { Button } from "../../../../../shared/components/ui/Button.jsx";
 import { Card } from "../../../../../shared/components/ui/Card.jsx";
 import { InputField } from "../../../../../shared/components/ui/InputField.jsx";
+import { formatActivityServiceLabel } from "@shared/utils/formatters.js";
 
 function toText(value) {
   return String(value ?? "").trim();
@@ -204,6 +205,7 @@ export function ClientInvoicePanel({
                   ) : (
                     activeActivities.map((record) => {
                       const activityId = toLabel(record?.id || record?.ID);
+                      const serviceLabel = formatActivityServiceLabel(record);
                       const checked = selectedActivityIdSet.has(activityId);
                       const quantity = Math.max(1, toNumber(record?.quantity || 1));
                       const price = toNumber(record?.activity_price || record?.quoted_price || 0);
@@ -211,7 +213,7 @@ export function ClientInvoicePanel({
 
                       return (
                         <tr
-                          key={activityId || `${record?.task}-${record?.service_name}`}
+                          key={activityId || `${record?.task}-${serviceLabel}`}
                           className="border-b border-slate-100 transition-colors hover:bg-slate-50/65 last:border-b-0"
                         >
                           <td className={tableBodyCellClass}>
@@ -231,7 +233,7 @@ export function ClientInvoicePanel({
                             {toLabel(record?.option || record?.Option) || "-"}
                           </td>
                           <td className={`${tableBodyCellClass} text-slate-800`}>
-                            {toLabel(record?.service_name || record?.Service_Service_Name) || "-"}
+                            {toLabel(serviceLabel) || "-"}
                           </td>
                           <td className={`${tableBodyCellClass} text-right text-slate-800`}>{quantity}</td>
                           <td className={`${tableBodyCellClass} text-right text-slate-800`}>
@@ -271,6 +273,7 @@ export function ClientInvoicePanel({
                     </tr>
                   ) : (
                     selectedActivities.map((record) => {
+                      const serviceLabel = formatActivityServiceLabel(record);
                       const quantity = Math.max(1, toNumber(record?.quantity || 1));
                       const price = toNumber(record?.activity_price || record?.quoted_price || 0);
                       const amount = lineAmount(record);
@@ -280,7 +283,7 @@ export function ClientInvoicePanel({
                           className="border-b border-slate-100 last:border-b-0"
                         >
                           <td className={`${tableBodyCellClass} text-slate-800`}>
-                            {toLabel(record?.service_name || record?.Service_Service_Name) || "-"}
+                            {toLabel(serviceLabel) || "-"}
                           </td>
                           <td className={`${tableBodyCellClass} text-slate-800`}>
                             {toLabel(record?.task || record?.Task) || "-"}

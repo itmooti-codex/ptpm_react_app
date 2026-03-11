@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { Button } from "./Button.jsx";
 import { cx } from "../../lib/cx.js";
 
@@ -13,7 +14,7 @@ export function Modal({
 }) {
   if (!open) return null;
 
-  return (
+  const modalContent = (
     <div
       className={cx("fixed inset-0 flex items-center justify-center bg-black/40 px-4", zIndexClass)}
       onClick={closeOnBackdrop ? onClose : undefined}
@@ -38,4 +39,10 @@ export function Modal({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") {
+    return modalContent;
+  }
+
+  return createPortal(modalContent, document.body);
 }

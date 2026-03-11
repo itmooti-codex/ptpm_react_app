@@ -158,6 +158,55 @@ export function parseJsonLike(value) {
   }
 }
 
+export function unwrapRelationRecord(value) {
+  if (Array.isArray(value)) {
+    return value.find((item) => item && typeof item === "object") || null;
+  }
+  return value && typeof value === "object" ? value : null;
+}
+
+export function getActivityServiceParts(activity = {}) {
+  const service = unwrapRelationRecord(activity?.Service || activity?.service);
+  const primaryService = unwrapRelationRecord(
+    service?.Primary_Service ||
+      service?.primary_service ||
+      activity?.Primary_Service ||
+      activity?.primary_service
+  );
+
+  return {
+    service,
+    primaryService,
+    serviceName: toText(
+      activity?.service_name ||
+        activity?.Service_Service_Name ||
+        service?.service_name ||
+        service?.Service_Name ||
+        service?.name
+    ),
+    primaryServiceName: toText(
+      activity?.primary_service_name ||
+        activity?.Primary_Service_Name ||
+        activity?.Service_Service_Name1 ||
+        primaryService?.service_name ||
+        primaryService?.Service_Name ||
+        primaryService?.name
+    ),
+  };
+}
+
+export function formatActivityServiceLabel(activity = {}, { separator = " - " } = {}) {
+  const { serviceName, primaryServiceName } = getActivityServiceParts(activity);
+  const labels = [];
+
+  [serviceName, primaryServiceName].forEach((value) => {
+    const label = toText(value);
+    if (label && !labels.includes(label)) labels.push(label);
+  });
+
+  return labels.join(separator);
+}
+
 function isPlaceholderAttachmentValue(value) {
   const normalized = toText(value).toLowerCase();
   return (

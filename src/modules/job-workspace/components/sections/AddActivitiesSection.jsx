@@ -44,6 +44,7 @@ import {
   fetchServicesForActivities,
   updateActivityRecord,
 } from "../../sdk/core/runtime.js";
+import { formatActivityServiceLabel } from "@shared/utils/formatters.js";
 
 function toText(value) {
   return String(value ?? "").trim();
@@ -736,6 +737,10 @@ export function AddActivitiesSection({
 
       const selectedServiceId = toText(form.optionServiceId || form.primaryServiceId || form.service_id);
       const selectedService = serviceById.get(selectedServiceId) || null;
+      const selectedPrimaryService =
+        selectedService?.parentId
+          ? serviceById.get(toText(selectedService.parentId)) || null
+          : null;
       const payload = {
         job_id: toId(jobId),
         task: normalizedTask,
@@ -767,8 +772,19 @@ export function AddActivitiesSection({
           savedActivity = await createActivityRecord({ plugin, payload });
           success("Activity added", "New activity created successfully.");
         }
+        const resolvedActivity = savedActivity
+          ? (
+              formatActivityServiceLabel(savedActivity)
+                ? savedActivity
+                : {
+                    ...savedActivity,
+                    service_name: toText(selectedService?.name || ""),
+                    primary_service_name: toText(selectedPrimaryService?.name || ""),
+                  }
+            )
+          : null;
         if (savedActivity) {
-          storeActions.upsertEntityRecord("activities", savedActivity, { idField: "id" });
+          storeActions.upsertEntityRecord("activities", resolvedActivity, { idField: "id" });
           if (!isEditing) {
             const activityId = toText(savedActivity?.id || savedActivity?.ID);
             await emitAnnouncement({
@@ -784,15 +800,12 @@ export function AddActivitiesSection({
             });
           }
         }
-        if (savedActivity && typeof onActivitySaved === "function") {
-          const enrichedActivity = toText(savedActivity.service_name)
-            ? savedActivity
-            : { ...savedActivity, service_name: toText(selectedService?.name || "") };
-          onActivitySaved(enrichedActivity);
+        if (resolvedActivity && typeof onActivitySaved === "function") {
+          onActivitySaved(resolvedActivity);
         }
         resetForm();
         if (typeof onSubmitSuccess === "function") {
-          onSubmitSuccess(savedActivity || null);
+          onSubmitSuccess(resolvedActivity);
         }
       } catch (submitError) {
         console.error("[JobDirect] Activity save failed", submitError);
@@ -1055,7 +1068,7 @@ export function AddActivitiesSection({
                           {toText(activity?.option) || "-"}
                         </td>
                         <td className="px-2 py-3 align-middle text-slate-700">
-                          {toText(activity?.service_name) || "-"}
+                          {formatActivityServiceLabel(activity) || "-"}
                         </td>
                         <td className="px-2 py-3 align-middle">
                           <JobDirectStatusBadge label={status || "-"} style={style} />
@@ -1145,7 +1158,7 @@ export function AddActivitiesSection({
               <span className="font-medium text-slate-700">Option:</span> {toText(viewActivity.option) || "-"}
             </div>
             <div className="text-sm text-slate-600">
-              <span className="font-medium text-slate-700">Service:</span> {toText(viewActivity.service_name) || "-"}
+              <span className="font-medium text-slate-700">Service:</span> {formatActivityServiceLabel(viewActivity) || "-"}
             </div>
             <div className="text-sm text-slate-600">
               <span className="font-medium text-slate-700">Status:</span>{" "}

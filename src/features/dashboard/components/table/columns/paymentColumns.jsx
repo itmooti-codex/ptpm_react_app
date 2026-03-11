@@ -147,8 +147,20 @@ export function getPaymentColumns({
       },
     },
     {
+      key: "jobStatus",
+      header: "Job Status",
+      thClass: "w-[1%]",
+      tdClass: "whitespace-nowrap",
+      render: (row) => (
+        <JobDirectStatusBadge
+          label={row.jobStatus}
+          style={resolveStatusStyle(row.jobStatus)}
+        />
+      ),
+    },
+    {
       key: "status",
-      header: "Status",
+      header: "Invoice Status",
       thClass: "w-[1%]",
       tdClass: "whitespace-nowrap",
       render: (row) => (

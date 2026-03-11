@@ -56,10 +56,15 @@ export function useDashboardData({
     if (String(f.priceMax || "").trim()) return true;
     if (String(f.dateFrom || "").trim()) return true;
     if (String(f.dateTo || "").trim()) return true;
+    if (String(f.queryPreset || "").trim()) return true;
     if (Array.isArray(f.statuses) && f.statuses.length) return true;
+    if (Array.isArray(f.jobStatuses) && f.jobStatuses.length) return true;
+    if (Array.isArray(f.priorities) && f.priorities.length) return true;
     if (Array.isArray(f.serviceProviders) && f.serviceProviders.length) return true;
     if (Array.isArray(f.accountTypes) && f.accountTypes.length) return true;
     if (Array.isArray(f.sources) && f.sources.length) return true;
+    if (String(f.urgentCallsMin || "").trim()) return true;
+    if (String(f.partPaymentMadeMin || "").trim()) return true;
     return false;
   })();
 

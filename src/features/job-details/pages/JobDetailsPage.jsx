@@ -85,6 +85,7 @@ import {
   toMailHref,
   toTelHref,
   toGoogleMapsHref,
+  formatActivityServiceLabel,
   formatServiceProviderAllocationLabel,
   formatServiceProviderInputLabel,
   formatContactLookupLabel,
@@ -2918,7 +2919,7 @@ export function JobDetailsPage() {
         key: toText(item?.id || item?.ID || index + 1),
         task: toText(item?.task || item?.Task),
         option: toText(item?.option || item?.Option),
-        service: toText(item?.service_name || item?.Service_Service_Name || item?.activity_text),
+        service: formatActivityServiceLabel(item) || toText(item?.activity_text),
         qty: toText(item?.quantity || item?.Quantity || "1"),
         price: formatCurrencyDisplay(item?.activity_price || item?.Activity_Price || 0),
       }))
@@ -3261,11 +3262,7 @@ export function JobDetailsPage() {
 
     const rowsHtml = activities
       .map((a) => {
-        const serviceParts = [
-          a.service_name || a.Service_Service_Name || a.Service?.service_name || "",
-          a.Service?.Primary_Service?.service_name || a.Service_Service_Name1 || "",
-        ].filter(Boolean);
-        const serviceLabel = serviceParts.join(" - ");
+        const serviceLabel = formatActivityServiceLabel(a);
         const price = Number(a?.quoted_price ?? a?.Quoted_Price ?? a?.activity_price ?? 0);
         return `<tr>
           <td>${escHtml(a.task || a.Task || "-")}</td>

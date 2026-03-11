@@ -81,6 +81,7 @@ function HeaderDropdownButton({ label, items, variant = "default" }) {
 
 export function DashboardHeader({
   onEnableBatchDelete,
+  onSelectBatchAction,
   isBatchMode = false,
   batchSelectedCount = 0,
   onBatchDeleteClick,
@@ -95,10 +96,16 @@ export function DashboardHeader({
   ];
 
   const batchItems = [
-    { label: "Jobs To Check", onClick: () => {} },
+    { label: "Jobs To Check", onClick: () => onSelectBatchAction?.("jobs-to-check") },
     { label: "Email List to Serviceman", onClick: () => {} },
-    { label: "List Unpaid Invoices", onClick: () => {} },
-    { label: "List Part Payments", onClick: () => {} },
+    {
+      label: "List Unpaid Invoices",
+      onClick: () => onSelectBatchAction?.("list-unpaid-invoices"),
+    },
+    {
+      label: "List Part Payments",
+      onClick: () => onSelectBatchAction?.("list-part-payments"),
+    },
     { label: "Delete Selected", danger: true, onClick: () => onEnableBatchDelete?.() },
   ];
 

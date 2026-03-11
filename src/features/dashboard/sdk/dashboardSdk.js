@@ -127,9 +127,17 @@ function applyDealFilters(q, f) {
 function applyCommonJobFilters(q, f, { dateField = "created_at", statusField } = {}) {
   const like = (s) => `%${s}%`;
   const { startEpoch, endEpoch } = toEpochRange(f.dateFrom, f.dateTo);
+  const urgentCallsMin = Number(f.urgentCallsMin);
+  const partPaymentMadeMin = Number(f.partPaymentMadeMin);
 
   if (statusField && Array.isArray(f.statuses) && f.statuses.length) {
     q = q.andWhere(statusField, "in", f.statuses);
+  }
+  if (Array.isArray(f.jobStatuses) && f.jobStatuses.length) {
+    q = q.andWhere("job_status", "in", f.jobStatuses);
+  }
+  if (Array.isArray(f.priorities) && f.priorities.length) {
+    q = q.andWhere("priority", "in", f.priorities);
   }
   if (Array.isArray(f.serviceProviders) && f.serviceProviders.length) {
     q = q.andWhere("primary_service_provider_id", "in", f.serviceProviders);
@@ -148,6 +156,12 @@ function applyCommonJobFilters(q, f, { dateField = "created_at", statusField } =
   }
   if (f.priceMax !== "" && f.priceMax != null) {
     q = q.andWhere("quote_total", "<=", Number(f.priceMax));
+  }
+  if (f.urgentCallsMin !== "" && Number.isFinite(urgentCallsMin)) {
+    q = q.andWhere("Urgent_Calls", ">=", urgentCallsMin);
+  }
+  if (f.partPaymentMadeMin !== "" && Number.isFinite(partPaymentMadeMin)) {
+    q = q.andWhere("Part_Payment_Made", ">", partPaymentMadeMin);
   }
   if (startEpoch != null || endEpoch != null) {
     q = q.andWhere((sq) => {
@@ -420,6 +434,7 @@ function normalizePayment(rec) {
     amount: total,
     paid: isPaid ? total : 0,
     balance: isPaid ? 0 : total,
+    jobStatus: rec.job_status ?? rec.Job_Status ?? "",
     status: rec.payment_status ?? rec.Payment_Status ?? "",
   };
 }
@@ -490,13 +505,30 @@ function createQuotesBaseQuery(plugin) {
   return applyQuoteBaseConditions(jobModel.query());
 }
 
-function createJobsBaseQuery(plugin) {
+function createJobsBaseQuery(plugin, filters = {}) {
   const { jobModel } = getModels(plugin);
+  if (String(filters?.queryPreset || "").trim() === "jobs-to-check") {
+    return jobModel
+      .query()
+      .andWhere("job_status", "eq", "Call Back")
+      .andWhere("priority", "eq", "High")
+      .andWhere("Urgent_Calls", ">=", 1);
+  }
   return applyJobBaseConditions(jobModel.query());
 }
 
-function createPaymentsBaseQuery(plugin) {
+function createPaymentsBaseQuery(plugin, filters = {}) {
   const { jobModel } = getModels(plugin);
+  const preset = String(filters?.queryPreset || "").trim();
+  if (preset === "list-unpaid-invoices") {
+    return jobModel.query().andWhere("job_status", "eq", "Waiting For Payment");
+  }
+  if (preset === "list-part-payments") {
+    return jobModel
+      .query()
+      .andWhere("Part_Payment_Made", ">", 0)
+      .andWhere("payment_status", "in", ["Invoice Sent", "Overdue"]);
+  }
   return applyPaymentBaseConditions(jobModel.query());
 }
 
@@ -558,10 +590,15 @@ function hasAnyFilterValues(filters = {}) {
   if (String(f.priceMax || "").trim()) return true;
   if (String(f.dateFrom || "").trim()) return true;
   if (String(f.dateTo || "").trim()) return true;
+  if (String(f.queryPreset || "").trim()) return true;
   if (Array.isArray(f.statuses) && f.statuses.length) return true;
+  if (Array.isArray(f.jobStatuses) && f.jobStatuses.length) return true;
+  if (Array.isArray(f.priorities) && f.priorities.length) return true;
   if (Array.isArray(f.serviceProviders) && f.serviceProviders.length) return true;
   if (Array.isArray(f.accountTypes) && f.accountTypes.length) return true;
   if (Array.isArray(f.sources) && f.sources.length) return true;
+  if (String(f.urgentCallsMin || "").trim()) return true;
+  if (String(f.partPaymentMadeMin || "").trim()) return true;
   return false;
 }
 
@@ -652,7 +689,7 @@ function buildFilteredCountPageQuery({
   const baseFactory = resolveBaseFactoryByTab(tabId);
   if (!baseFactory) return null;
 
-  const q = applyTabFiltersToQuery(baseFactory(plugin), tabId, filters);
+  const q = applyTabFiltersToQuery(baseFactory(plugin, filters), tabId, filters);
   return q
     .deSelectAll()
     .select(["id"])
@@ -810,7 +847,7 @@ export function buildJobsQuery(plugin, filters = {}, page = 1, pageSize = 25, so
 function buildJobsLikeQuery(baseFactory, plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
   const f = filters;
 
-  let q = baseFactory(plugin)
+  let q = baseFactory(plugin, f)
     .deSelectAll()
     .select([
       "id",
@@ -904,11 +941,12 @@ export function buildOpenTasksDealQuery(
 export function buildPaymentsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
   const f = filters;
 
-  let q = createPaymentsBaseQuery(plugin)
+  let q = createPaymentsBaseQuery(plugin, f)
     .deSelectAll()
     .select([
       "id",
       "unique_id",
+      "job_status",
       "invoice_number",
       "invoice_date",
       "invoice_total",

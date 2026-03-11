@@ -10,10 +10,15 @@ export function createInitialFilterState() {
     priceMax: "",
     dateFrom: "",
     dateTo: "",
+    queryPreset: "",
     statuses: [],
+    jobStatuses: [],
+    priorities: [],
     serviceProviders: [],
     accountTypes: [],
     sources: [],
+    urgentCallsMin: "",
+    partPaymentMadeMin: "",
   };
 }
 

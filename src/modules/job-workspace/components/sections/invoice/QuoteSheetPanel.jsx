@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatActivityServiceLabel } from "@shared/utils/formatters.js";
 
 function toText(value) {
   return String(value ?? "").trim();
@@ -22,14 +23,11 @@ function parseBool(value) {
 }
 
 function normalizeActivity(activity) {
-  const service = activity?.Service || activity?.service || {};
-  const primaryService = service?.Primary_Service || service?.primary_service || {};
   return {
     id: toText(activity?.id || activity?.ID),
     task: toText(activity?.task || activity?.Task),
     option: toText(activity?.option || activity?.Option),
-    serviceName: toText(service?.service_name || service?.Service_Name || activity?.service_name || activity?.Service_Service_Name),
-    primaryServiceName: toText(primaryService?.service_name || primaryService?.Service_Name || activity?.Service_Service_Name1),
+    serviceLabel: formatActivityServiceLabel(activity),
     quotedText: toText(activity?.quoted_text || activity?.Quoted_Text),
     warranty: toText(activity?.warranty || activity?.Warranty),
     note: toText(activity?.note || activity?.Note),
@@ -307,7 +305,6 @@ export function QuoteSheetPanel({ activities, headerData, onAcceptQuote, isAccep
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
                 {quoteActivities.map((activity) => {
-                  const serviceLabel = [activity.serviceName, activity.primaryServiceName].filter(Boolean).join(" - ");
                   const checked = selectedIdSet.has(activity.id);
                   return (
                     <tr
@@ -329,7 +326,7 @@ export function QuoteSheetPanel({ activities, headerData, onAcceptQuote, isAccep
                         {activity.option || "-"}
                       </td>
                       <td className={`${tableBodyCellClass} text-slate-800`}>
-                        <div>{serviceLabel || "-"}</div>
+                        <div>{activity.serviceLabel || "-"}</div>
                         {activity.quotedText ? <div className="mt-0.5 text-xs text-slate-500">{activity.quotedText}</div> : null}
                         {activity.warranty ? <div className="mt-0.5 text-xs text-slate-500"><span className="font-medium">Warranty:</span> {activity.warranty}</div> : null}
                         {activity.note ? <div className="mt-0.5 text-xs text-slate-500"><span className="font-medium">Note:</span> {activity.note}</div> : null}

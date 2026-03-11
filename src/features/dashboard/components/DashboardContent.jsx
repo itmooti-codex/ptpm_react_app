@@ -10,6 +10,7 @@ export function DashboardContent({
   onTabChange,
   tabCounts,
   onEnableBatchDelete,
+  onSelectBatchAction,
   isBatchMode,
   batchSelectedCount = 0,
   onBatchDeleteClick,
@@ -58,6 +59,7 @@ export function DashboardContent({
         tabCounts={tabCounts}
         onTabChange={onTabChange}
         onEnableBatchDelete={onEnableBatchDelete}
+        onSelectBatchAction={onSelectBatchAction}
         isBatchMode={isBatchMode}
         batchSelectedCount={batchSelectedCount}
         onBatchDeleteClick={onBatchDeleteClick}
