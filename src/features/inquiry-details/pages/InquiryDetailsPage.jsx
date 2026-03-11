@@ -26,6 +26,7 @@ import {
   createMemoPostForDetails,
   deleteMemoCommentForDetails,
   deleteMemoPostForDetails,
+  fetchContactLogsForDetails,
   fetchMemosForDetails,
   resolveJobDetailsContext,
   subscribeMemosForDetails,
@@ -116,6 +117,9 @@ import { CardTagList } from "@shared/components/ui/CardTagList.jsx";
 import { MemoChatPanel } from "@shared/components/ui/MemoChatPanel.jsx";
 import { SectionLoadingState } from "@shared/components/ui/SectionLoadingState.jsx";
 import { useCurrentUserProfile } from "@shared/hooks/useCurrentUserProfile.js";
+import { ContactLogsPanel } from "../../job-details/components/ContactLogsPanel.jsx";
+import { JobMemosPreviewPanel } from "../../job-details/components/JobMemosPreviewPanel.jsx";
+import { JobNotesPanel } from "../../job-details/components/JobNotesPanel.jsx";
 import {
   parseListSelectionValue,
   serializeListSelectionValue,
@@ -3070,7 +3074,7 @@ const INQUIRY_DETAILS_EDIT_EMPTY_FORM = {
 };
 
 const INQUIRY_WORKSPACE_TABS = [
-  { id: "related-records", label: "Related Records" },
+  { id: "related-records", label: "Related Data" },
   { id: "properties", label: "Properties" },
   { id: "uploads", label: "Uploads" },
   { id: "appointments", label: "Appointments" },
@@ -3226,6 +3230,74 @@ function extractFirstRecord(payload) {
     }
   }
   return null;
+}
+
+function getRelatedJobRecordKey(record = {}, index = 0) {
+  const uid = toText(record?.unique_id || record?.Unique_ID);
+  if (uid) return `uid:${uid}`;
+  const id = toText(record?.id || record?.ID);
+  if (id) return `id:${id}`;
+  return `job:${index}`;
+}
+
+function getRelatedRecordIdentity(record = {}, index = 0, fallbackPrefix = "record") {
+  const uid = toText(record?.unique_id || record?.Unique_ID);
+  const id = toText(record?.id || record?.ID);
+  return {
+    uid,
+    id,
+    fallbackKey: `${fallbackPrefix}:${index}`,
+  };
+}
+
+function mergeRelatedRecordCollections(baseRecords = [], contextualRecords = [], getKey) {
+  const list = Array.isArray(baseRecords) ? baseRecords : [];
+  const contextual = Array.isArray(contextualRecords) ? contextualRecords : [];
+  const merged = [];
+  const indexByKey = new Map();
+
+  [...list, ...contextual].forEach((record, index) => {
+    if (!record || typeof record !== "object") return;
+    const { uid, id, fallbackKey } = getRelatedRecordIdentity(
+      record,
+      index,
+      typeof getKey === "function" ? getKey(record, index).split(":")[0] : "record"
+    );
+    const candidateKeys = [uid ? `uid:${uid}` : "", id ? `id:${id}` : ""].filter(Boolean);
+    const existingIndex = candidateKeys.reduce((foundIndex, key) => {
+      if (foundIndex != null) return foundIndex;
+      return indexByKey.has(key) ? indexByKey.get(key) : null;
+    }, null);
+
+    if (existingIndex == null && !candidateKeys.length) {
+      merged.push(record);
+      return;
+    }
+
+    if (existingIndex == null) {
+      candidateKeys.forEach((key) => {
+        indexByKey.set(key, merged.length);
+      });
+      if (!candidateKeys.length) {
+        indexByKey.set(fallbackKey, merged.length);
+      }
+      merged.push(record);
+      return;
+    }
+
+    merged[existingIndex] = {
+      ...merged[existingIndex],
+      ...record,
+    };
+
+    const mergedRecord = merged[existingIndex];
+    const mergedUid = toText(mergedRecord?.unique_id || mergedRecord?.Unique_ID);
+    const mergedId = toText(mergedRecord?.id || mergedRecord?.ID);
+    if (mergedUid) indexByKey.set(`uid:${mergedUid}`, existingIndex);
+    if (mergedId) indexByKey.set(`id:${mergedId}`, existingIndex);
+  });
+
+  return merged;
 }
 
 function extractRecordsFromPayload(payload) {
@@ -3917,6 +3989,39 @@ async function fetchJobInquiryRecordIdById({ plugin, jobId }) {
   return toText(record?.inquiry_record_id || record?.Inquiry_Record_ID);
 }
 
+async function fetchRelatedJobSummaryById({ plugin, jobId }) {
+  const normalizedJobId = toText(jobId);
+  if (!plugin?.switchTo || !normalizedJobId) return null;
+  const query = plugin
+    .switchTo("PeterpmJob")
+    .query()
+    .where("id", /^\d+$/.test(normalizedJobId) ? Number.parseInt(normalizedJobId, 10) : normalizedJobId)
+    .deSelectAll()
+    .select(["id", "unique_id", "job_status", "quote_status"])
+    .include("Property", (propertyQuery) =>
+      propertyQuery.deSelectAll().select(["id", "property_name"])
+    )
+    .limit(1)
+    .noDestroy();
+  query.getOrInitQueryCalc?.();
+  const result = await toPromiseLike(query.fetchDirect());
+  const record = extractFirstRecord(result);
+  const propertyRecord = normalizeRelationRecord(record?.Property || record?.property);
+  if (!record) return null;
+  return {
+    id: toText(record?.id || record?.ID),
+    unique_id: toText(record?.unique_id || record?.Unique_ID),
+    job_status: toText(record?.job_status || record?.Job_Status),
+    quote_status: toText(record?.quote_status || record?.Quote_Status),
+    property_name: toText(
+      record?.property_name ||
+        record?.Property_Name ||
+        propertyRecord?.property_name ||
+        propertyRecord?.Property_Name
+    ),
+  };
+}
+
 export function InquiryDetailsPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -3971,7 +4076,9 @@ export function InquiryDetailsPage() {
   const [removingListTagKeys, setRemovingListTagKeys] = useState({});
   const [optimisticListSelectionByField, setOptimisticListSelectionByField] = useState({});
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState("related-records");
-  const [mountedWorkspaceTabs, setMountedWorkspaceTabs] = useState({});
+  const [mountedWorkspaceTabs, setMountedWorkspaceTabs] = useState(() => ({
+    "related-records": true,
+  }));
   const [propertyLookupRecords, setPropertyLookupRecords] = useState([]);
   const [linkedProperties, setLinkedProperties] = useState([]);
   const [isLinkedPropertiesLoading, setIsLinkedPropertiesLoading] = useState(false);
@@ -3980,6 +4087,7 @@ export function InquiryDetailsPage() {
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [isPropertySameAsContact, setIsPropertySameAsContact] = useState(false);
   const [isApplyingSameAsContactProperty, setIsApplyingSameAsContactProperty] = useState(false);
+  const [contextualRelatedJobs, setContextualRelatedJobs] = useState([]);
   const [propertyModalState, setPropertyModalState] = useState({
     open: false,
     initialData: null,
@@ -4005,8 +4113,12 @@ export function InquiryDetailsPage() {
   const [memoReplyDrafts, setMemoReplyDrafts] = useState({});
   const [isPostingMemo, setIsPostingMemo] = useState(false);
   const [sendingReplyPostId, setSendingReplyPostId] = useState("");
+  const [memoFocusRequest, setMemoFocusRequest] = useState({ memoId: "", key: 0 });
   const [memoDeleteTarget, setMemoDeleteTarget] = useState(null);
   const [isDeletingMemoItem, setIsDeletingMemoItem] = useState(false);
+  const [contactLogs, setContactLogs] = useState([]);
+  const [isContactLogsLoading, setIsContactLogsLoading] = useState(false);
+  const [contactLogsError, setContactLogsError] = useState("");
   const [popupCommentDrafts, setPopupCommentDrafts] = useState({
     contact: "",
     company: "",
@@ -4357,6 +4469,32 @@ export function InquiryDetailsPage() {
     }
     return inquiryContactId || inquiryCompanyId;
   }, [inquiryCompanyId, inquiryContactId, relatedRecordsAccountType]);
+  const contactLogsContactId = useMemo(() => {
+    if (relatedRecordsAccountType === "Company") {
+      return toText(
+        inquiryCompanyPrimaryPerson?.id ||
+          inquiryCompanyPrimaryPerson?.ID ||
+          inquiryPrimaryContact?.id ||
+          inquiryPrimaryContact?.ID ||
+          inquiryContactId
+      );
+    }
+    return toText(
+      inquiryPrimaryContact?.id ||
+        inquiryPrimaryContact?.ID ||
+        inquiryContactId ||
+        inquiryCompanyPrimaryPerson?.id ||
+        inquiryCompanyPrimaryPerson?.ID
+    );
+  }, [
+    inquiryCompanyPrimaryPerson?.ID,
+    inquiryCompanyPrimaryPerson?.id,
+    inquiryContactId,
+    inquiryPrimaryContact?.ID,
+    inquiryPrimaryContact?.id,
+    relatedRecordsAccountType,
+  ]);
+  const isRelatedDataTabMounted = Boolean(mountedWorkspaceTabs["related-records"]);
   const {
     relatedDeals,
     relatedJobs,
@@ -4390,6 +4528,12 @@ export function InquiryDetailsPage() {
     linkedJobSelectionOverride !== undefined
       ? toText(linkedJobSelectionOverride)
       : linkedInquiryJobIdFromRecord || quoteJobIdFromRecord;
+  const contextualRelatedJobIds = useMemo(() => {
+    const ids = [selectedRelatedJobId, quoteJobIdFromRecord]
+      .map((value) => toText(value))
+      .filter(Boolean);
+    return Array.from(new Set(ids));
+  }, [quoteJobIdFromRecord, selectedRelatedJobId]);
   const inquiryPropertyRelationRecord = useMemo(
     () => normalizeRelationRecord(inquiry?.Property || inquiry?.property),
     [inquiry?.Property, inquiry?.property]
@@ -4548,6 +4692,70 @@ export function InquiryDetailsPage() {
     serviceProviderLookup,
     workspacePropertiesSorted,
   ]);
+  const relatedJobsForDisplay = useMemo(
+    () =>
+      mergeRelatedRecordCollections(
+        relatedJobs,
+        contextualRelatedJobs,
+        getRelatedJobRecordKey
+      ),
+    [contextualRelatedJobs, relatedJobs]
+  );
+  useEffect(() => {
+    let cancelled = false;
+    if (!contextualRelatedJobIds.length) {
+      setContextualRelatedJobs([]);
+      return undefined;
+    }
+
+    const accountJobMap = new Map(
+      (Array.isArray(relatedJobs) ? relatedJobs : []).map((job) => [
+        toText(job?.id || job?.ID),
+        job,
+      ])
+    );
+
+    Promise.all(
+      contextualRelatedJobIds.map(async (jobId) => {
+        const normalizedJobId = toText(jobId);
+        if (!normalizedJobId) return null;
+        const existingJob = accountJobMap.get(normalizedJobId);
+        if (existingJob) return existingJob;
+
+        try {
+          const fetchedJob = await fetchRelatedJobSummaryById({
+            plugin,
+            jobId: normalizedJobId,
+          });
+          return fetchedJob || { id: normalizedJobId };
+        } catch (loadError) {
+          console.error("[InquiryDetails] Failed to load contextual related job", loadError);
+          return { id: normalizedJobId };
+        }
+      })
+    ).then((rows) => {
+      if (cancelled) return;
+      setContextualRelatedJobs((Array.isArray(rows) ? rows : []).filter(Boolean));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contextualRelatedJobIds, plugin, relatedJobs]);
+  useEffect(() => {
+    if (!contextualRelatedJobs.length) return;
+    setRelatedJobIdByUid((previous) => {
+      let next = previous;
+      contextualRelatedJobs.forEach((job) => {
+        const jobUid = toText(job?.unique_id || job?.Unique_ID);
+        const jobId = toText(job?.id || job?.ID);
+        if (!jobUid || !jobId || toText(previous[jobUid]) === jobId) return;
+        if (next === previous) next = { ...(previous || {}) };
+        next[jobUid] = jobId;
+      });
+      return next;
+    });
+  }, [contextualRelatedJobs]);
   const accountContactName = fullName(
     inquiryPrimaryContact?.first_name,
     inquiryPrimaryContact?.last_name
@@ -4833,23 +5041,7 @@ export function InquiryDetailsPage() {
     requestPestLocationsDisplayValue,
     PEST_LOCATION_OPTIONS
   );
-  const hasRelatedRecordsData =
-    filteredRelatedDeals.length > 0 || (Array.isArray(relatedJobs) && relatedJobs.length > 0);
-  const shouldShowRelationshipTabsByFlow = Boolean(inquiryDisplayFlowRule.showPropertySearch);
-  const shouldShowRelatedRecordsTab =
-    Boolean(relatedRecordsAccountId) &&
-    shouldShowRelationshipTabsByFlow &&
-    hasRelatedRecordsData;
-  const shouldShowPropertiesTab = shouldShowRelationshipTabsByFlow;
-  const visibleWorkspaceTabs = useMemo(
-    () =>
-      INQUIRY_WORKSPACE_TABS.filter((tab) => {
-        if (tab.id === "related-records") return shouldShowRelatedRecordsTab;
-        if (tab.id === "properties") return shouldShowPropertiesTab;
-        return true;
-      }),
-    [shouldShowPropertiesTab, shouldShowRelatedRecordsTab]
-  );
+  const visibleWorkspaceTabs = INQUIRY_WORKSPACE_TABS;
   const visibleWorkspaceTabsKey = useMemo(
     () => visibleWorkspaceTabs.map((tab) => tab.id).join("|"),
     [visibleWorkspaceTabs]
@@ -5394,8 +5586,8 @@ export function InquiryDetailsPage() {
   useEffect(() => {
     previousVisibleWorkspaceTabsKeyRef.current = "";
     previousAccountBindingKeyRef.current = "";
-    setMountedWorkspaceTabs({});
-    setActiveWorkspaceTab("");
+    setMountedWorkspaceTabs({ "related-records": true });
+    setActiveWorkspaceTab("related-records");
   }, [safeUid]);
 
   useEffect(() => {
@@ -5443,7 +5635,7 @@ export function InquiryDetailsPage() {
   ]);
 
   useEffect(() => {
-    if (!plugin || !relatedRecordsAccountId || !inquiryDisplayFlowRule.showPropertySearch) {
+    if (!plugin || !relatedRecordsAccountId) {
       setLinkedProperties([]);
       setLinkedPropertiesError("");
       setIsLinkedPropertiesLoading(false);
@@ -5511,10 +5703,10 @@ export function InquiryDetailsPage() {
     return () => {
       isMounted = false;
     };
-  }, [inquiryDisplayFlowRule.showPropertySearch, plugin, relatedRecordsAccountId, relatedRecordsAccountType]);
+  }, [plugin, relatedRecordsAccountId, relatedRecordsAccountType]);
 
   useEffect(() => {
-    if (!relatedRecordsAccountId || !inquiryDisplayFlowRule.showPropertySearch) return;
+    if (!relatedRecordsAccountId) return;
     if (!linkedProperties.length && !propertyLookupRecords.length) return;
     writeInquiryWorkspacePropertyCache({
       accountType: relatedRecordsAccountType,
@@ -5523,7 +5715,6 @@ export function InquiryDetailsPage() {
       propertyLookupRecords,
     });
   }, [
-    inquiryDisplayFlowRule.showPropertySearch,
     linkedProperties,
     propertyLookupRecords,
     relatedRecordsAccountId,
@@ -5545,7 +5736,7 @@ export function InquiryDetailsPage() {
   useEffect(() => {
     const shouldPreloadAllProperties = toText(import.meta.env.VITE_PRELOAD_ALL_PROPERTIES).toLowerCase() === "true";
     if (!shouldPreloadAllProperties) return;
-    if (!plugin || !shouldShowPropertiesTab) return;
+    if (!plugin) return;
 
     let isMounted = true;
     fetchPropertiesForSearch({ plugin })
@@ -5565,7 +5756,7 @@ export function InquiryDetailsPage() {
     return () => {
       isMounted = false;
     };
-  }, [plugin, shouldShowPropertiesTab]);
+  }, [plugin]);
 
   useEffect(() => {
     const normalizedInquiryPropertyId = normalizePropertyId(inquiryPropertyId);
@@ -6053,6 +6244,46 @@ export function InquiryDetailsPage() {
     }
     return refreshed || null;
   }, [inquiryNumericId, plugin]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const normalizedContactId = toText(contactLogsContactId);
+
+    if (!isRelatedDataTabMounted) return undefined;
+
+    if (!plugin || !isSdkReady || !normalizedContactId) {
+      setContactLogs([]);
+      setIsContactLogsLoading(false);
+      setContactLogsError("");
+      return undefined;
+    }
+
+    setIsContactLogsLoading(true);
+    setContactLogsError("");
+
+    fetchContactLogsForDetails({
+      plugin,
+      contactId: normalizedContactId,
+    })
+      .then((rows) => {
+        if (cancelled) return;
+        setContactLogs(Array.isArray(rows) ? rows : []);
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        console.error("[InquiryDetails] Failed to load contact logs", loadError);
+        setContactLogs([]);
+        setContactLogsError(loadError?.message || "Unable to load contact logs.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsContactLogsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contactLogsContactId, isRelatedDataTabMounted, isSdkReady, plugin]);
 
   const refreshMemos = useCallback(async () => {
     if (!plugin || !isSdkReady || !hasMemoContext) {
@@ -6984,6 +7215,17 @@ export function InquiryDetailsPage() {
     if (memoFileInputRef.current) {
       memoFileInputRef.current.value = "";
     }
+  }, []);
+
+  const handleOpenMemoPreview = useCallback((memoId) => {
+    const normalizedMemoId = toText(memoId);
+    if (!normalizedMemoId) return;
+    setAreFloatingWidgetsVisible(true);
+    setIsMemoChatOpen(true);
+    setMemoFocusRequest({
+      memoId: normalizedMemoId,
+      key: Date.now(),
+    });
   }, []);
 
   const handleSendMemo = useCallback(async () => {
@@ -8846,30 +9088,63 @@ export function InquiryDetailsPage() {
               ) : (
                 <>
                   <WorkspaceTabPanel
-                    isMounted={
-                      shouldShowRelatedRecordsTab &&
-                      Boolean(mountedWorkspaceTabs["related-records"])
-                    }
+                    isMounted={Boolean(mountedWorkspaceTabs["related-records"])}
                     isActive={activeWorkspaceTab === "related-records"}
                   >
-                    <RelatedRecordsSection
-                      deals={filteredRelatedDeals}
-                      jobs={relatedJobs}
-                      isLoading={isRelatedRecordsLoading}
-                      error={relatedRecordsError}
-                      hasAccount={Boolean(relatedRecordsAccountId)}
-                      noAccountMessage="Link a contact/company on this inquiry to load related records."
-                      linkedJobId={selectedRelatedJobId}
-                      jobIdByUid={relatedJobIdByUid}
-                      onToggleJobLink={handleToggleRelatedJobLink}
-                      isLinkingJob={isSavingLinkedJob}
-                      onNavigateToDeal={(uid) => openRelatedRecord(uid)}
-                      onNavigateToJob={(uid) => openRelatedRecord(uid)}
-                    />
+                    <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                      <RelatedRecordsSection
+                        deals={filteredRelatedDeals}
+                        jobs={relatedJobsForDisplay}
+                        stackPrimaryColumns
+                        extraPanels={[
+                          <div className="flex h-full min-h-[420px] min-w-0 flex-col gap-2">
+                            <JobMemosPreviewPanel
+                              title="Latest Memo"
+                              unavailableMessage="Memos are available when the inquiry is linked."
+                              hasMemoContext={hasMemoContext}
+                              isLoading={isMemosLoading}
+                              errorMessage={memosError}
+                              memos={memos}
+                              resolveMemoAuthor={resolveMemoAuthor}
+                              onOpen={handleOpenMemoPreview}
+                              panelClassName="min-h-[148px]"
+                            />
+                            <JobNotesPanel
+                              plugin={plugin}
+                              jobId={linkedInquiryJobIdFromRecord}
+                              inquiryId={inquiryNumericId}
+                              contextType="inquiry"
+                              panelClassName="min-h-0 flex-1"
+                              listMaxHeightClass="min-h-0 flex-1"
+                            />
+                          </div>,
+                        ]}
+                        isLoading={isRelatedRecordsLoading}
+                        error={relatedRecordsError}
+                        hasAccount={Boolean(relatedRecordsAccountId)}
+                        noAccountMessage="Link a contact/company on this inquiry to load related records."
+                        linkedJobId={selectedRelatedJobId}
+                        jobIdByUid={relatedJobIdByUid}
+                        onToggleJobLink={handleToggleRelatedJobLink}
+                        isLinkingJob={isSavingLinkedJob}
+                        onNavigateToDeal={(uid) => openRelatedRecord(uid)}
+                        onNavigateToJob={(uid) => openRelatedRecord(uid)}
+                      />
+
+                      <ContactLogsPanel
+                        title="Contact Logs"
+                        unavailableMessage="Contact logs are available when the inquiry has a linked contact context."
+                        hasContactContext={Boolean(contactLogsContactId)}
+                        isLoading={isContactLogsLoading}
+                        errorMessage={contactLogsError}
+                        logs={contactLogs}
+                        panelClassName="h-full"
+                      />
+                    </div>
                   </WorkspaceTabPanel>
 
                   <WorkspaceTabPanel
-                    isMounted={shouldShowPropertiesTab && Boolean(mountedWorkspaceTabs.properties)}
+                    isMounted={Boolean(mountedWorkspaceTabs.properties)}
                     isActive={activeWorkspaceTab === "properties"}
                   >
                     <PropertyTabSection
@@ -9065,6 +9340,8 @@ export function InquiryDetailsPage() {
             onMemoFileChange={handleMemoFileChange}
             onAttachClick={() => memoFileInputRef.current?.click()}
             onClearMemoFile={handleClearMemoFile}
+            focusMemoId={memoFocusRequest.memoId}
+            focusRequestKey={memoFocusRequest.key}
             onClose={() => setIsMemoChatOpen(false)}
             unavailableMessage="Memos are available when the inquiry is linked."
             emptyMessage="No memos yet. Start the thread with a quick update or attachment."

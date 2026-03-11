@@ -133,9 +133,15 @@ export function MemoChatPanel({
   unavailableMessage = "Memos are unavailable here.",
   emptyMessage = "No memos yet.",
   DeleteIcon,
+  focusMemoId = "",
+  focusRequestKey = 0,
 }) {
   const scrollRef = useRef(null);
+  const memoCardRefs = useRef({});
+  const replyInputRefs = useRef({});
+  const highlightTimeoutRef = useRef(null);
   const [collapsedRepliesByMemoId, setCollapsedRepliesByMemoId] = useState({});
+  const [highlightMemoId, setHighlightMemoId] = useState("");
   const totalReplies = useMemo(
     () =>
       (Array.isArray(memos) ? memos : []).reduce((count, memo) => {
@@ -168,6 +174,42 @@ export function MemoChatPanel({
       return next;
     });
   }, [memos]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) {
+        window.clearTimeout(highlightTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const targetMemoId = toText(focusMemoId);
+    if (!hasMemoContext || !targetMemoId || !focusRequestKey) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      const targetCard = memoCardRefs.current?.[targetMemoId];
+      const targetReplyInput = replyInputRefs.current?.[targetMemoId];
+      targetCard?.scrollIntoView?.({
+        behavior: hasScrolledRef.current ? "smooth" : "auto",
+        block: "center",
+      });
+      targetReplyInput?.focus?.();
+      if (typeof targetReplyInput?.setSelectionRange === "function") {
+        const cursorPosition = String(targetReplyInput.value || "").length;
+        targetReplyInput.setSelectionRange(cursorPosition, cursorPosition);
+      }
+      setHighlightMemoId(targetMemoId);
+      if (highlightTimeoutRef.current) {
+        window.clearTimeout(highlightTimeoutRef.current);
+      }
+      highlightTimeoutRef.current = window.setTimeout(() => {
+        setHighlightMemoId((current) => (current === targetMemoId ? "" : current));
+      }, 2200);
+    }, 80);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [focusMemoId, focusRequestKey, hasMemoContext]);
 
   const headerMeta = !hasMemoContext
     ? contextDescription || unavailableMessage
@@ -261,13 +303,23 @@ export function MemoChatPanel({
               <div
                 key={memoId}
                 className={cx("flex", memoIsMine ? "justify-end" : "justify-start")}
+                ref={(node) => {
+                  if (node) {
+                    memoCardRefs.current[memoId] = node;
+                    return;
+                  }
+                  delete memoCardRefs.current[memoId];
+                }}
               >
                 <article
                   className={cx(
-                    "w-full max-w-[92%] rounded-[22px] border p-3 shadow-[0_10px_24px_rgba(15,23,42,0.08)]",
+                    "w-full max-w-[92%] rounded-[22px] border p-3 shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition-shadow duration-200",
                     memoIsMine
                       ? "border-[#bfd6ff] bg-[linear-gradient(180deg,#eff6ff_0%,#dbeafe_100%)]"
-                      : "border-white/80 bg-white/92"
+                      : "border-white/80 bg-white/92",
+                    highlightMemoId === memoId
+                      ? "ring-2 ring-[#0A4A9E] ring-offset-2 ring-offset-[#eef3f8] shadow-[0_0_0_1px_rgba(10,74,158,0.18),0_18px_32px_rgba(10,74,158,0.18)]"
+                      : ""
                   )}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -416,6 +468,13 @@ export function MemoChatPanel({
 
                   <div className="mt-3 rounded-[18px] border border-slate-200/80 bg-white/75 p-2.5 shadow-inner">
                     <textarea
+                      ref={(node) => {
+                        if (node) {
+                          replyInputRefs.current[memoId] = node;
+                          return;
+                        }
+                        delete replyInputRefs.current[memoId];
+                      }}
                       className="min-h-[48px] w-full resize-none bg-transparent text-[12px] leading-5 text-slate-700 outline-none placeholder:text-slate-400"
                       placeholder={`Reply to ${memoAuthorName}...`}
                       value={replyDraftValue}

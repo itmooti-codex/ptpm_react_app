@@ -51,6 +51,7 @@ import {
   createMemoPostForDetails,
   deleteMemoCommentForDetails,
   deleteMemoPostForDetails,
+  fetchContactLogsForDetails,
   fetchMemosForDetails,
   fetchPropertyAffiliationsForDetails,
   fetchTasksForDetails,
@@ -109,6 +110,9 @@ import { CardField } from "@shared/components/ui/CardField.jsx";
 import { MemoChatPanel } from "@shared/components/ui/MemoChatPanel.jsx";
 import { SectionLoadingState } from "@shared/components/ui/SectionLoadingState.jsx";
 import { useCurrentUserProfile } from "@shared/hooks/useCurrentUserProfile.js";
+import { ContactLogsPanel } from "../components/ContactLogsPanel.jsx";
+import { JobMemosPreviewPanel } from "../components/JobMemosPreviewPanel.jsx";
+import { JobNotesPanel } from "../components/JobNotesPanel.jsx";
 
 function parseDateLikeValue(value) {
   const text = toText(value);
@@ -139,6 +143,81 @@ function pickBooleanValue(record = {}, keys = []) {
     return toBoolean(record?.[key]);
   }
   return false;
+}
+
+function getRelatedDealRecordKey(record = {}, index = 0) {
+  const uid = toText(record?.unique_id || record?.Unique_ID);
+  if (uid) return `uid:${uid}`;
+  const id = toText(record?.id || record?.ID);
+  if (id) return `id:${id}`;
+  return `deal:${index}`;
+}
+
+function getRelatedJobRecordKey(record = {}, index = 0) {
+  const uid = toText(record?.unique_id || record?.Unique_ID);
+  if (uid) return `uid:${uid}`;
+  const id = toText(record?.id || record?.ID);
+  if (id) return `id:${id}`;
+  return `job:${index}`;
+}
+
+function getRelatedRecordIdentity(record = {}, index = 0, fallbackPrefix = "record") {
+  const uid = toText(record?.unique_id || record?.Unique_ID);
+  const id = toText(record?.id || record?.ID);
+  return {
+    uid,
+    id,
+    fallbackKey: `${fallbackPrefix}:${index}`,
+  };
+}
+
+function mergeRelatedRecordCollections(baseRecords = [], contextualRecords = [], getKey) {
+  const list = Array.isArray(baseRecords) ? baseRecords : [];
+  const contextual = Array.isArray(contextualRecords) ? contextualRecords : [];
+  const merged = [];
+  const indexByKey = new Map();
+
+  [...list, ...contextual].forEach((record, index) => {
+    if (!record || typeof record !== "object") return;
+    const { uid, id, fallbackKey } = getRelatedRecordIdentity(
+      record,
+      index,
+      typeof getKey === "function" ? getKey(record, index).split(":")[0] : "record"
+    );
+    const candidateKeys = [uid ? `uid:${uid}` : "", id ? `id:${id}` : ""].filter(Boolean);
+    const existingIndex = candidateKeys.reduce((foundIndex, key) => {
+      if (foundIndex != null) return foundIndex;
+      return indexByKey.has(key) ? indexByKey.get(key) : null;
+    }, null);
+
+    if (existingIndex == null && !candidateKeys.length) {
+      merged.push(record);
+      return;
+    }
+
+    if (existingIndex == null) {
+      candidateKeys.forEach((key) => {
+        indexByKey.set(key, merged.length);
+      });
+      if (!candidateKeys.length) {
+        indexByKey.set(fallbackKey, merged.length);
+      }
+      merged.push(record);
+      return;
+    }
+    merged[existingIndex] = {
+      ...merged[existingIndex],
+      ...record,
+    };
+
+    const mergedRecord = merged[existingIndex];
+    const mergedUid = toText(mergedRecord?.unique_id || mergedRecord?.Unique_ID);
+    const mergedId = toText(mergedRecord?.id || mergedRecord?.ID);
+    if (mergedUid) indexByKey.set(`uid:${mergedUid}`, existingIndex);
+    if (mergedId) indexByKey.set(`id:${mergedId}`, existingIndex);
+  });
+
+  return merged;
 }
 
 function toPromiseLike(result) {
@@ -1050,6 +1129,9 @@ export function JobDetailsPage() {
     titleVerb: "Update",
     initialValues: null,
   });
+  const [contactLogs, setContactLogs] = useState([]);
+  const [isContactLogsLoading, setIsContactLogsLoading] = useState(false);
+  const [contactLogsError, setContactLogsError] = useState("");
   const [memos, setMemos] = useState([]);
   const [isMemosLoading, setIsMemosLoading] = useState(false);
   const [memosError, setMemosError] = useState("");
@@ -1061,6 +1143,7 @@ export function JobDetailsPage() {
   const [isPostingMemo, setIsPostingMemo] = useState(false);
   const [sendingReplyPostId, setSendingReplyPostId] = useState("");
   const [memoDeleteTarget, setMemoDeleteTarget] = useState(null);
+  const [memoFocusRequest, setMemoFocusRequest] = useState({ memoId: "", key: 0 });
   const [isDeletingMemoItem, setIsDeletingMemoItem] = useState(false);
   const [popupCommentDrafts, setPopupCommentDrafts] = useState({
     contact: "",
@@ -1082,6 +1165,7 @@ export function JobDetailsPage() {
     relatedRecordsAccountType === "Company"
       ? toText(loadedClientEntityId || loadedClientIndividualId)
       : toText(loadedClientIndividualId || loadedClientEntityId);
+  const isRelatedDataTabMounted = Boolean(mountedWorkspaceTabs["related-data"]);
 
   useEffect(() => {
     if (!openMenu) return undefined;
@@ -1152,6 +1236,9 @@ export function JobDetailsPage() {
     setEditingMaterialId("");
     setQuotePaymentDetails(EMPTY_QUOTE_PAYMENT_DETAILS);
     setIsQuoteWorkflowUpdating(false);
+    setContactLogs([]);
+    setIsContactLogsLoading(false);
+    setContactLogsError("");
     setJobEmailContactSearchValue("");
     setAccountsContactSearchValue("");
     setSelectedJobEmailContactId("");
@@ -1990,6 +2077,60 @@ export function JobDetailsPage() {
     accountType: relatedRecordsAccountType,
     accountId: relatedRecordsAccountId,
   });
+  const contextualRelatedDeal = useMemo(() => {
+    const resolvedId = toText(relatedInquiryRecord?.id || relatedInquiryRecord?.ID || relatedInquiryId);
+    const resolvedUid = toText(
+      relatedInquiryRecord?.unique_id || relatedInquiryRecord?.Unique_ID || relatedInquiryUid
+    );
+    const resolvedDealName = toText(
+      relatedInquiryRecord?.deal_name || relatedInquiryRecord?.Deal_Name
+    );
+    if (!resolvedId && !resolvedUid) return null;
+    return {
+      ...(relatedInquiryRecord && typeof relatedInquiryRecord === "object" ? relatedInquiryRecord : {}),
+      id: resolvedId,
+      unique_id: resolvedUid,
+      deal_name: resolvedDealName,
+    };
+  }, [relatedInquiryId, relatedInquiryRecord, relatedInquiryUid]);
+  const contextualCurrentJob = useMemo(() => {
+    const resolvedJobId = toText(effectiveJobId);
+    const resolvedJobUid = toText(safeUid);
+    const propertyName = toText(
+      activeWorkspaceProperty?.property_name ||
+        activeWorkspaceProperty?.Property_Name ||
+        activeWorkspaceProperty?.address_1 ||
+        activeWorkspaceProperty?.Address_1 ||
+        activeWorkspaceProperty?.address ||
+        activeWorkspaceProperty?.Address
+    );
+    if (!resolvedJobId && !resolvedJobUid) return null;
+    return {
+      id: resolvedJobId,
+      unique_id: resolvedJobUid,
+      job_status: toText(loadedJobStatus),
+      quote_status: toText(quotePaymentDetails?.quote_status),
+      property_name: propertyName,
+    };
+  }, [activeWorkspaceProperty, effectiveJobId, loadedJobStatus, quotePaymentDetails?.quote_status, safeUid]);
+  const relatedDealsForDisplay = useMemo(
+    () =>
+      mergeRelatedRecordCollections(
+        relatedRecords?.relatedDeals,
+        contextualRelatedDeal ? [contextualRelatedDeal] : [],
+        getRelatedDealRecordKey
+      ),
+    [contextualRelatedDeal, relatedRecords?.relatedDeals]
+  );
+  const relatedJobsForDisplay = useMemo(
+    () =>
+      mergeRelatedRecordCollections(
+        relatedRecords?.relatedJobs,
+        contextualCurrentJob ? [contextualCurrentJob] : [],
+        getRelatedJobRecordKey
+      ),
+    [contextualCurrentJob, relatedRecords?.relatedJobs]
+  );
   const workspaceLookupData = useMemo(
     () => ({
       contacts: Array.isArray(contactLookupRecords) ? contactLookupRecords : [],
@@ -2701,6 +2842,26 @@ export function JobDetailsPage() {
   );
   const hasPopupCommentsSection = Boolean(showContactDetails || showCompanyDetails);
   const hasMemoContext = Boolean(effectiveJobId);
+  const contactLogsContactId = useMemo(() => {
+    if (isCompanyAccount) {
+      return toText(
+        accountCompanyPrimaryNested?.id ||
+          accountCompanyPrimaryNested?.ID ||
+          accountCompany?.Primary_Person?.id ||
+          accountCompany?.Primary_Person?.ID ||
+          accountCompany?.primary_person?.id ||
+          accountCompany?.primary_person?.ID
+      );
+    }
+    return toText(loadedClientIndividualId);
+  }, [
+    accountCompany?.Primary_Person,
+    accountCompany?.primary_person,
+    accountCompanyPrimaryNested?.ID,
+    accountCompanyPrimaryNested?.id,
+    isCompanyAccount,
+    loadedClientIndividualId,
+  ]);
   const { profile: currentUserProfile } = useCurrentUserProfile();
   const currentUserId = toText(currentUserProfile?.id || APP_USER?.id);
   const currentUserMemoAuthor = useMemo(
@@ -4349,6 +4510,46 @@ ${activities.length ? `<table>
     });
   }, [companyPopupComment, contactPopupComment, loadedClientEntityId, loadedClientIndividualId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const normalizedContactId = toText(contactLogsContactId);
+
+    if (!isRelatedDataTabMounted) return undefined;
+
+    if (!plugin || !isSdkReady || !normalizedContactId) {
+      setContactLogs([]);
+      setIsContactLogsLoading(false);
+      setContactLogsError("");
+      return undefined;
+    }
+
+    setIsContactLogsLoading(true);
+    setContactLogsError("");
+
+    fetchContactLogsForDetails({
+      plugin,
+      contactId: normalizedContactId,
+    })
+      .then((rows) => {
+        if (cancelled) return;
+        setContactLogs(Array.isArray(rows) ? rows : []);
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        console.error("[JobDetails] Failed to load contact logs", loadError);
+        setContactLogs([]);
+        setContactLogsError(loadError?.message || "Unable to load contact logs.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsContactLogsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contactLogsContactId, isRelatedDataTabMounted, isSdkReady, plugin]);
+
   const refreshMemos = useCallback(async () => {
     if (!plugin || !isSdkReady || !hasMemoContext) {
       setMemos([]);
@@ -4479,6 +4680,17 @@ ${activities.length ? `<table>
     if (memoFileInputRef.current) {
       memoFileInputRef.current.value = "";
     }
+  }, []);
+
+  const handleOpenMemoReply = useCallback((memoId) => {
+    const normalizedMemoId = toText(memoId);
+    if (!normalizedMemoId) return;
+    setAreFloatingWidgetsVisible(true);
+    setIsMemoChatOpen(true);
+    setMemoFocusRequest({
+      memoId: normalizedMemoId,
+      key: Date.now(),
+    });
   }, []);
 
   const handleSendMemo = useCallback(async () => {
@@ -5265,20 +5477,52 @@ ${activities.length ? `<table>
                 isMounted={Boolean(mountedWorkspaceTabs["related-data"])}
                 isActive={activeWorkspaceTab === "related-data"}
               >
-                <RelatedRecordsSection
-                  deals={relatedRecords?.relatedDeals}
-                  jobs={relatedRecords?.relatedJobs}
-                  isLoading={relatedRecords?.isLoading}
-                  error={relatedRecords?.error}
-                  hasAccount={Boolean(relatedRecordsAccountId)}
-                  noAccountMessage="Link a contact/company on this job to load related records."
-                  linkedDealId={relatedInquiryId}
-                  onToggleDealLink={handleToggleRelatedInquiryLink}
-                  isLinkingDeal={isSavingLinkedInquiry}
-                  currentJobId={effectiveJobId}
-                  onNavigateToDeal={(uid) => navigate(`/inquiry-details/${encodeURIComponent(uid)}`)}
-                  onNavigateToJob={(uid) => navigate(`/job-details/${encodeURIComponent(uid)}`)}
-                />
+                <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                  <RelatedRecordsSection
+                    deals={relatedDealsForDisplay}
+                    jobs={relatedJobsForDisplay}
+                    stackPrimaryColumns
+                    extraPanels={[
+                      <div className="flex h-full min-h-[420px] min-w-0 flex-col gap-2">
+                        <JobMemosPreviewPanel
+                          hasMemoContext={hasMemoContext}
+                          isLoading={isMemosLoading}
+                          errorMessage={memosError}
+                          memos={memos}
+                          resolveMemoAuthor={resolveMemoAuthor}
+                          onOpen={handleOpenMemoReply}
+                          panelClassName="min-h-[148px]"
+                        />
+                        <JobNotesPanel
+                          plugin={plugin}
+                          jobId={effectiveJobId}
+                          inquiryId={relatedInquiryId}
+                          contextType="job"
+                          panelClassName="min-h-0 flex-1"
+                          listMaxHeightClass="min-h-0 flex-1"
+                        />
+                      </div>,
+                    ]}
+                    isLoading={relatedRecords?.isLoading}
+                    error={relatedRecords?.error}
+                    hasAccount={Boolean(relatedRecordsAccountId)}
+                    noAccountMessage="Link a contact/company on this job to load related records."
+                    linkedDealId={relatedInquiryId}
+                    onToggleDealLink={handleToggleRelatedInquiryLink}
+                    isLinkingDeal={isSavingLinkedInquiry}
+                    currentJobId={effectiveJobId}
+                    onNavigateToDeal={(uid) => navigate(`/inquiry-details/${encodeURIComponent(uid)}`)}
+                    onNavigateToJob={(uid) => navigate(`/job-details/${encodeURIComponent(uid)}`)}
+                  />
+
+                  <ContactLogsPanel
+                    hasContactContext={Boolean(contactLogsContactId)}
+                    isLoading={isContactLogsLoading}
+                    errorMessage={contactLogsError}
+                    logs={contactLogs}
+                    panelClassName="h-full"
+                  />
+                </div>
               </WorkspaceTabPanel>
 
               <WorkspaceTabPanel
@@ -5902,6 +6146,8 @@ ${activities.length ? `<table>
             unavailableMessage="Memos are available when the job record is loaded."
             emptyMessage="No memos yet. Start the thread with a quick update or attachment."
             DeleteIcon={TrashIcon}
+            focusMemoId={memoFocusRequest.memoId}
+            focusRequestKey={memoFocusRequest.key}
           />
         ) : null}
 

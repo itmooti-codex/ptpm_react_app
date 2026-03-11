@@ -3,9 +3,9 @@ import { resolveJobStatusStyle, resolveQuoteStatusStyle } from "@shared/constant
 
 function RecordListColumn({ label, children }) {
   return (
-    <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2">
+    <div className="flex h-full min-h-[420px] flex-col rounded border border-slate-200 bg-slate-50 p-2">
       <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">{label}</div>
-      {children}
+      <div className="mt-1.5 min-h-0 flex-1">{children}</div>
     </div>
   );
 }
@@ -16,6 +16,18 @@ function EmptyState({ isLoading, loadingText, emptyText }) {
       {isLoading ? loadingText : emptyText}
     </div>
   );
+}
+
+function getDealListItemKey(deal = {}, index = 0) {
+  const uid = toText(deal?.unique_id || deal?.Unique_ID);
+  const id = toText(deal?.id || deal?.ID);
+  return `deal:${uid || id || index}`;
+}
+
+function getJobListItemKey(job = {}, index = 0) {
+  const uid = toText(job?.unique_id || job?.Unique_ID);
+  const id = toText(job?.id || job?.ID);
+  return `job:${uid || id || index}`;
 }
 
 function DealItem({ deal, linkedDealId, onToggleDealLink, isLinkingDeal, onNavigateToDeal }) {
@@ -136,6 +148,8 @@ function JobItem({ job, linkedJobId, currentJobId, jobIdByUid, onToggleJobLink, 
 export function RelatedRecordsSection({
   deals = [],
   jobs = [],
+  extraPanels = [],
+  stackPrimaryColumns = false,
   isLoading = false,
   error = "",
   hasAccount = true,
@@ -157,14 +171,6 @@ export function RelatedRecordsSection({
   onNavigateToDeal = null,
   onNavigateToJob = null,
 }) {
-  if (!hasAccount) {
-    return (
-      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-        {noAccountMessage}
-      </div>
-    );
-  }
-
   const dealList = Array.isArray(deals) ? [...deals].sort((a, b) => {
     const aId = toText(a?.id || a?.ID);
     const aLinked = Boolean(linkedDealId) && linkedDealId === aId ? 1 : 0;
@@ -186,6 +192,16 @@ export function RelatedRecordsSection({
     return bScore - aScore;
   }) : [];
 
+  const normalizedExtraPanels = (Array.isArray(extraPanels) ? extraPanels : []).filter(Boolean);
+
+  if (!hasAccount && !dealList.length && !jobList.length && !normalizedExtraPanels.length) {
+    return (
+      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        {noAccountMessage}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
       {isLoading && !dealList.length && !jobList.length ? (
@@ -196,61 +212,154 @@ export function RelatedRecordsSection({
           {toText(error)}
         </div>
       ) : null}
+      {!hasAccount ? (
+        <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+          {noAccountMessage}
+        </div>
+      ) : null}
 
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-        <RecordListColumn label="Related Inquiries">
-          {dealList.length ? (
-            <div className="max-h-60 space-y-1.5 overflow-auto pr-1">
-              {dealList.slice(0, 12).map((deal) => {
-                const key = toText(deal?.unique_id || deal?.Unique_ID || deal?.id || deal?.ID);
-                return (
-                  <DealItem
-                    key={key || Math.random()}
-                    deal={deal}
-                    linkedDealId={linkedDealId}
-                    onToggleDealLink={onToggleDealLink}
-                    isLinkingDeal={isLinkingDeal}
-                    onNavigateToDeal={onNavigateToDeal}
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <EmptyState
-              isLoading={isLoading}
-              loadingText="Loading related inquiries..."
-              emptyText="No related inquiries found."
-            />
-          )}
-        </RecordListColumn>
+      <div
+        className={`grid grid-cols-1 gap-2 ${
+          stackPrimaryColumns
+            ? normalizedExtraPanels.length >= 2
+              ? "md:grid-cols-2 xl:grid-cols-3"
+              : normalizedExtraPanels.length === 1
+                ? "md:grid-cols-2"
+                : "md:grid-cols-1"
+            : normalizedExtraPanels.length >= 2
+              ? "md:grid-cols-2 xl:grid-cols-4"
+              : normalizedExtraPanels.length === 1
+                ? "md:grid-cols-2 xl:grid-cols-3"
+                : "md:grid-cols-2"
+        }`}
+      >
+        {stackPrimaryColumns ? (
+          <RecordListColumn label="Related Records">
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="min-h-0 flex-1 overflow-auto pr-1">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Related Inquiries
+                </div>
+                <div className="mt-1.5 space-y-1.5">
+                  {dealList.length ? (
+                    dealList.slice(0, 12).map((deal, index) => {
+                      return (
+                        <DealItem
+                          key={getDealListItemKey(deal, index)}
+                          deal={deal}
+                          linkedDealId={linkedDealId}
+                          onToggleDealLink={onToggleDealLink}
+                          isLinkingDeal={isLinkingDeal}
+                          onNavigateToDeal={onNavigateToDeal}
+                        />
+                      );
+                    })
+                  ) : (
+                    <EmptyState
+                      isLoading={isLoading}
+                      loadingText="Loading related inquiries..."
+                      emptyText="No related inquiries found."
+                    />
+                  )}
+                </div>
 
-        <RecordListColumn label="Related Jobs">
-          {jobList.length ? (
-            <div className="max-h-60 space-y-1.5 overflow-auto pr-1">
-              {jobList.slice(0, 12).map((job) => {
-                const key = toText(job?.unique_id || job?.Unique_ID || job?.id || job?.ID);
-                return (
-                  <JobItem
-                    key={key || Math.random()}
-                    job={job}
-                    linkedJobId={linkedJobId}
-                    currentJobId={currentJobId}
-                    jobIdByUid={jobIdByUid}
-                    onToggleJobLink={onToggleJobLink}
-                    isLinkingJob={isLinkingJob}
-                    onNavigateToJob={onNavigateToJob}
-                  />
-                );
-              })}
+                <div className="mt-3 border-t border-slate-200 pt-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Related Jobs
+                  </div>
+                  <div className="mt-1.5 space-y-1.5">
+                    {jobList.length ? (
+                      jobList.slice(0, 12).map((job, index) => {
+                        return (
+                          <JobItem
+                            key={getJobListItemKey(job, index)}
+                            job={job}
+                            linkedJobId={linkedJobId}
+                            currentJobId={currentJobId}
+                            jobIdByUid={jobIdByUid}
+                            onToggleJobLink={onToggleJobLink}
+                            isLinkingJob={isLinkingJob}
+                            onNavigateToJob={onNavigateToJob}
+                          />
+                        );
+                      })
+                    ) : (
+                      <EmptyState
+                        isLoading={isLoading}
+                        loadingText="Loading related jobs..."
+                        emptyText="No related jobs found."
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-          ) : (
-            <EmptyState
-              isLoading={isLoading}
-              loadingText="Loading related jobs..."
-              emptyText="No related jobs found."
-            />
-          )}
-        </RecordListColumn>
+          </RecordListColumn>
+        ) : (
+          <>
+            <RecordListColumn label="Related Inquiries">
+              {dealList.length ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="min-h-0 flex-1 space-y-1.5 overflow-auto pr-1">
+                    {dealList.slice(0, 12).map((deal, index) => {
+                      return (
+                        <DealItem
+                          key={getDealListItemKey(deal, index)}
+                          deal={deal}
+                          linkedDealId={linkedDealId}
+                          onToggleDealLink={onToggleDealLink}
+                          isLinkingDeal={isLinkingDeal}
+                          onNavigateToDeal={onNavigateToDeal}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <EmptyState
+                  isLoading={isLoading}
+                  loadingText="Loading related inquiries..."
+                  emptyText="No related inquiries found."
+                />
+              )}
+            </RecordListColumn>
+
+            <RecordListColumn label="Related Jobs">
+              {jobList.length ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="min-h-0 flex-1 space-y-1.5 overflow-auto pr-1">
+                    {jobList.slice(0, 12).map((job, index) => {
+                      return (
+                        <JobItem
+                          key={getJobListItemKey(job, index)}
+                          job={job}
+                          linkedJobId={linkedJobId}
+                          currentJobId={currentJobId}
+                          jobIdByUid={jobIdByUid}
+                          onToggleJobLink={onToggleJobLink}
+                          isLinkingJob={isLinkingJob}
+                          onNavigateToJob={onNavigateToJob}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <EmptyState
+                  isLoading={isLoading}
+                  loadingText="Loading related jobs..."
+                  emptyText="No related jobs found."
+                />
+              )}
+            </RecordListColumn>
+          </>
+        )}
+
+        {normalizedExtraPanels.map((panel, index) => (
+          <div key={`extra-panel-${index}`} className="min-w-0">
+            {panel}
+          </div>
+        ))}
       </div>
     </div>
   );
