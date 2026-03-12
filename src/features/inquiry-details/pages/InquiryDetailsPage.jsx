@@ -9057,18 +9057,18 @@ export function InquiryDetailsPage() {
 
         </div>
 
-          <section className="inquiry-details-workspace mt-1.5 overflow-hidden rounded-[4px] border border-[#003882] bg-white">
-            <div className="flex flex-wrap items-center gap-1.5 border-b border-[#003882] bg-[#003882] px-2 py-1.5">
+          <section className="inquiry-details-workspace mt-1.5 overflow-hidden rounded-md border border-slate-200 bg-white">
+            <div className="flex flex-wrap items-center gap-0.5 border-b border-slate-200 bg-slate-50/70 px-1.5 py-1">
               {visibleWorkspaceTabs.map((tab) => {
                 const isActive = activeWorkspaceTab === tab.id;
                 return (
                   <button
                     key={tab.id}
                     type="button"
-                    className={`rounded-[4px] border px-2.5 py-1.5 text-[11px] font-semibold leading-4 transition ${
+                    className={`rounded-md border px-2 py-[3px] text-[11px] font-semibold leading-4 transition ${
                       isActive
-                        ? "border-[#003882] bg-[#003882] text-white"
-                        : "border-white/80 bg-white text-[#003882] hover:bg-slate-100"
+                        ? "border-[#003882] bg-[#003882] text-white shadow-sm"
+                        : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"
                     }`}
                     onClick={() => setActiveWorkspaceTab(tab.id)}
                   >

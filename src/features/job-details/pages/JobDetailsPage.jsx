@@ -5445,7 +5445,7 @@ ${activities.length ? `<table>
         </div>
 
         <div className="mt-2 space-y-2">
-          <section className="rounded-[4px] border border-[#003882] bg-[#003882] px-2 py-1.5">
+          <section className="rounded border border-slate-200 bg-white px-2.5 py-2">
             <div className="flex flex-wrap items-center gap-1.5">
               {JOB_WORKSPACE_TABS.map((tab) => {
                 const isActive = activeWorkspaceTab === tab.id;
@@ -5453,10 +5453,10 @@ ${activities.length ? `<table>
                   <button
                     key={tab.id}
                     type="button"
-                    className={`rounded-[4px] border px-2.5 py-1.5 text-xs font-semibold transition ${
+                    className={`rounded px-2.5 py-1.5 text-xs font-semibold ${
                       isActive
-                        ? "border-[#003882] bg-[#003882] text-white"
-                        : "border-white/80 bg-white text-[#003882] hover:bg-slate-100"
+                        ? "bg-[#003882] text-white"
+                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
                     }`}
                     onClick={() => setActiveWorkspaceTab(tab.id)}
                   >
