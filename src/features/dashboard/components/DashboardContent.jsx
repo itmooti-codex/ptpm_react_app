@@ -39,6 +39,8 @@ export function DashboardContent({
   onViewInquiry,
   sortOrder = "desc",
   onToggleSortOrder,
+  searchValue = "",
+  onSearchChange,
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -66,6 +68,8 @@ export function DashboardContent({
         onPrintCurrentTable={onPrintCurrentTable}
         onExportCurrentTable={onExportCurrentTable}
         onExportServiceProviders={onExportServiceProviders}
+        searchValue={searchValue}
+        onSearchChange={onSearchChange}
       />
 
       {/* Applied filter chips */}

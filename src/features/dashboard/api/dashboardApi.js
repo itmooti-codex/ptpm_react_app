@@ -581,6 +581,56 @@ function resolveBaseFactoryByTab(tabId) {
   }
 }
 
+// ─── Quick Search (server-side OR across key fields) ──────────────────────────
+
+function applyQuickSearchDeal(q, searchQuery, searchSpIds) {
+  if (!searchQuery) return q;
+  const like = `%${searchQuery}%`;
+  return q.andWhere((sq) => {
+    sq.where("unique_id", "like", like)
+      .orWhere("inquiry_status", "like", like)
+      .orWhere("inquiry_source", "like", like)
+      .orWhere("Primary_Contact", (sq2) => {
+        sq2.where("first_name", "like", like)
+          .orWhere("last_name", "like", like)
+          .orWhere("email", "like", like)
+          .orWhere("sms_number", "like", like);
+      })
+      .orWhere("Company", (sq2) => sq2.where("name", "like", like))
+      .orWhere("Property", (sq2) => sq2.where("property_name", "like", like));
+    if (Array.isArray(searchSpIds) && searchSpIds.length) {
+      sq.orWhere("service_provider_id", "in", searchSpIds);
+    }
+  });
+}
+
+function applyQuickSearchJob(q, searchQuery, searchSpIds) {
+  if (!searchQuery) return q;
+  const like = `%${searchQuery}%`;
+  return q.andWhere((sq) => {
+    sq.where("unique_id", "like", like)
+      .orWhere("job_status", "like", like)
+      .orWhere("quote_status", "like", like)
+      .orWhere("payment_status", "like", like)
+      .orWhere("invoice_number", "like", like)
+      .orWhere("Client_Individual", (sq2) => {
+        sq2.where("first_name", "like", like)
+          .orWhere("last_name", "like", like)
+          .orWhere("email", "like", like)
+          .orWhere("sms_number", "like", like);
+      })
+      .orWhere("Client_Entity", (sq2) => sq2.where("name", "like", like))
+      .orWhere("Property", (sq2) => sq2.where("property_name", "like", like));
+    if (Array.isArray(searchSpIds) && searchSpIds.length) {
+      sq.orWhere("primary_service_provider_id", "in", searchSpIds);
+    }
+  });
+}
+
+function isDealTab(tabId) {
+  return tabId === TAB_IDS.INQUIRY;
+}
+
 function applyTabFiltersToQuery(q, tabId, filters = {}) {
   const f = filters && typeof filters === "object" ? filters : {};
   if (tabId === TAB_IDS.INQUIRY) {
@@ -664,11 +714,18 @@ function buildFilteredCountPageQuery({
   filters = {},
   limit,
   offset,
+  searchQuery = "",
+  searchSpIds = [],
 } = {}) {
   const baseFactory = resolveBaseFactoryByTab(tabId);
   if (!baseFactory) return null;
 
-  const q = applyTabFiltersToQuery(baseFactory(plugin, filters), tabId, filters);
+  let q = applyTabFiltersToQuery(baseFactory(plugin, filters), tabId, filters);
+  if (searchQuery) {
+    q = isDealTab(tabId)
+      ? applyQuickSearchDeal(q, searchQuery, searchSpIds)
+      : applyQuickSearchJob(q, searchQuery, searchSpIds);
+  }
   return q
     .deSelectAll()
     .select(["id"])
@@ -761,7 +818,7 @@ async function fetchCalendarRecordsByPaging(
   return all;
 }
 
-export function buildDealsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
+export function buildDealsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc", { searchQuery = "", searchSpIds = [] } = {}) {
   const f = filters;
 
   let q = createDealsBaseQuery(plugin)
@@ -792,10 +849,11 @@ export function buildDealsQuery(plugin, filters = {}, page = 1, pageSize = 25, s
     .offset(calcOffset(page, pageSize));
 
   q = applyDealFilters(q, f);
+  q = applyQuickSearchDeal(q, searchQuery, searchSpIds);
   return { query: q.noDestroy(), normalize: normalizeDeal };
 }
 
-export function buildQuotesQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
+export function buildQuotesQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc", { searchQuery = "", searchSpIds = [] } = {}) {
   const f = filters;
   let q = createQuotesBaseQuery(plugin)
     .deSelectAll()
@@ -812,23 +870,25 @@ export function buildQuotesQuery(plugin, filters = {}, page = 1, pageSize = 25, 
     ]);
   q = applyCommonJobFilters(q, f);
   q = applyQuoteTabStatusFilter(q, f);
+  q = applyQuickSearchJob(q, searchQuery, searchSpIds);
   q = applyJobIncludes(q);
   q = q.orderBy("created_at", sortOrder).limit(pageSize).offset(calcOffset(page, pageSize));
   return { query: q.noDestroy(), normalize: normalizeQuote };
 }
 
-export function buildJobsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
+export function buildJobsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc", { searchQuery = "", searchSpIds = [] } = {}) {
   return buildJobsLikeQuery(
     createJobsBaseQuery,
     plugin,
     filters,
     page,
     pageSize,
-    sortOrder
+    sortOrder,
+    { searchQuery, searchSpIds }
   );
 }
 
-function buildJobsLikeQuery(baseFactory, plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
+function buildJobsLikeQuery(baseFactory, plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc", { searchQuery = "", searchSpIds = [] } = {}) {
   const f = filters;
 
   let q = baseFactory(plugin, f)
@@ -847,6 +907,7 @@ function buildJobsLikeQuery(baseFactory, plugin, filters = {}, page = 1, pageSiz
     ]);
   q = applyCommonJobFilters(q, f);
   q = applyJobsTabStatusFilter(q, f);
+  q = applyQuickSearchJob(q, searchQuery, searchSpIds);
   q = applyJobIncludes(q);
   q = q.orderBy("created_at", sortOrder).limit(pageSize).offset(calcOffset(page, pageSize));
   return { query: q.noDestroy(), normalize: normalizeJob };
@@ -857,7 +918,8 @@ export function buildUrgentCallsQuery(
   filters = {},
   page = 1,
   pageSize = 25,
-  sortOrder = "desc"
+  sortOrder = "desc",
+  { searchQuery = "", searchSpIds = [] } = {}
 ) {
   const built = buildJobsLikeQuery(
     createUrgentCallsBaseQuery,
@@ -865,7 +927,8 @@ export function buildUrgentCallsQuery(
     filters,
     page,
     pageSize,
-    sortOrder
+    sortOrder,
+    { searchQuery, searchSpIds }
   );
   return { ...built, normalize: normalizeJobTyped };
 }
@@ -875,7 +938,8 @@ export function buildOpenTasksQuery(
   filters = {},
   page = 1,
   pageSize = 25,
-  sortOrder = "desc"
+  sortOrder = "desc",
+  { searchQuery = "", searchSpIds = [] } = {}
 ) {
   const built = buildJobsLikeQuery(
     createOpenTasksBaseQuery,
@@ -883,7 +947,8 @@ export function buildOpenTasksQuery(
     filters,
     page,
     pageSize,
-    sortOrder
+    sortOrder,
+    { searchQuery, searchSpIds }
   );
   return { ...built, normalize: normalizeJobTyped };
 }
@@ -893,7 +958,8 @@ export function buildUrgentCallsDealQuery(
   filters = {},
   page = 1,
   pageSize = 25,
-  sortOrder = "desc"
+  sortOrder = "desc",
+  { searchQuery = "", searchSpIds = [] } = {}
 ) {
   const f = filters;
   let q = createUrgentCallsDealBaseQuery(plugin)
@@ -901,6 +967,7 @@ export function buildUrgentCallsDealQuery(
     .select(["id", "unique_id", "inquiry_status", "created_at", "account_type", "inquiry_source"]);
   q = applyDealIncludes(q);
   q = applyDealFilters(q, f);
+  q = applyQuickSearchDeal(q, searchQuery, searchSpIds);
   q = q.orderBy("created_at", sortOrder).limit(pageSize).offset(calcOffset(page, pageSize));
   return { query: q.noDestroy(), normalize: normalizeDealTyped };
 }
@@ -910,7 +977,8 @@ export function buildOpenTasksDealQuery(
   filters = {},
   page = 1,
   pageSize = 25,
-  sortOrder = "desc"
+  sortOrder = "desc",
+  { searchQuery = "", searchSpIds = [] } = {}
 ) {
   const f = filters;
   let q = createOpenTasksDealBaseQuery(plugin)
@@ -918,11 +986,12 @@ export function buildOpenTasksDealQuery(
     .select(["id", "unique_id", "inquiry_status", "created_at", "account_type", "inquiry_source"]);
   q = applyDealIncludes(q);
   q = applyDealFilters(q, f);
+  q = applyQuickSearchDeal(q, searchQuery, searchSpIds);
   q = q.orderBy("created_at", sortOrder).limit(pageSize).offset(calcOffset(page, pageSize));
   return { query: q.noDestroy(), normalize: normalizeDealTyped };
 }
 
-export function buildPaymentsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
+export function buildPaymentsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc", { searchQuery = "", searchSpIds = [] } = {}) {
   const f = filters;
 
   let q = createPaymentsBaseQuery(plugin, f)
@@ -941,12 +1010,13 @@ export function buildPaymentsQuery(plugin, filters = {}, page = 1, pageSize = 25
       "created_at",
     ]);
   q = applyCommonJobFilters(q, f, { statusField: "payment_status" });
+  q = applyQuickSearchJob(q, searchQuery, searchSpIds);
   q = applyJobIncludes(q);
   q = q.orderBy("created_at", sortOrder).limit(pageSize).offset(calcOffset(page, pageSize));
   return { query: q.noDestroy(), normalize: normalizePayment };
 }
 
-export function buildActiveJobsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc") {
+export function buildActiveJobsQuery(plugin, filters = {}, page = 1, pageSize = 25, sortOrder = "desc", { searchQuery = "", searchSpIds = [] } = {}) {
   const f = filters;
   let q = createActiveJobsBaseQuery(plugin)
     .deSelectAll()
@@ -962,6 +1032,7 @@ export function buildActiveJobsQuery(plugin, filters = {}, page = 1, pageSize = 
       "created_at",
     ]);
   q = applyCommonJobFilters(q, f, { statusField: "job_status" });
+  q = applyQuickSearchJob(q, searchQuery, searchSpIds);
   q = applyJobIncludes(q);
   q = q.orderBy("created_at", sortOrder).limit(pageSize).offset(calcOffset(page, pageSize));
   return { query: q.noDestroy(), normalize: normalizeActiveJob };
@@ -1022,7 +1093,7 @@ export async function fetchTabCounts({ plugin } = {}) {
   };
 }
 
-export async function fetchTabCountByTab({ plugin, tabId, filters = null } = {}) {
+export async function fetchTabCountByTab({ plugin, tabId, filters = null, searchQuery = "", searchSpIds = [] } = {}) {
   if (!plugin) return 0;
 
   const isCombined = tabId === TAB_IDS.URGENT_CALLS || tabId === TAB_IDS.OPEN_TASKS;
@@ -1044,7 +1115,7 @@ export async function fetchTabCountByTab({ plugin, tabId, filters = null } = {})
   const baseFactory = resolveBaseFactoryByTab(tabId);
   if (!baseFactory) return 0;
   try {
-    if (hasAnyDashboardFilterValues(filters || {})) {
+    if (hasAnyDashboardFilterValues(filters || {}) || searchQuery) {
       return await fetchCountByPagedQuery(
         ({ limit, offset }) =>
           buildFilteredCountPageQuery({
@@ -1053,6 +1124,8 @@ export async function fetchTabCountByTab({ plugin, tabId, filters = null } = {})
             filters,
             limit,
             offset,
+            searchQuery,
+            searchSpIds,
           }),
         { pageSize: 250 }
       );

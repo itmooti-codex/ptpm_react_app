@@ -39,6 +39,8 @@ export function useDashboardData({
   currentPage,
   pageSize = 25,
   sortOrder = "desc",
+  searchQuery = "",
+  searchSpIds = [],
 }) {
   const [rows, setRows] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,9 +48,12 @@ export function useDashboardData({
   const [totalCount, setTotalCount] = useState(null);
 
   const hasActiveFilters = hasAnyDashboardFilterValues(appliedFilters || {});
+  const hasActiveSearch = Boolean(searchQuery);
 
   useEffect(() => {
     if (!plugin) return;
+
+    const searchOpts = { searchQuery, searchSpIds };
 
     // ── Combined tabs: run two parallel fetches (jobs + deals) and merge ──
     if (COMBINED_TABS.has(activeTab)) {
@@ -71,8 +76,8 @@ export function useDashboardData({
       };
 
       Promise.allSettled([
-        fetchRows(jobsBuilder(plugin, appliedFilters, currentPage, pageSize, sortOrder)),
-        fetchRows(dealsBuilder(plugin, appliedFilters, currentPage, pageSize, sortOrder)),
+        fetchRows(jobsBuilder(plugin, appliedFilters, currentPage, pageSize, sortOrder, searchOpts)),
+        fetchRows(dealsBuilder(plugin, appliedFilters, currentPage, pageSize, sortOrder, searchOpts)),
       ]).then(([jobsResult, dealsResult]) => {
         if (cancelled) return;
         if (jobsResult.status === "rejected") {
@@ -112,6 +117,7 @@ export function useDashboardData({
       page: currentPage,
       pageSize,
       sort: sortOrder,
+      search: searchQuery,
     });
     const cachedRowsState = readDashboardCache(rowsCacheKey, {
       maxAgeMs: 2 * 60 * 1000,
@@ -139,16 +145,18 @@ export function useDashboardData({
       : null;
 
     try {
-      const built = builder(plugin, appliedFilters, currentPage, pageSize, sortOrder);
+      const built = builder(plugin, appliedFilters, currentPage, pageSize, sortOrder, searchOpts);
       const query = built.query;
       const { normalize } = built;
       activeQuery = query;
 
-      if (hasActiveFilters) {
+      if (hasActiveFilters || hasActiveSearch) {
         fetchTabCountByTab({
           plugin,
           tabId: activeTab,
           filters: appliedFilters,
+          searchQuery,
+          searchSpIds,
         })
           .then((count) => {
             if (cancelled) return;
@@ -206,7 +214,7 @@ export function useDashboardData({
           setRows(normalized);
           writeDashboardCache(rowsCacheKey, {
             rows: normalized,
-            totalCount: hasActiveFilters ? resolvedFilteredTotalCount : null,
+            totalCount: (hasActiveFilters || hasActiveSearch) ? resolvedFilteredTotalCount : null,
           });
           setError(null);
           setIsLoading(false);
@@ -240,7 +248,7 @@ export function useDashboardData({
         activeQuery?.destroy?.();
       } catch (_) {}
     };
-  }, [plugin, activeTab, appliedFilters, currentPage, pageSize, sortOrder, hasActiveFilters]);
+  }, [plugin, activeTab, appliedFilters, currentPage, pageSize, sortOrder, hasActiveFilters, hasActiveSearch, searchQuery, searchSpIds]);
 
   return { rows, isLoading, error, totalCount };
 }

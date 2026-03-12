@@ -27,6 +27,8 @@ export function DashboardTabsNav({
   onPrintCurrentTable,
   onExportCurrentTable,
   onExportServiceProviders,
+  searchValue = "",
+  onSearchChange,
 }) {
   const [openMenu, setOpenMenu] = useState("");
   const printRef = useRef(null);
@@ -127,6 +129,13 @@ export function DashboardTabsNav({
       </div>
 
       <div className="mb-1 flex shrink-0 items-center gap-2">
+        <input
+          type="text"
+          value={searchValue}
+          onChange={(e) => onSearchChange?.(e.target.value)}
+          placeholder="Search by name, email, address…"
+          className="h-8 w-[500px] rounded border border-slate-300 bg-white px-2.5 text-xs text-slate-700 placeholder-slate-400 focus:border-sky-400 focus:outline-none"
+        />
         <div ref={printRef} className="relative">
           <button
             type="button"

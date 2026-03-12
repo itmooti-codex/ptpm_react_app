@@ -253,6 +253,8 @@ export function DashboardPage() {
       ...(cached && typeof cached === "object" ? cached : {}),
     };
   });
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [batchSelectedIds, setBatchSelectedIds] = useState([]);
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [taskModal, setTaskModal] = useState({
@@ -272,6 +274,23 @@ export function DashboardPage() {
   const currentFilters = filterHook.getFiltersForTab(activeTab);
   const currentAppliedFilters = filterHook.getAppliedFiltersForTab(activeTab);
   const hasActiveFilters = hasAnyDashboardFilterValues(currentAppliedFilters);
+
+  // Debounce search input → committed query
+  useEffect(() => {
+    const q = searchInput.trim();
+    if (!q) { setSearchQuery(""); return; }
+    const t = setTimeout(() => setSearchQuery(q), 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Resolve SP IDs matching the search text for service person search
+  const searchSpIds = useMemo(() => {
+    if (!searchQuery || !serviceProviders?.length) return [];
+    const q = searchQuery.toLowerCase();
+    return serviceProviders
+      .filter((sp) => sp.name?.toLowerCase().includes(q))
+      .map((sp) => sp.id);
+  }, [searchQuery, serviceProviders]);
 
   const handleToggleSortOrder = useCallback(() => {
     setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
@@ -298,6 +317,8 @@ export function DashboardPage() {
     currentPage,
     pageSize,
     sortOrder,
+    searchQuery,
+    searchSpIds,
   });
 
   // Preload tab counts on page load (sequential to avoid API spikes).
@@ -375,6 +396,8 @@ export function DashboardPage() {
       setCurrentPage(1);
       setBatchSelectedIds([]);
       setIsBatchMode(false);
+      setSearchInput("");
+      setSearchQuery("");
     },
     []
   );
@@ -724,6 +747,8 @@ export function DashboardPage() {
             onViewInquiry={handleViewRecord}
             sortOrder={sortOrder}
             onToggleSortOrder={handleToggleSortOrder}
+            searchValue={searchInput}
+            onSearchChange={setSearchInput}
           />
         </main>
       </div>
