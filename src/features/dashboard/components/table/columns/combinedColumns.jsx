@@ -1,6 +1,7 @@
 import { JobDirectStatusBadge, JobDirectIconActionButton } from "@modules/job-workspace/public/components.js";
 import { ClientCell } from "../ClientCell.jsx";
 import { resolveStatusStyle } from "@shared/constants/statusStyles.js";
+import { getServicePersonName, JobAddressCell } from "./sharedCells.jsx";
 
 function EyeIcon() {
   return (
@@ -114,16 +115,22 @@ export function getCombinedColumns({
     },
     {
       key: "client",
-      header: "Client",
+      header: "Account Name",
       thClass: "w-[1%]",
       render: (row) => (
         <ClientCell
           name={row.clientName}
           phone={row.phone}
           email={row.email}
-          address={row.address}
         />
       ),
+    },
+    {
+      key: "jobAddress",
+      header: "Job Address",
+      thClass: "w-[1%]",
+      tdClass: "max-w-[240px]",
+      render: (row) => <JobAddressCell address={row.address} />,
     },
     {
       key: "status",
@@ -139,10 +146,10 @@ export function getCombinedColumns({
     },
     {
       key: "serviceProvider",
-      header: "Service Provider",
+      header: "Service Person",
       thClass: "w-[1%]",
       tdClass: "whitespace-nowrap",
-      render: (row) => <span>{row.serviceProvider ?? "—"}</span>,
+      render: (row) => <span>{getServicePersonName(row) || "—"}</span>,
     },
     {
       key: "_actions",

@@ -838,14 +838,14 @@ export function PropertyTabSection({
         </Card>
       </div>
       <div className="w-full space-y-4">
-        <Card className="h-fit overflow-hidden !p-0">
-          <header className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-2.5 py-1.5">
-            <div className="text-[13px] font-semibold text-slate-900">Related Property</div>
+        <Card className="h-fit overflow-hidden !rounded-[4px] !border-[#003882] !p-0">
+          <header className="flex items-center justify-between rounded-t-[4px] border-b border-[#003882] bg-[#003882] px-2.5 py-1.5">
+            <div className="text-[13px] font-semibold text-white">Related Property</div>
             {activeRelatedProperty ? (
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center p-0 text-slate-500 transition hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300"
+                  className="inline-flex items-center justify-center p-0 text-white transition hover:text-slate-100 disabled:cursor-not-allowed disabled:text-white/50"
                   disabled={!relatedPropertyMapLink}
                   onClick={() => {
                     if (!relatedPropertyMapLink) return;
@@ -858,7 +858,7 @@ export function PropertyTabSection({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center p-0 text-slate-500 transition hover:text-slate-700"
+                  className="inline-flex items-center justify-center p-0 text-white transition hover:text-slate-100"
                   onClick={() => onEditRelatedProperty?.(activeRelatedProperty)}
                   aria-label="Edit related property"
                   title="Edit related property"

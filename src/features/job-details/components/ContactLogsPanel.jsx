@@ -114,9 +114,9 @@ export function ContactLogsPanel({
   const rangeEnd = totalLogs ? Math.min(totalLogs, page * pageSize) : 0;
 
   return (
-    <section className={`flex min-h-[420px] flex-col rounded border border-slate-200 bg-white ${panelClassName}`}>
-      <div className="border-b border-slate-200 px-3 py-2.5">
-        <div className="text-sm font-semibold text-slate-800">{title}</div>
+    <section className={`flex min-h-[420px] flex-col rounded-[4px] border border-[#003882] bg-white ${panelClassName}`}>
+      <div className="rounded-t-[4px] border-b border-[#003882] bg-[#003882] px-2.5 py-1.5">
+        <div className="text-[13px] font-semibold text-white">{title}</div>
       </div>
 
       {!hasContactContext ? (

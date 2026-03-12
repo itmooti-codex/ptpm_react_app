@@ -34,15 +34,15 @@ export function StarIcon({ active = false }) {
 
 export function AccordionBlock({ title, isOpen, onToggle, children }) {
   return (
-    <section className="overflow-hidden rounded border border-slate-200 bg-white">
+    <section className="overflow-hidden rounded-[4px] border border-[#003882] bg-white">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between bg-[color:var(--color-light)] px-4 py-2.5 text-left hover:bg-[#eaf0f7]"
+        className="flex w-full items-center justify-between bg-[#003882] px-4 py-2.5 text-left hover:bg-[#0A4A9E]"
       >
-        <span className="text-sm font-semibold text-neutral-700">{title}</span>
+        <span className="text-sm font-semibold text-white">{title}</span>
         <span
-          className={`inline-block text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
+          className={`inline-block text-white transition-transform ${isOpen ? "rotate-180" : ""}`}
           aria-hidden="true"
         >
           ▼

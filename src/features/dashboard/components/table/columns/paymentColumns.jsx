@@ -1,6 +1,7 @@
 import { JobDirectStatusBadge, JobDirectIconActionButton } from "@modules/job-workspace/public/components.js";
 import { ClientCell } from "../ClientCell.jsx";
 import { resolveStatusStyle } from "@shared/constants/statusStyles.js";
+import { getServicePersonName, JobAddressCell } from "./sharedCells.jsx";
 
 function EyeIcon() {
   return (
@@ -80,7 +81,7 @@ export function getPaymentColumns({
           className="flex items-center gap-1 uppercase tracking-wide hover:text-slate-800"
           onClick={onToggleSortOrder}
         >
-          Date
+          Job Date
           <span aria-label={sortOrder === "desc" ? "newest first" : "oldest first"}>
             {sortOrder === "desc" ? "↓" : "↑"}
           </span>
@@ -92,16 +93,22 @@ export function getPaymentColumns({
     },
     {
       key: "client",
-      header: "Client",
+      header: "Account Name",
       thClass: "w-[1%]",
       render: (row) => (
         <ClientCell
           name={row.clientName}
           phone={row.phone}
           email={row.email}
-          address={row.address}
         />
       ),
+    },
+    {
+      key: "jobAddress",
+      header: "Job Address",
+      thClass: "w-[1%]",
+      tdClass: "max-w-[240px]",
+      render: (row) => <JobAddressCell address={row.address} />,
     },
     {
       key: "invoiceNumber",
@@ -169,6 +176,13 @@ export function getPaymentColumns({
           style={resolveStatusStyle(row.status)}
         />
       ),
+    },
+    {
+      key: "serviceProvider",
+      header: "Service Person",
+      thClass: "w-[1%]",
+      tdClass: "whitespace-nowrap",
+      render: (row) => <span>{getServicePersonName(row) || "—"}</span>,
     },
     {
       key: "_actions",

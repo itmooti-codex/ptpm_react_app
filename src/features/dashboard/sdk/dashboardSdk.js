@@ -398,6 +398,7 @@ function normalizeQuote(rec) {
     quoteNumber: rec.unique_id ?? rec.Unique_ID ?? "",
     amount: rec.quote_total ?? rec.Quote_Total ?? 0,
     status: rec.quote_status ?? rec.Quote_Status ?? rec.job_status ?? rec.Job_Status ?? "",
+    serviceProvider: spName(rec.Primary_Service_Provider ?? rec.primary_service_provider),
   };
 }
 
@@ -437,6 +438,7 @@ function normalizePayment(rec) {
     balance: isPaid ? 0 : total,
     jobStatus: rec.job_status ?? rec.Job_Status ?? "",
     status: rec.payment_status ?? rec.Payment_Status ?? "",
+    serviceProvider: spName(rec.Primary_Service_Provider ?? rec.primary_service_provider),
   };
 }
 
@@ -449,9 +451,9 @@ function normalizeActiveJob(rec) {
     clientName: client.clientName,
     phone: client.phone,
     email: client.email,
-    address: rec.Property?.property_name ?? "",
+    address: (rec.Property ?? rec.property)?.property_name ?? rec?.property_property_name ?? rec?.Property_Property_Name ?? "",
     status: rec.job_status ?? rec.Job_Status ?? "",
-    serviceProvider: spName(rec.Primary_Service_Provider),
+    serviceProvider: spName(rec.Primary_Service_Provider ?? rec.primary_service_provider),
     invoiceNumber: rec.invoice_number ?? "",
   };
 }

@@ -3,9 +3,11 @@ import { resolveJobStatusStyle, resolveQuoteStatusStyle } from "@shared/constant
 
 function RecordListColumn({ label, children }) {
   return (
-    <div className="flex h-full min-h-[420px] flex-col rounded border border-slate-200 bg-slate-50 p-2">
-      <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-600">{label}</div>
-      <div className="mt-1.5 min-h-0 flex-1">{children}</div>
+    <div className="flex h-full min-h-[420px] flex-col rounded-[4px] border border-[#003882] bg-white">
+      <div className="rounded-t-[4px] border-b border-[#003882] bg-[#003882] px-2.5 py-1.5 text-[13px] font-semibold text-white">
+        {label}
+      </div>
+      <div className="mt-1.5 min-h-0 flex-1 p-2">{children}</div>
     </div>
   );
 }

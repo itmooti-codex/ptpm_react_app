@@ -296,9 +296,9 @@ export function JobNotesPanel({
   }, [busyNoteId, deleteNoteTarget, editingNoteId, error, loadNotes, plugin, success]);
 
   return (
-    <section className={`flex flex-col rounded border border-slate-200 bg-white ${panelClassName}`}>
-      <div className="flex items-center gap-3 border-b border-slate-200 px-3 py-2">
-        <div className="text-sm font-semibold text-slate-800">Notes</div>
+    <section className={`flex flex-col rounded-[4px] border border-[#003882] bg-white ${panelClassName}`}>
+      <div className="flex items-center gap-3 rounded-t-[4px] border-b border-[#003882] bg-[#003882] px-2.5 py-1.5">
+        <div className="text-[13px] font-semibold text-white">Notes</div>
         <div className="ml-auto flex items-center gap-2">
           <select
             value={typeFilter}

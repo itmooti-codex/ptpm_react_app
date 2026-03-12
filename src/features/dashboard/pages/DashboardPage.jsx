@@ -25,6 +25,7 @@ import {
 import { DashboardSidebar } from "../components/DashboardSidebar.jsx";
 import { DashboardContent } from "../components/DashboardContent.jsx";
 import { DashboardBatchDeleteModal } from "../components/modals/DashboardBatchDeleteModal.jsx";
+import { getServicePersonName } from "../components/table/columns/sharedCells.jsx";
 import { TasksModal } from "@modules/job-workspace/public/components.js";
 
 function FullPageLoader({ text = "Loading dashboard..." }) {
@@ -77,67 +78,82 @@ function getTableExportSchema(activeTab) {
   if (activeTab === TAB_IDS.INQUIRY) {
     return [
       ["ID", (r) => r.uid || ""],
-      ["Date", (r) => r.date || ""],
-      ["Client", (r) => r.clientName || ""],
+      ["Job Date", (r) => r.date || ""],
+      ["Account Name", (r) => r.clientName || ""],
       ["Phone", (r) => r.phone || ""],
       ["Email", (r) => r.email || ""],
-      ["Address", (r) => r.address || ""],
+      ["Job Address", (r) => r.address || ""],
       ["Source", (r) => r.source || ""],
       ["Status", (r) => r.status || ""],
-      ["Service Provider", (r) => r.serviceProvider || ""],
+      ["Service Person", (r) => getServicePersonName(r)],
     ];
   }
   if (activeTab === TAB_IDS.QUOTE) {
     return [
       ["ID", (r) => r.uid || ""],
-      ["Date", (r) => r.date || ""],
-      ["Client", (r) => r.clientName || ""],
+      ["Job Date", (r) => r.date || ""],
+      ["Account Name", (r) => r.clientName || ""],
       ["Phone", (r) => r.phone || ""],
       ["Email", (r) => r.email || ""],
-      ["Address", (r) => r.address || ""],
+      ["Job Address", (r) => r.address || ""],
       ["Quote #", (r) => r.quoteNumber || ""],
-      ["Amount", (r) => normalizeMoney(r.amount)],
+      ["Quote Amount", (r) => normalizeMoney(r.amount)],
       ["Status", (r) => r.status || ""],
+      ["Service Person", (r) => getServicePersonName(r)],
+    ];
+  }
+  if (activeTab === TAB_IDS.JOBS) {
+    return [
+      ["ID", (r) => r.uid || ""],
+      ["Job Date", (r) => r.date || ""],
+      ["Account Name", (r) => r.clientName || ""],
+      ["Phone", (r) => r.phone || ""],
+      ["Email", (r) => r.email || ""],
+      ["Job Address", (r) => r.address || ""],
+      ["Job #", (r) => r.jobNumber || ""],
+      ["Status", (r) => r.status || ""],
+      ["Service Person", (r) => getServicePersonName(r)],
     ];
   }
   if (activeTab === TAB_IDS.PAYMENT) {
     return [
       ["ID", (r) => r.uid || ""],
-      ["Date", (r) => r.date || ""],
-      ["Client", (r) => r.clientName || ""],
+      ["Job Date", (r) => r.date || ""],
+      ["Account Name", (r) => r.clientName || ""],
       ["Phone", (r) => r.phone || ""],
       ["Email", (r) => r.email || ""],
-      ["Address", (r) => r.address || ""],
+      ["Job Address", (r) => r.address || ""],
       ["Invoice #", (r) => r.invoiceNumber || ""],
       ["Amount", (r) => normalizeMoney(r.amount)],
       ["Paid", (r) => normalizeMoney(r.paid)],
       ["Balance", (r) => normalizeMoney(r.balance)],
       ["Status", (r) => r.status || ""],
+      ["Service Person", (r) => getServicePersonName(r)],
     ];
   }
   if (activeTab === TAB_IDS.ACTIVE_JOBS) {
     return [
       ["ID", (r) => r.uid || ""],
       ["Scheduled", (r) => r.scheduledDate || ""],
-      ["Client", (r) => r.clientName || ""],
+      ["Account Name", (r) => r.clientName || ""],
       ["Phone", (r) => r.phone || ""],
       ["Email", (r) => r.email || ""],
-      ["Address", (r) => r.address || ""],
+      ["Job Address", (r) => r.address || ""],
       ["Status", (r) => r.status || ""],
-      ["Service Provider", (r) => r.serviceProvider || ""],
+      ["Service Person", (r) => getServicePersonName(r)],
       ["Invoice #", (r) => r.invoiceNumber || ""],
     ];
   }
   return [
     ["ID", (r) => r.uid || ""],
-    ["Date", (r) => r.date || ""],
-    ["Client", (r) => r.clientName || ""],
+    ["Type", (r) => (r.recordType === "inquiry" ? "Inquiry" : "Job")],
+    ["Date Added", (r) => r.date || ""],
+    ["Account Name", (r) => r.clientName || ""],
     ["Phone", (r) => r.phone || ""],
     ["Email", (r) => r.email || ""],
-    ["Address", (r) => r.address || ""],
-    ["Job #", (r) => r.jobNumber || ""],
+    ["Job Address", (r) => r.address || ""],
     ["Status", (r) => r.status || ""],
-    ["Service Provider", (r) => r.serviceProvider || ""],
+    ["Service Person", (r) => getServicePersonName(r)],
   ];
 }
 

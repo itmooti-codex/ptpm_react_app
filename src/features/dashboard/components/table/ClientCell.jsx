@@ -21,20 +21,7 @@ function MailIcon() {
   );
 }
 
-function MapPinIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7Z"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <circle cx="12" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.75" />
-    </svg>
-  );
-}
-
-export function ClientCell({ name, phone, email, address }) {
+export function ClientCell({ name, phone, email }) {
   return (
     <div className="min-w-0 max-w-[180px] overflow-hidden">
       <div className="truncate font-medium text-slate-800" title={name || "—"}>
@@ -58,17 +45,6 @@ export function ClientCell({ name, phone, email, address }) {
             onClick={(e) => e.stopPropagation()}
           >
             <MailIcon />
-          </a>
-        )}
-        {address && (
-          <a
-            href={`https://maps.google.com/?q=${encodeURIComponent(address)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-[#003882]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MapPinIcon />
           </a>
         )}
       </div>
