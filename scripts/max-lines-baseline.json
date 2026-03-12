@@ -1,0 +1,27 @@
+{
+  "limit": 500,
+  "files": {
+    "src/features/account/pages/ProfilePage.jsx": 520,
+    "src/features/dashboard/pages/DashboardPage.jsx": 796,
+    "src/features/dashboard/api/dashboardApi.js": 1370,
+    "src/features/job-details/components/JobDetailsScreen.jsx": 4380,
+    "src/modules/job-records/api/jobDetailsApi.js": 2347,
+    "src/modules/details-workspace/components/layout/DetailsWorkspaceLayout.jsx": 501,
+    "src/modules/details-workspace/components/modals/AddPropertyModal.jsx": 626,
+    "src/modules/details-workspace/components/modals/ContactDetailsModal.jsx": 1712,
+    "src/modules/details-workspace/components/modals/PropertyAffiliationModal.jsx": 730,
+    "src/modules/details-workspace/components/modals/TasksModal.jsx": 932,
+    "src/modules/details-workspace/components/sections/AddActivitiesSection.jsx": 1224,
+    "src/modules/details-workspace/components/sections/AddMaterialsSection.jsx": 1061,
+    "src/modules/details-workspace/components/sections/InvoiceSection.jsx": 1155,
+    "src/modules/details-workspace/components/sections/JobInformationSection.jsx": 577,
+    "src/modules/details-workspace/components/sections/UploadsSection.jsx": 1783,
+    "src/modules/details-workspace/components/sections/invoice/InvoicePanels.jsx": 605,
+    "src/modules/details-workspace/components/sections/job-information/AppointmentTabSection.jsx": 1548,
+    "src/modules/details-workspace/components/sections/job-information/PropertyTabSection.jsx": 1454,
+    "src/shared/announcements/announcementEmitter.js": 792,
+    "src/shared/components/RecentActivitiesDock.jsx": 876,
+    "src/shared/components/ui/MemoChatPanel.jsx": 584,
+    "src/shared/providers/AnnouncementsProvider.jsx": 637
+  }
+}

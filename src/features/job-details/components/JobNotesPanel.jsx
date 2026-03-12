@@ -3,23 +3,19 @@ import assigneesJson from "../../../../assignees.json";
 import {
   EditActionIcon as EditIcon,
   TrashActionIcon as TrashIcon,
-} from "@modules/job-workspace/public/components.js";
+} from "@modules/details-workspace/exports/components.js";
+import { useAdminProviderLookup } from "@modules/details-workspace/exports/hooks.js";
 import { Button } from "@shared/components/ui/Button.jsx";
 import { Modal } from "@shared/components/ui/Modal.jsx";
-import { PersonAvatar } from "@shared/components/ui/PersonAvatar.jsx";
 import { useToast } from "@shared/providers/ToastProvider.jsx";
-import {
-  formatDate,
-  formatRelativeTime,
-  getAuthorName,
-  toText,
-} from "@shared/utils/formatters.js";
+import { formatDate, formatRelativeTime, toText } from "@shared/utils/formatters.js";
+import { useCurrentUserServiceProvider } from "@shared/hooks/useCurrentUserServiceProvider.js";
 import {
   createNoteForDetails,
   deleteNoteForDetails,
   fetchNotesForDetails,
   updateNoteForDetails,
-} from "@modules/job-records/public/sdk.js";
+} from "@modules/job-records/exports/api.js";
 
 const NOTE_FILTER_OPTIONS = ["All", "Manual", "Form", "Phone Call", "API"];
 const NOTE_TYPE_OPTIONS = NOTE_FILTER_OPTIONS.filter((value) => value !== "All");
@@ -45,14 +41,32 @@ function getDefaultNoteAuthorId(rawAssignees) {
     : Array.isArray(rawAssignees?.assignees)
       ? rawAssignees.assignees
       : [];
-
   return toText(source?.[0]?.id ?? source?.[0]?.ID ?? source?.[0]?.assignee_id);
 }
 
-function getNoteAuthorLabel(note = {}) {
-  const authorName = getAuthorName(note?.Author || {});
-  if (authorName && authorName !== "Unknown") return authorName;
-  return toText(note?.author_id) || "Unknown";
+// Formats a date like "13 Mar 2026 3:35 PM"
+function formatNoteTimestamp() {
+  const now = new Date();
+  const day = now.getDate();
+  const month = now.toLocaleString("en-AU", { month: "short" });
+  const year = now.getFullYear();
+  const time = now
+    .toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })
+    .toUpperCase();
+  return `${day} ${month} ${year} ${time}`;
+}
+
+// Parses "\n\nNote added by: John Doe | 5 | 13 Mar 2026 3:35 PM" from end of note
+function parseNoteAuthor(noteText) {
+  const match = String(noteText || "").match(
+    /\n\nNote added by: (.+?) \| (\w+) \| (.+?)\s*$/
+  );
+  if (!match) return null;
+  return { name: match[1], id: match[2], dateStr: match[3] };
+}
+
+function stripNoteAuthor(noteText) {
+  return String(noteText || "").replace(/\n\nNote added by: .+$/s, "").trimEnd();
 }
 
 function NoteEditor({ draft, onChange, onSubmit, onCancel = null, isSaving = false, submitLabel }) {
@@ -106,16 +120,40 @@ export function JobNotesPanel({
   const normalizedInquiryId = toText(inquiryId);
   const normalizedContextType = toText(contextType).toLowerCase() || "job";
   const defaultNoteAuthorId = useMemo(() => getDefaultNoteAuthorId(assigneesJson), []);
+
+  // Current user's service provider (for appending to notes)
+  const { spId: currentSpId, spName: currentSpName } = useCurrentUserServiceProvider(plugin);
+
+  // Admin service providers for the author filter dropdown
+  const { records: adminProviders } = useAdminProviderLookup({
+    plugin,
+    isSdkReady: Boolean(plugin),
+  });
+  const authorFilterOptions = useMemo(
+    () =>
+      adminProviders
+        .map((sp) => ({
+          id: toText(sp.id),
+          label:
+            [toText(sp.first_name), toText(sp.last_name)].filter(Boolean).join(" ") ||
+            `SP #${sp.id}`,
+        }))
+        .filter((item) => item.id),
+    [adminProviders]
+  );
+
   const [notes, setNotes] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
+  const [authorFilter, setAuthorFilter] = useState("");
   const [draft, setDraft] = useState(EMPTY_NOTE_DRAFT);
   const [editingNoteId, setEditingNoteId] = useState("");
   const [editingDraft, setEditingDraft] = useState(EMPTY_NOTE_DRAFT);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [busyNoteId, setBusyNoteId] = useState("");
   const [deleteNoteTarget, setDeleteNoteTarget] = useState(null);
+
   const hasNoteContext =
     normalizedContextType === "inquiry"
       ? Boolean(normalizedInquiryId)
@@ -155,19 +193,18 @@ export function JobNotesPanel({
 
   const filteredNotes = useMemo(() => {
     return notes.filter((item) => {
-      return typeFilter === "All" || toText(item?.type) === typeFilter;
+      if (typeFilter !== "All" && toText(item?.type) !== typeFilter) return false;
+      if (authorFilter) {
+        const parsed = parseNoteAuthor(toText(item?.note));
+        if (!parsed || parsed.id !== authorFilter) return false;
+      }
+      return true;
     });
-  }, [notes, typeFilter]);
+  }, [notes, typeFilter, authorFilter]);
 
   const handleCreateNote = useCallback(async () => {
     const noteText = toText(draft.note);
     const noteType = toText(draft.type) || "Manual";
-    const createPayload = {
-      note: noteText,
-      type: noteType,
-      author_id: defaultNoteAuthorId,
-      date_created: Math.floor(Date.now() / 1000),
-    };
 
     if (!noteText) {
       error("Create failed", "Note text is required.");
@@ -181,9 +218,23 @@ export function JobNotesPanel({
       error("Create failed", "Notes are available when the record is loaded.");
       return;
     }
+    if (isSubmitting) return;
+
+    // Append "Note added by:" line if we know the current user's SP
+    const authorSuffix =
+      currentSpId && currentSpName
+        ? `\n\nNote added by: ${currentSpName} | ${currentSpId} | ${formatNoteTimestamp()}`
+        : "";
+
+    const createPayload = {
+      note: `${noteText}${authorSuffix}`,
+      type: noteType,
+      author_id: defaultNoteAuthorId,
+      date_created: Math.floor(Date.now() / 1000),
+    };
+
     if (normalizedJobId) createPayload.Job_id = normalizedJobId;
     if (normalizedInquiryId) createPayload.Deal_id = normalizedInquiryId;
-    if (isSubmitting) return;
 
     setIsSubmitting(true);
     try {
@@ -201,12 +252,13 @@ export function JobNotesPanel({
       setIsSubmitting(false);
     }
   }, [
+    currentSpId,
+    currentSpName,
     defaultNoteAuthorId,
     draft,
     error,
     isSubmitting,
     loadNotes,
-    normalizedContextType,
     normalizedInquiryId,
     normalizedJobId,
     plugin,
@@ -215,6 +267,7 @@ export function JobNotesPanel({
 
   const handleStartEdit = useCallback((note) => {
     setEditingNoteId(toText(note?.id));
+    // Edit the raw stored note (including author suffix) so it's preserved on save
     setEditingDraft({
       note: toText(note?.note),
       type: toText(note?.type) || "Manual",
@@ -297,9 +350,23 @@ export function JobNotesPanel({
 
   return (
     <section className={`flex flex-col rounded border border-slate-200 bg-white ${panelClassName}`}>
-      <div className="flex items-center gap-3 border-b border-slate-200 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2">
         <div className="text-sm font-semibold text-slate-800">Notes</div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {/* Author filter */}
+          <select
+            value={authorFilter}
+            onChange={(event) => setAuthorFilter(event.target.value)}
+            className="h-8 rounded border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-400"
+          >
+            <option value="">All Authors</option>
+            {authorFilterOptions.map((sp) => (
+              <option key={sp.id} value={sp.id}>
+                {sp.label}
+              </option>
+            ))}
+          </select>
+          {/* Type filter */}
           <select
             value={typeFilter}
             onChange={(event) => setTypeFilter(event.target.value)}
@@ -344,40 +411,43 @@ export function JobNotesPanel({
         ) : (
           filteredNotes.map((item) => {
             const noteId = toText(item?.id);
-            const author = item?.Author || {};
-            const authorName = getNoteAuthorLabel(item);
+            const rawNote = toText(item?.note);
+            const parsedAuthor = parseNoteAuthor(rawNote);
+            const displayNote = stripNoteAuthor(rawNote);
             const isEditing = editingNoteId === noteId;
             const isBusy = busyNoteId === noteId;
 
             return (
               <article
-                key={noteId || `${toText(item?.date_created)}-${toText(item?.note)}`}
+                key={noteId || `${toText(item?.date_created)}-${rawNote}`}
                 className="rounded border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
               >
-                <div className="flex items-start gap-2.5">
-                  <PersonAvatar
-                    name={authorName}
-                    image={toText(author?.profile_image)}
-                    className="h-7 w-7 text-[10px]"
-                    initialsClassName="text-[10px]"
-                  />
-
+                <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <div className="truncate text-xs font-semibold text-slate-800">
-                        {authorName}
-                      </div>
+                      {/* Author line parsed from note text */}
+                      {parsedAuthor ? (
+                        <div className="truncate text-xs font-semibold text-slate-800">
+                          {parsedAuthor.name}
+                        </div>
+                      ) : null}
                       <span
                         className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${getTypePillClass(item?.type)}`}
                       >
                         {toText(item?.type) || "Manual"}
                       </span>
-                      <div
-                        className="text-[10px] text-slate-500"
-                        title={formatDate(item?.date_created)}
-                      >
-                        {formatRelativeTime(item?.date_created)}
-                      </div>
+                      {parsedAuthor ? (
+                        <div className="text-[10px] text-slate-500" title={parsedAuthor.dateStr}>
+                          {parsedAuthor.dateStr}
+                        </div>
+                      ) : (
+                        <div
+                          className="text-[10px] text-slate-500"
+                          title={formatDate(item?.date_created)}
+                        >
+                          {formatRelativeTime(item?.date_created)}
+                        </div>
+                      )}
                       {!isEditing ? (
                         <div className="ml-auto flex items-center gap-1.5">
                           <button
@@ -416,7 +486,7 @@ export function JobNotesPanel({
                         />
                       ) : (
                         <p className="whitespace-pre-wrap text-sm leading-5 text-slate-700">
-                          {toText(item?.note) || "-"}
+                          {displayNote || "-"}
                         </p>
                       )}
                     </div>

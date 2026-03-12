@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "npm run lint:boundaries",
-    "lint:boundaries": "node scripts/lint-boundaries.mjs"
+    "lint": "npm run lint:boundaries && npm run lint:max-lines",
+    "lint:boundaries": "node scripts/lint-boundaries.mjs",
+    "lint:max-lines": "node scripts/check-max-lines.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

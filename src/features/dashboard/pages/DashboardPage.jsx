@@ -15,18 +15,18 @@ import {
   createJobRecord,
   fetchTabCountByTab,
   fetchCalendarDataByTab,
-} from "../sdk/dashboardSdk.js";
+} from "../api/dashboardApi.js";
 import { TAB_IDS, TAB_LIST } from "../constants/tabs.js";
 import {
   buildCalendarCacheKey,
   readDashboardCache,
   writeDashboardCache,
-} from "../sdk/dashboardCache.js";
+} from "../api/dashboardCache.js";
 import { DashboardSidebar } from "../components/DashboardSidebar.jsx";
 import { DashboardContent } from "../components/DashboardContent.jsx";
 import { DashboardBatchDeleteModal } from "../components/modals/DashboardBatchDeleteModal.jsx";
 import { getServicePersonName } from "../components/table/columns/sharedCells.jsx";
-import { TasksModal } from "@modules/job-workspace/public/components.js";
+import { TasksModal } from "@modules/details-workspace/exports/components.js";
 
 function FullPageLoader({ text = "Loading dashboard..." }) {
   return (

@@ -4,16 +4,16 @@ import { useVitalStatsPlugin } from "../../../platform/vitalstats/useVitalStatsP
 import {
   fetchJobByUid,
   updateJobFieldsById,
-} from "../../../modules/job-records/public/sdk.js";
-import { fetchActivitiesByJobId } from "../../../modules/job-workspace/sdk/core/domains/activities/activitiesMaterials.js";
+} from "../../../modules/job-records/exports/api.js";
+import { fetchActivitiesByJobId } from "../../../modules/details-workspace/api/core/domains/activities/activitiesMaterials.js";
 import {
   fetchCompanyAccountRecordById,
   fetchContactAccountRecordById,
   fetchPropertyRecordById,
   fetchServiceProvidersForSearch,
   uploadMaterialFile,
-} from "../../../modules/job-workspace/public/sdk.js";
-import { QuoteSheetPanel } from "../../../modules/job-workspace/components/sections/invoice/QuoteSheetPanel.jsx";
+} from "../../../modules/details-workspace/exports/api.js";
+import { QuoteSheetPanel } from "../../../modules/details-workspace/components/sections/invoice/QuoteSheetPanel.jsx";
 import logoAsset from "../../../assets/logo.webp";
 import {
   formatDate,

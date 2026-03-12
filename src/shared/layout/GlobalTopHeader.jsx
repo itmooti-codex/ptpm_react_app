@@ -4,7 +4,7 @@ import { useAnnouncements } from "../hooks/useAnnouncements.js";
 import { useCurrentUserProfile } from "../hooks/useCurrentUserProfile.js";
 import { useToast } from "../providers/ToastProvider.jsx";
 import { useVitalStatsPlugin } from "../../platform/vitalstats/useVitalStatsPlugin.js";
-import { createJobRecord } from "../../features/dashboard/sdk/dashboardSdk.js";
+import { createJobRecord } from "../../features/dashboard/api/dashboardApi.js";
 import appLogo from "../../assets/logo.webp";
 import {
   clearSelectedDemoUserId,

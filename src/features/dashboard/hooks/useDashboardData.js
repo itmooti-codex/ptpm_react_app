@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { extractFromPayload, fetchDirectWithTimeout } from "@shared/sdk/dashboardCore.js";
+import { extractFromPayload, fetchDirectWithTimeout } from "@shared/api/dashboardCore.js";
 import { TAB_IDS } from "../constants/tabs.js";
 import { hasAnyDashboardFilterValues } from "../constants/filters.js";
 import {
   buildRowsCacheKey,
   readDashboardCache,
   writeDashboardCache,
-} from "../sdk/dashboardCache.js";
+} from "../api/dashboardCache.js";
 import {
   buildDealsQuery,
   buildQuotesQuery,
@@ -18,7 +18,7 @@ import {
   buildUrgentCallsDealQuery,
   buildOpenTasksDealQuery,
   fetchTabCountByTab,
-} from "../sdk/dashboardSdk.js";
+} from "../api/dashboardApi.js";
 
 const COMBINED_TABS = new Set([TAB_IDS.URGENT_CALLS, TAB_IDS.OPEN_TASKS]);
 

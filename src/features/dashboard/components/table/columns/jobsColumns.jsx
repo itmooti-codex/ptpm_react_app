@@ -1,4 +1,4 @@
-import { JobDirectStatusBadge, JobDirectIconActionButton } from "@modules/job-workspace/public/components.js";
+import { JobDirectStatusBadge, JobDirectIconActionButton } from "@modules/details-workspace/exports/components.js";
 import { ClientCell } from "../ClientCell.jsx";
 import { resolveStatusStyle } from "@shared/constants/statusStyles.js";
 import { getServicePersonName, JobAddressCell } from "./sharedCells.jsx";

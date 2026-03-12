@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useVitalStatsPlugin } from "@platform/vitalstats/useVitalStatsPlugin.js";
-import { fetchServiceProviders } from "../sdk/dashboardSdk.js";
-import { readDashboardCache, writeDashboardCache } from "../sdk/dashboardCache.js";
+import { fetchServiceProviders } from "../api/dashboardApi.js";
+import { readDashboardCache, writeDashboardCache } from "../api/dashboardCache.js";
 
 const SERVICE_PROVIDER_CACHE_KEY = "service-providers";
 const SERVICE_PROVIDER_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
