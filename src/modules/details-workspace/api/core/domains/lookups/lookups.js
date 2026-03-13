@@ -68,7 +68,8 @@ export async function searchContactsForLookup({ plugin, query = "", limit = LOOK
           .orWhere("last_name", "like", likeValue)
           .orWhere("email", "like", likeValue)
           .orWhere("sms_number", "like", likeValue)
-          .orWhere("office_phone", "like", likeValue);
+          .orWhere("office_phone", "like", likeValue)
+          .orWhere("address", "like", likeValue);
       })
       .limit(resolveSearchLimit(limit))
       .noDestroy();

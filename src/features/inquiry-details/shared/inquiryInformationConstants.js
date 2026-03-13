@@ -59,6 +59,7 @@ export const INQUIRY_TYPE_OPTIONS = [
   { code: "216", value: "Partnership or Collaboration Inquiry", label: "Partnership or Collaboration Inquiry" },
   { code: "215", value: "Job Application or Career Opportunities", label: "Job Application or Career Opportunities" },
   { code: "213", value: "Media or Press Inquiry", label: "Media or Press Inquiry" },
+  { code: "212", value: "Other", label: "Other" },
 ];
 
 export const HOW_DID_YOU_HEAR_OPTIONS = [

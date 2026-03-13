@@ -118,7 +118,10 @@ export function QuickInquiryBookingModal({
   const canProceedStepOne =
     accountMode === "company"
       ? Boolean(toText(companyForm.company_name))
-      : Boolean(toText(individualForm.email));
+      : Boolean(toText(individualForm.email)) &&
+        Boolean(toText(individualForm.first_name)) &&
+        Boolean(toText(individualForm.last_name)) &&
+        Boolean(toText(individualForm.sms_number));
   const canCreateInquiry =
     Boolean(toText(inquiryId)) &&
     Boolean(toText(detailsForm.inquiry_source)) &&
@@ -387,20 +390,19 @@ export function QuickInquiryBookingModal({
             {step === 1 ? (
               <QuickInquiryAccountStep
                 accountMode={accountMode}
+                companyAddressLookupRef={companyAddressLookupRef}
                 companyForm={companyForm}
                 companyMatchState={companyMatchState}
-                companyAddressLookupRef={companyAddressLookupRef}
                 contactMatchState={contactMatchState}
                 individualAddressLookupRef={individualAddressLookupRef}
                 individualForm={individualForm}
                 matchMessageClassByStatus={matchMessageClassByStatus}
+                plugin={plugin}
                 setAccountMode={setAccountMode}
                 setCompanyForm={setCompanyForm}
+                setCompanyMatchState={setCompanyMatchState}
+                setContactMatchState={setContactMatchState}
                 setIndividualForm={setIndividualForm}
-                setShowCompanyOptional={setShowCompanyOptional}
-                setShowIndividualOptional={setShowIndividualOptional}
-                showCompanyOptional={showCompanyOptional}
-                showIndividualOptional={showIndividualOptional}
               />
             ) : (
               <QuickInquiryDetailsStep

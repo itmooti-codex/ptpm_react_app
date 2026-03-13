@@ -350,7 +350,7 @@ export function useQuickInquiryBookingForm({ open, prefillContext }) {
   const inquiryFlowRule = useMemo(() => getInquiryFlowRule(detailsForm.type), [detailsForm.type]);
 
   const individualAddressLookupRef = useGoogleAddressLookup({
-    enabled: open && accountMode === "individual" && showIndividualOptional,
+    enabled: open && accountMode === "individual",
     country: "au",
     onAddressSelected: (parsed) => {
       setIndividualForm((previous) => ({
@@ -365,7 +365,7 @@ export function useQuickInquiryBookingForm({ open, prefillContext }) {
   });
 
   const companyAddressLookupRef = useGoogleAddressLookup({
-    enabled: open && accountMode === "company" && showCompanyOptional,
+    enabled: open && accountMode === "company",
     country: "au",
     onAddressSelected: (parsed) => {
       setCompanyForm((previous) => ({

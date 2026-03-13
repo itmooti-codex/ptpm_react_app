@@ -5,6 +5,10 @@ export const CONTACT_LOOKUP_SELECT_FIELDS = [
   "email",
   "sms_number",
   "office_phone",
+  "address",
+  "city",
+  "state",
+  "zip_code",
 ];
 
 export const CONTACT_DUPLICATE_LOOKUP_SELECT_FIELDS = [
