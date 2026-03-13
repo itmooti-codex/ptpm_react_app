@@ -256,14 +256,39 @@ Components must never call API functions directly — always go through a hook.
 
 ## 10) File Size Rule
 
-All source files must stay under 500 lines. Enforced by `npm run lint:max-lines`.
+**Hard limit: 500 lines per source file. No exceptions.**
 
-If a file needs to grow past 500 lines, split it first:
-- Extract constants → `*Constants.js` or `*Schema.js`
-- Extract utilities → `*Utils.js`
-- Extract hooks → `use*.js`
-- Extract sub-components → `*Panel.jsx`, `*Fields.jsx`
-- Keep the main file as a thin orchestrator
+Enforced by `npm run lint:max-lines` (included in `npm run lint`). The CI equivalent is `npm run build && npm run lint`. Both must pass before any change is considered done.
+
+### Before editing a file
+
+Always check the current line count:
+
+```bash
+wc -l src/path/to/file.js
+```
+
+If a file is already near 500 lines, count how many lines your change will add before writing it. A file at 498 lines can only absorb 2 more lines — plan accordingly.
+
+### When a file is full (at or near 500 lines)
+
+**Split the file first, then make your change.** Do not try to squeeze past the limit.
+
+Splitting strategies (in order of preference):
+
+1. Extract constants → `*Constants.js` or `*Schema.js`
+2. Extract pure utilities → `*Utils.js`
+3. Extract a hook → `use*.js`
+4. Extract a sub-component → `*Panel.jsx`, `*Fields.jsx`, `*Section.jsx`
+5. Keep the main file as a thin orchestrator that imports from the new files
+
+**Last resort — inlining:** If a file is exactly at 500 and your change is a single value added to an existing expression (e.g., adding one item to an array or one field to a `.join()`), you may inline it on the same line rather than introducing a new `const`. Only do this when the result is still readable. Do not use inlining as a substitute for a proper split.
+
+### Why this matters
+
+- `npm run lint:max-lines` will fail with a non-zero exit code if any file exceeds 500 lines
+- A failed lint blocks the agent's "done" condition — the change is not complete until lint passes
+- Files that previously violated the limit may appear in a baseline exception list (`scripts/max-lines-baseline.json`); do not add new entries to that list
 
 ---
 
