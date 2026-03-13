@@ -4,7 +4,7 @@ import {
   ANNOUNCEMENT_EVENT_KEYS,
 } from "../../../../../shared/announcements/announcementTypes.js";
 import { emitAnnouncement } from "../../../../../shared/announcements/announcementEmitter.js";
-import { useJobDirectStoreActions } from "../../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceStoreActions } from "../../../hooks/useDetailsWorkspaceStore.jsx";
 import {
   updateInvoiceTriggerByJobId,
   updateJobRecordById,
@@ -33,7 +33,7 @@ export function useInvoiceCrud({
   previousPaymentStatusRef,
 }) {
   const { success, error } = useToast();
-  const storeActions = useJobDirectStoreActions();
+  const storeActions = useDetailsWorkspaceStoreActions();
 
   const [isInvoiceSaving, setIsInvoiceSaving] = useState(false);
   const [isBillSaving, setIsBillSaving] = useState(false);

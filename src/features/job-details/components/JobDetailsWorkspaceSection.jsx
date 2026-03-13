@@ -8,7 +8,7 @@ import {
   SearchDropdownInput,
   UploadsSection,
 } from "@modules/details-workspace/exports/components.js";
-import { JobDirectStoreProvider } from "@modules/details-workspace/exports/hooks.js";
+import { DetailsWorkspaceStoreProvider } from "@modules/details-workspace/exports/hooks.js";
 import { toText } from "@shared/utils/formatters.js";
 import {
   ContactLogsPanel,
@@ -148,7 +148,7 @@ export function JobDetailsWorkspaceSection({
         </div>
       </section>
 
-      <JobDirectStoreProvider jobUid={safeUid || null} jobData={jobData} lookupData={lookupData}>
+      <DetailsWorkspaceStoreProvider jobUid={safeUid || null} jobData={jobData} lookupData={lookupData}>
         <section className="rounded border border-slate-200 bg-white p-2">
           <WorkspaceTabPanel
             isMounted={Boolean(mountedWorkspaceTabs["related-data"])}
@@ -432,7 +432,7 @@ export function JobDetailsWorkspaceSection({
           uploadsPropertyId={uploadsPropertyId}
           activityModalMode={activityModalMode}
         />
-      </JobDirectStoreProvider>
+      </DetailsWorkspaceStoreProvider>
     </div>
   );
 }

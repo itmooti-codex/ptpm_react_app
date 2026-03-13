@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { updateJobRecordById, updateJobRecordByUid } from "../../api/core/runtime.js";
-import { useJobDirectSelector, useJobDirectStoreActions } from "../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceSelector, useDetailsWorkspaceStoreActions } from "../../hooks/useDetailsWorkspaceStore.jsx";
 import { selectOverviewDraft } from "../../state/selectors.js";
 import {
   JOB_STATUS_OPTIONS,
@@ -81,9 +81,9 @@ export function createOverviewDraftFromJob(job = {}) {
   };
 }
 
-export function useJobDirectOverviewSave({ plugin, jobUid, activeJobData, onExternalUnsavedChange }) {
-  const storeActions = useJobDirectStoreActions();
-  const overviewDraft = useJobDirectSelector(selectOverviewDraft);
+export function useWorkspaceOverviewSave({ plugin, jobUid, activeJobData, onExternalUnsavedChange }) {
+  const storeActions = useDetailsWorkspaceStoreActions();
+  const overviewDraft = useDetailsWorkspaceSelector(selectOverviewDraft);
   const overviewBaselineRef = useRef(pickTrackedDraftFields({}));
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 

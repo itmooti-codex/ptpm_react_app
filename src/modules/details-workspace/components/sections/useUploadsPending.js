@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
 import {
-  useJobDirectSelector,
-  useJobDirectStoreActions,
+  useDetailsWorkspaceSelector,
+  useDetailsWorkspaceStoreActions,
 } from "../../hooks/useDetailsWorkspaceStore.jsx";
 import { selectJobUploads } from "../../state/selectors.js";
 import { useRenderWindow } from "../primitives/WorkspaceTablePrimitives.jsx";
@@ -42,8 +42,8 @@ export function useUploadsPending({
   enableFormUploads,
 }) {
   const { success, error } = useToast();
-  const storeActions = useJobDirectStoreActions();
-  const uploads = useJobDirectSelector(selectJobUploads);
+  const storeActions = useDetailsWorkspaceStoreActions();
+  const uploads = useDetailsWorkspaceSelector(selectJobUploads);
 
   const [pendingUploads, setPendingUploads] = useState([]);
   const [isDropActive, setIsDropActive] = useState(false);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useJobDirectSelector } from "../../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceSelector } from "../../../hooks/useDetailsWorkspaceStore.jsx";
 import {
   selectBillMaterialSummary,
   selectDefaultInvoiceActivityIds,
@@ -36,10 +36,10 @@ import {
 import { formatActivityServiceLabel } from "@shared/utils/formatters.js";
 
 export function useInvoiceForm({ jobData, jobEntity, activeTab, activeTabVersion, onExternalUnsavedChange }) {
-  const storeActivities = useJobDirectSelector(selectActivities);
-  const storeMaterials = useJobDirectSelector(selectMaterials);
-  const defaultInvoiceActivityIds = useJobDirectSelector(selectDefaultInvoiceActivityIds);
-  const storeMaterialSummary = useJobDirectSelector(selectBillMaterialSummary);
+  const storeActivities = useDetailsWorkspaceSelector(selectActivities);
+  const storeMaterials = useDetailsWorkspaceSelector(selectMaterials);
+  const defaultInvoiceActivityIds = useDetailsWorkspaceSelector(selectDefaultInvoiceActivityIds);
+  const storeMaterialSummary = useDetailsWorkspaceSelector(selectBillMaterialSummary);
 
   const [activeBillingTab, setActiveBillingTab] = useState("quote");
   const [urlCopied, setUrlCopied] = useState(false);

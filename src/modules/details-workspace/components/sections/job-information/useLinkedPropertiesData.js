@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useJobDirectSelector, useJobDirectStoreActions } from "../../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceSelector, useDetailsWorkspaceStoreActions } from "../../../hooks/useDetailsWorkspaceStore.jsx";
 import { selectLinkedPropertiesByAccountKey } from "../../../state/selectors.js";
 import {
   fetchLinkedPropertiesByAccount,
@@ -42,7 +42,7 @@ export function useLinkedPropertiesData({
   accountType,
   selectedAccountId,
 }) {
-  const storeActions = useJobDirectStoreActions();
+  const storeActions = useDetailsWorkspaceStoreActions();
   const persistedRelatedProperty = useMemo(
     () => getJobRelatedProperty(activeJobData),
     [activeJobData]
@@ -136,7 +136,7 @@ export function useLinkedPropertiesData({
     (state) => selectLinkedPropertiesByAccountKey(state, linkedPropertyCacheKey),
     [linkedPropertyCacheKey]
   );
-  const cachedLinkedProperties = useJobDirectSelector(cachedLinkedPropertiesSelector);
+  const cachedLinkedProperties = useDetailsWorkspaceSelector(cachedLinkedPropertiesSelector);
   const hasCachedLinkedPropertiesSelector = useCallback(
     (state) => {
       const key = String(linkedPropertyCacheKey || "").trim();
@@ -148,7 +148,7 @@ export function useLinkedPropertiesData({
     },
     [linkedPropertyCacheKey]
   );
-  const hasCachedLinkedProperties = useJobDirectSelector(hasCachedLinkedPropertiesSelector);
+  const hasCachedLinkedProperties = useDetailsWorkspaceSelector(hasCachedLinkedPropertiesSelector);
   const setLinkedPropertiesWithCache = useCallback(
     (valueOrUpdater) => {
       const previous = linkedPropertiesRef.current;

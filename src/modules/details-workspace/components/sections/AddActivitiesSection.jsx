@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useJobDirectSelector } from "../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceSelector } from "../../hooks/useDetailsWorkspaceStore.jsx";
 import { JobDirectSplitSection } from "../primitives/WorkspaceLayoutPrimitives.jsx";
 import { useRenderWindow } from "../primitives/WorkspaceTablePrimitives.jsx";
 import { selectActivities } from "../../state/selectors.js";
@@ -37,7 +37,7 @@ export function AddActivitiesSection({
 }) {
   const jobId = toText(jobData?.id || jobData?.ID);
   const inquiryId = toText(jobData?.inquiry_record_id || jobData?.Inquiry_Record_ID);
-  const activities = useJobDirectSelector(selectActivities);
+  const activities = useDetailsWorkspaceSelector(selectActivities);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeActionId, setActiveActionId] = useState("");
   const [viewActivity, setViewActivity] = useState(null);

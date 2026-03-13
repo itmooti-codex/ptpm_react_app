@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useToast } from "../../../../shared/providers/ToastProvider.jsx";
-import { useJobDirectStoreActions } from "../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceStoreActions } from "../../hooks/useDetailsWorkspaceStore.jsx";
 import { showMutationErrorToast } from "../../utils/mutationFeedback.js";
 import {
   ANNOUNCEMENT_EVENT_KEYS,
@@ -39,7 +39,7 @@ export function useMaterialsCrud({
   onSubmitSuccess,
 }) {
   const { success, error } = useToast();
-  const storeActions = useJobDirectStoreActions();
+  const storeActions = useDetailsWorkspaceStoreActions();
 
   const handleSubmit = useCallback(
     async (event) => {

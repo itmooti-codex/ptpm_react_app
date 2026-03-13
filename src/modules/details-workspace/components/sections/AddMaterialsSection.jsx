@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useJobDirectSelector } from "../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceSelector } from "../../hooks/useDetailsWorkspaceStore.jsx";
 import { useServiceProviderLookupData } from "../../hooks/useServiceProviderLookupData.js";
 import { JobDirectSplitSection } from "../primitives/WorkspaceLayoutPrimitives.jsx";
 import { useRenderWindow } from "../primitives/WorkspaceTablePrimitives.jsx";
@@ -29,7 +29,7 @@ export function AddMaterialsSection({
 }) {
   const jobId = toText(jobData?.id || jobData?.ID);
   const inquiryId = toText(jobData?.inquiry_record_id || jobData?.Inquiry_Record_ID);
-  const materials = useJobDirectSelector(selectMaterials);
+  const materials = useDetailsWorkspaceSelector(selectMaterials);
   const resolvedLayoutMode = String(layoutMode || "split").trim().toLowerCase();
   const isTableOnlyLayout = resolvedLayoutMode === "table";
   const isFormOnlyLayout = resolvedLayoutMode === "form";

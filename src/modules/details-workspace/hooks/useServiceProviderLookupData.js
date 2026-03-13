@@ -5,8 +5,8 @@ import {
 } from "../api/core/runtime.js";
 import { buildLookupDisplayLabel } from "../../../shared/utils/lookupLabel.js";
 import {
-  useJobDirectSelector,
-  useJobDirectStoreActions,
+  useDetailsWorkspaceSelector,
+  useDetailsWorkspaceStoreActions,
 } from "./useDetailsWorkspaceStore.jsx";
 import { selectServiceProviders } from "../state/selectors.js";
 
@@ -101,8 +101,8 @@ export function useServiceProviderLookupData(
   plugin,
   { initialProviders = EMPTY_LIST, skipInitialFetch = false } = {}
 ) {
-  const actions = useJobDirectStoreActions();
-  const storeProviders = useJobDirectSelector(selectServiceProviders);
+  const actions = useDetailsWorkspaceStoreActions();
+  const storeProviders = useDetailsWorkspaceSelector(selectServiceProviders);
 
   const normalizedInitialProviders = useMemo(
     () => (initialProviders || []).map((item) => normalizeServiceProvider(item)),

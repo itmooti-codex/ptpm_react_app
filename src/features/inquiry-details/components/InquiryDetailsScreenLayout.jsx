@@ -1,5 +1,5 @@
 import { GlobalTopHeader } from "../../../shared/layout/GlobalTopHeader.jsx";
-import { JobDirectStoreProvider } from "../../../modules/details-workspace/hooks/useDetailsWorkspaceStore.jsx";
+import { DetailsWorkspaceStoreProvider } from "../../../modules/details-workspace/hooks/useDetailsWorkspaceStore.jsx";
 import { AccountDetailsSection } from "@modules/details-workspace/exports/components.js";
 import { InquiryDetailsActionModals } from "./InquiryDetailsActionModals.jsx";
 import { InquiryDetailsHeaderBar } from "./InquiryDetailsHeaderBar.jsx";
@@ -67,7 +67,7 @@ export function InquiryDetailsScreenLayout({
         handleDeleteRecord={recordMutationActions.handleDeleteRecord}
         isDeletingRecord={screenState.isDeletingRecord}
       />
-      <JobDirectStoreProvider
+      <DetailsWorkspaceStoreProvider
         jobUid={hasUid ? safeUid : null}
         jobData={{
           id: screenContext.linkedInquiryJobIdFromRecord,
@@ -306,7 +306,7 @@ export function InquiryDetailsScreenLayout({
           memoFocusRequest={memoThread.memoFocusRequest}
           setIsMemoChatOpen={memoThread.setIsMemoChatOpen}
         />
-      </JobDirectStoreProvider>
+      </DetailsWorkspaceStoreProvider>
     </main>
   );
 }

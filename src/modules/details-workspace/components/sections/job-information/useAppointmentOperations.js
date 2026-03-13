@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import {
-  useJobDirectSelector,
-  useJobDirectStoreActions,
+  useDetailsWorkspaceSelector,
+  useDetailsWorkspaceStoreActions,
 } from "../../../hooks/useDetailsWorkspaceStore.jsx";
 import { selectAppointments } from "../../../state/selectors.js";
 import {
@@ -60,8 +60,8 @@ export function useAppointmentOperations({
   success,
   error,
 }) {
-  const storeActions = useJobDirectStoreActions();
-  const appointments = useJobDirectSelector(selectAppointments);
+  const storeActions = useDetailsWorkspaceStoreActions();
+  const appointments = useDetailsWorkspaceSelector(selectAppointments);
 
   const jobId = useMemo(
     () => normalizeIdValue(jobData?.id || jobData?.ID || ""),

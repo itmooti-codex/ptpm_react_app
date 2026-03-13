@@ -1,4 +1,4 @@
-import { useJobDirectSelector } from "../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceSelector } from "../../hooks/useDetailsWorkspaceStore.jsx";
 import {
   ClientInvoicePanel,
   ServiceProviderBillPanel,
@@ -31,7 +31,7 @@ export function InvoiceSection({
   activeTab,
   activeTabVersion,
 }) {
-  const jobEntity = useJobDirectSelector(selectJobEntity);
+  const jobEntity = useDetailsWorkspaceSelector(selectJobEntity);
 
   const form = useInvoiceForm({
     jobData,

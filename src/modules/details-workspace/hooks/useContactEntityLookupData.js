@@ -8,8 +8,8 @@ import {
   subscribeContactsForSearch,
 } from "../api/core/runtime.js";
 import {
-  useJobDirectSelector,
-  useJobDirectStoreActions,
+  useDetailsWorkspaceSelector,
+  useDetailsWorkspaceStoreActions,
 } from "./useDetailsWorkspaceStore.jsx";
 import { selectCompanies, selectContacts } from "../state/selectors.js";
 
@@ -123,9 +123,9 @@ export function useContactEntityLookupData(
     skipSubscriptions = false,
   } = {}
 ) {
-  const actions = useJobDirectStoreActions();
-  const storeContacts = useJobDirectSelector(selectContacts);
-  const storeCompanies = useJobDirectSelector(selectCompanies);
+  const actions = useDetailsWorkspaceStoreActions();
+  const storeContacts = useDetailsWorkspaceSelector(selectContacts);
+  const storeCompanies = useDetailsWorkspaceSelector(selectCompanies);
 
   const normalizedInitialContacts = useMemo(
     () => (initialContacts || []).map((item) => normalizeContact(item)),

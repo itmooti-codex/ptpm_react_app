@@ -9,9 +9,9 @@ import { AddPropertyModal } from "../modals/AddPropertyModal.jsx";
 import { LegacyRuntimeModals } from "../modals/WorkspaceRuntimeModals.jsx";
 import { MODAL_KEYS, SECTION_LABELS, SECTION_ORDER } from "../../constants/navigation.js";
 import { JobDirectSidebar } from "./DetailsWorkspaceSidebar.jsx";
-import { useJobDirectSelector } from "../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceSelector } from "../../hooks/useDetailsWorkspaceStore.jsx";
 import { selectJobEntity } from "../../state/selectors.js";
-import { useJobDirectOverviewSave } from "./useJobDirectOverviewSave.js";
+import { useWorkspaceOverviewSave } from "./useWorkspaceOverviewSave.js";
 
 export function JobDirectLayout({
   jobData,
@@ -31,7 +31,7 @@ export function JobDirectLayout({
   runtimeModalProps = null,
 }) {
   useJobDirectRealtimeSync({ plugin, initialJobData: jobData });
-  const storeJobEntity = useJobDirectSelector(selectJobEntity);
+  const storeJobEntity = useDetailsWorkspaceSelector(selectJobEntity);
   const activeJobData = storeJobEntity || jobData || null;
   const resolvedSectionOrder =
     Array.isArray(sectionOrder) && sectionOrder.length > 0 ? sectionOrder : SECTION_ORDER;
@@ -66,7 +66,7 @@ export function JobDirectLayout({
     handleOverviewDraftChange,
     handleSaveJob,
     handleSubmitServiceProvider,
-  } = useJobDirectOverviewSave({
+  } = useWorkspaceOverviewSave({
     plugin,
     jobUid,
     activeJobData,

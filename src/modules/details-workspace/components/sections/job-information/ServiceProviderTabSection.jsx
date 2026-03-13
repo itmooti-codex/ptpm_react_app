@@ -3,7 +3,7 @@ import { Button } from "../../../../../shared/components/ui/Button.jsx";
 import { Card } from "../../../../../shared/components/ui/Card.jsx";
 import { useToast } from "../../../../../shared/providers/ToastProvider.jsx";
 import { useServiceProviderLookupData } from "../../../hooks/useServiceProviderLookupData.js";
-import { useJobDirectSelector } from "../../../hooks/useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceSelector } from "../../../hooks/useDetailsWorkspaceStore.jsx";
 import { selectJobEntity } from "../../../state/selectors.js";
 import { showMutationErrorToast } from "../../../utils/mutationFeedback.js";
 import { SearchDropdownInput } from "./JobInfoFormFields.jsx";
@@ -18,7 +18,7 @@ export function ServiceProviderTabSection({
   recordLabel = "job",
 }) {
   const { success, error } = useToast();
-  const storeJobData = useJobDirectSelector(selectJobEntity);
+  const storeJobData = useDetailsWorkspaceSelector(selectJobEntity);
   const { serviceProviders, isLookupLoading } = useServiceProviderLookupData(plugin, {
     initialProviders,
     skipInitialFetch: true,

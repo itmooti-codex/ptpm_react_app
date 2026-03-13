@@ -7,7 +7,7 @@ import {
 } from "../../../constants/options.js";
 import { usePropertyLookupData } from "../../../hooks/usePropertyLookupData.js";
 import {
-  useJobDirectSelector,
+  useDetailsWorkspaceSelector,
 } from "../../../hooks/useDetailsWorkspaceStore.jsx";
 import {
   selectJobEntity,
@@ -87,7 +87,7 @@ export function useJobInformationState({
   onOpenAddPropertyModal,
   onOverviewDraftChange,
 }) {
-  const storeJobData = useJobDirectSelector(selectJobEntity);
+  const storeJobData = useDetailsWorkspaceSelector(selectJobEntity);
   const activeJobData = storeJobData || jobData || null;
   const {
     properties: lookupProperties,

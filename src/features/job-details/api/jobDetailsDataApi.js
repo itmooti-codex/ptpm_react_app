@@ -1,13 +1,10 @@
-import { extractFirstRecord } from "@modules/details-workspace/exports/api.js";
-import { normalizePropertyLookupRecord } from "@modules/details-workspace/exports/api.js";
+import {
+  extractFirstRecord,
+  normalizePropertyLookupRecord,
+  toPromiseLike,
+} from "@modules/details-workspace/exports/api.js";
 import { toText } from "@shared/utils/formatters.js";
 import { JOB_TAKEN_BY_FIELD_ALIASES } from "../shared/jobDetailsConstants.js";
-
-function toPromiseLike(result) {
-  if (result && typeof result.then === "function") return result;
-  if (result && typeof result.toPromise === "function") return result.toPromise();
-  return Promise.resolve(result);
-}
 
 function normalizeJobWhereValue(field, value) {
   const normalizedValue = toText(value);

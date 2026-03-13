@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card } from "../../../../../shared/components/ui/Card.jsx";
 import {
-  useJobDirectSelector,
-  useJobDirectStoreActions,
+  useDetailsWorkspaceSelector,
+  useDetailsWorkspaceStoreActions,
 } from "../../../hooks/useDetailsWorkspaceStore.jsx";
 import { fetchLinkedDealsByAccount } from "../../../api/core/runtime.js";
 import { selectLinkedInquiriesByAccountKey } from "../../../state/selectors.js";
@@ -21,7 +21,7 @@ export function LinkInquiryCardSection({
   companyId,
   onInquiryRecordChange,
 }) {
-  const storeActions = useJobDirectStoreActions();
+  const storeActions = useDetailsWorkspaceStoreActions();
   const [deals, setDeals] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -38,7 +38,7 @@ export function LinkInquiryCardSection({
     (state) => selectLinkedInquiriesByAccountKey(state, inquiryCacheKey),
     [inquiryCacheKey]
   );
-  const cachedDeals = useJobDirectSelector(cachedDealsSelector);
+  const cachedDeals = useDetailsWorkspaceSelector(cachedDealsSelector);
   const hasCachedDealsSelector = useCallback(
     (state) => {
       const key = String(inquiryCacheKey || "").trim();
@@ -50,7 +50,7 @@ export function LinkInquiryCardSection({
     },
     [inquiryCacheKey]
   );
-  const hasCachedDeals = useJobDirectSelector(hasCachedDealsSelector);
+  const hasCachedDeals = useDetailsWorkspaceSelector(hasCachedDealsSelector);
 
   useEffect(() => {
     setSelectedInquiryId(persistedInquiryId);

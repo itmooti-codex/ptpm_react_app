@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { selectJobEntity } from "../state/selectors.js";
-import { useJobDirectSelector, useJobDirectStoreActions } from "./useDetailsWorkspaceStore.jsx";
+import { useDetailsWorkspaceSelector, useDetailsWorkspaceStoreActions } from "./useDetailsWorkspaceStore.jsx";
 import {
   subscribeAppointmentsByJobId,
   subscribeActivitiesByJobId,
@@ -42,8 +42,8 @@ function createMetrics() {
 }
 
 export function useJobDirectRealtimeSync({ plugin, initialJobData } = {}) {
-  const actions = useJobDirectStoreActions();
-  const jobEntity = useJobDirectSelector(selectJobEntity);
+  const actions = useDetailsWorkspaceStoreActions();
+  const jobEntity = useDetailsWorkspaceSelector(selectJobEntity);
   const metricsRef = useRef(createMetrics());
   const updateCountRef = useRef(0);
   const debugEnabled = isRealtimeDebugEnabled();

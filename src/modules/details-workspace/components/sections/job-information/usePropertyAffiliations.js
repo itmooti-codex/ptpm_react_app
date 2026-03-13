@@ -4,8 +4,8 @@ import {
 } from "../../../../../shared/announcements/announcementTypes.js";
 import { emitAnnouncement } from "../../../../../shared/announcements/announcementEmitter.js";
 import {
-  useJobDirectSelector,
-  useJobDirectStoreActions,
+  useDetailsWorkspaceSelector,
+  useDetailsWorkspaceStoreActions,
 } from "../../../hooks/useDetailsWorkspaceStore.jsx";
 import { selectPropertyAffiliationsByPropertyKey } from "../../../state/selectors.js";
 import {
@@ -28,7 +28,7 @@ export function usePropertyAffiliations({
   success,
   error,
 }) {
-  const storeActions = useJobDirectStoreActions();
+  const storeActions = useDetailsWorkspaceStoreActions();
 
   const [isAffiliationsLoading, setIsAffiliationsLoading] = useState(false);
   const [affiliationLoadError, setAffiliationLoadError] = useState("");
@@ -39,14 +39,14 @@ export function usePropertyAffiliations({
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const affiliations = useJobDirectSelector(
+  const affiliations = useDetailsWorkspaceSelector(
     useCallback(
       (state) => selectPropertyAffiliationsByPropertyKey(state, resolvedPropertyId),
       [resolvedPropertyId]
     )
   );
 
-  const hasCachedAffiliations = useJobDirectSelector(
+  const hasCachedAffiliations = useDetailsWorkspaceSelector(
     useCallback((state) => {
       const key = String(resolvedPropertyId || "").trim();
       if (!key) return false;

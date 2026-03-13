@@ -4,8 +4,8 @@ import {
 } from "../../../../../shared/announcements/announcementTypes.js";
 import { emitAnnouncement } from "../../../../../shared/announcements/announcementEmitter.js";
 import {
-  useJobDirectSelector,
-  useJobDirectStoreActions,
+  useDetailsWorkspaceSelector,
+  useDetailsWorkspaceStoreActions,
 } from "../../../hooks/useDetailsWorkspaceStore.jsx";
 import { selectPropertyUploadsByPropertyKey } from "../../../state/selectors.js";
 import {
@@ -24,7 +24,7 @@ export function usePropertyUploads({
   success,
   error,
 }) {
-  const storeActions = useJobDirectStoreActions();
+  const storeActions = useDetailsWorkspaceStoreActions();
 
   const [pendingPropertyUploads, setPendingPropertyUploads] = useState([]);
   const [isPropertyDropActive, setIsPropertyDropActive] = useState(false);
@@ -36,14 +36,14 @@ export function usePropertyUploads({
   const uploadsInputRef = useRef(null);
   const pendingPropertyUploadsRef = useRef([]);
 
-  const propertyUploads = useJobDirectSelector(
+  const propertyUploads = useDetailsWorkspaceSelector(
     useCallback(
       (state) => selectPropertyUploadsByPropertyKey(state, resolvedPropertyId),
       [resolvedPropertyId]
     )
   );
 
-  const hasCachedPropertyUploads = useJobDirectSelector(
+  const hasCachedPropertyUploads = useDetailsWorkspaceSelector(
     useCallback((state) => {
       const key = String(resolvedPropertyId || "").trim();
       if (!key) return false;

@@ -5,8 +5,8 @@ import {
   subscribePropertiesForSearch,
 } from "../api/core/runtime.js";
 import {
-  useJobDirectSelector,
-  useJobDirectStoreActions,
+  useDetailsWorkspaceSelector,
+  useDetailsWorkspaceStoreActions,
 } from "./useDetailsWorkspaceStore.jsx";
 import { selectProperties } from "../state/selectors.js";
 
@@ -132,8 +132,8 @@ export function usePropertyLookupData(
   plugin,
   { initialProperties = EMPTY_LIST, skipInitialFetch = false } = {}
 ) {
-  const actions = useJobDirectStoreActions();
-  const storeProperties = useJobDirectSelector(selectProperties);
+  const actions = useDetailsWorkspaceStoreActions();
+  const storeProperties = useDetailsWorkspaceSelector(selectProperties);
 
   const normalizedInitialProperties = useMemo(
     () => (initialProperties || []).map((item) => normalizeProperty(item)),

@@ -14,7 +14,7 @@ import {
   jobDirectReducer,
 } from "../state/reducer.js";
 
-const JobDirectStoreContext = createContext(null);
+const DetailsWorkspaceStoreContext = createContext(null);
 
 function stableSerialize(value) {
   const seen = new WeakSet();
@@ -42,7 +42,7 @@ function stableSerialize(value) {
   }
 }
 
-export function JobDirectStoreProvider({
+export function DetailsWorkspaceStoreProvider({
   children,
   jobUid = null,
   jobData = null,
@@ -108,28 +108,28 @@ export function JobDirectStoreProvider({
     [getState, subscribe, dispatch, actions]
   );
 
-  return <JobDirectStoreContext.Provider value={store}>{children}</JobDirectStoreContext.Provider>;
+  return <DetailsWorkspaceStoreContext.Provider value={store}>{children}</DetailsWorkspaceStoreContext.Provider>;
 }
 
-export function useJobDirectStore() {
-  const context = useContext(JobDirectStoreContext);
+export function useDetailsWorkspaceStore() {
+  const context = useContext(DetailsWorkspaceStoreContext);
   if (!context) {
-    throw new Error("useJobDirectStore must be used within JobDirectStoreProvider.");
+    throw new Error("useDetailsWorkspaceStore must be used within DetailsWorkspaceStoreProvider.");
   }
   return context;
 }
 
-export function useJobDirectStoreState() {
-  const store = useJobDirectStore();
+export function useDetailsWorkspaceStoreState() {
+  const store = useDetailsWorkspaceStore();
   return useSyncExternalStore(store.subscribe, store.getState, store.getState);
 }
 
-export function useJobDirectStoreActions() {
-  return useJobDirectStore().actions;
+export function useDetailsWorkspaceStoreActions() {
+  return useDetailsWorkspaceStore().actions;
 }
 
-export function useJobDirectSelector(selector) {
-  const store = useJobDirectStore();
+export function useDetailsWorkspaceSelector(selector) {
+  const store = useDetailsWorkspaceStore();
   const selectorRef = useRef(selector);
   selectorRef.current = selector;
   const getSelection = useCallback(
