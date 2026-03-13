@@ -1,5 +1,5 @@
 import { extractFirstRecord } from "@modules/details-workspace/exports/api.js";
-import { normalizePropertyLookupRecord } from "@modules/details-workspace/api/core/runtime.js";
+import { normalizePropertyLookupRecord } from "@modules/details-workspace/exports/api.js";
 import { toText } from "@shared/utils/formatters.js";
 import { JOB_TAKEN_BY_FIELD_ALIASES } from "../shared/jobDetailsConstants.js";
 

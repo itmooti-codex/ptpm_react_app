@@ -5,7 +5,7 @@ import {
   isPersistedId,
   normalizeObjectList,
 } from "@modules/details-workspace/exports/api.js";
-import { toPromiseLike } from "@modules/details-workspace/api/core/transport.js";
+import { toPromiseLike } from "@modules/details-workspace/exports/api.js";
 import { toText } from "@shared/utils/formatters.js";
 import { normalizeServiceInquiryId } from "../shared/inquiryDetailsFormatting.js";
 

@@ -8,7 +8,7 @@ import { toText } from "@shared/utils/formatters.js";
 import { useToast } from "../../../shared/providers/ToastProvider.jsx";
 import { useVitalStatsPlugin } from "../../../platform/vitalstats/useVitalStatsPlugin.js";
 import { InquiryDetailsScreenLayout } from "./InquiryDetailsScreenLayout.jsx";
-import { useRelatedRecordsData } from "../shared/useRelatedRecordsData.js";
+import { useRelatedRecordsData } from "@modules/details-workspace/exports/hooks.js";
 import { INQUIRY_WORKSPACE_TABS } from "../shared/inquiryInformationConstants.js";
 import { useInquiryAccountViewModel } from "../hooks/useInquiryAccountViewModel.js";
 import { useInquiryAssignmentViewModel } from "../hooks/useInquiryAssignmentViewModel.js";

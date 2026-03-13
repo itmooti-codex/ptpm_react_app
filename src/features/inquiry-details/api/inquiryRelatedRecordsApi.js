@@ -1,9 +1,9 @@
 import { extractFirstRecord } from "@modules/details-workspace/exports/api.js";
-import { toPromiseLike } from "@modules/details-workspace/api/core/transport.js";
 import {
+  toPromiseLike,
   fetchLinkedDealsByAccount,
   fetchLinkedJobsByAccount,
-} from "@modules/details-workspace/api/core/runtime.js";
+} from "@modules/details-workspace/exports/api.js";
 import { toText } from "@shared/utils/formatters.js";
 import { normalizeRelationRecord } from "../shared/inquiryDetailsRecordHelpers.js";
 import { normalizeServiceInquiryId } from "../shared/inquiryDetailsFormatting.js";

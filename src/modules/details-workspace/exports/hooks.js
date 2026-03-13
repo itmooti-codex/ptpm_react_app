@@ -1,4 +1,5 @@
 export * from "../hooks/useContactEntityLookupData.js";
+export * from "../hooks/useRelatedRecordsData.js";
 export * from "../hooks/useDetailsWorkspaceRealtimeSync.js";
 export * from "../hooks/useDetailsWorkspaceState.js";
 export * from "../hooks/useDetailsWorkspaceStore.jsx";

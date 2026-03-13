@@ -10,9 +10,11 @@ import {
 } from "@modules/details-workspace/exports/components.js";
 import { JobDirectStoreProvider } from "@modules/details-workspace/exports/hooks.js";
 import { toText } from "@shared/utils/formatters.js";
-import { ContactLogsPanel } from "./ContactLogsPanel.jsx";
-import { JobMemosPreviewPanel } from "./JobMemosPreviewPanel.jsx";
-import { JobNotesPanel } from "./JobNotesPanel.jsx";
+import {
+  ContactLogsPanel,
+  JobMemosPreviewPanel,
+  JobNotesPanel,
+} from "@modules/details-workspace/exports/components.js";
 import { WorkspaceTabPanel } from "./JobWorkspaceTabPanel.jsx";
 import { JobWorkspaceModals } from "./JobWorkspaceModals.jsx";
 import { JOB_WORKSPACE_TABS } from "../shared/jobDetailsConstants.js";

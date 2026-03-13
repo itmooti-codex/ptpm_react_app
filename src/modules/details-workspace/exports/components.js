@@ -1,5 +1,9 @@
 export * from "../components/layout/DetailsWorkspaceLayout.jsx";
 
+export * from "../components/panels/ContactLogsPanel.jsx";
+export * from "../components/panels/JobMemosPreviewPanel.jsx";
+export * from "../components/panels/JobNotesPanel.jsx";
+
 export * from "../components/icons/ActionIcons.jsx";
 export * from "../components/icons/WorkspaceIcons.jsx";
 

@@ -1,12 +1,12 @@
 import {
   extractFirstRecord,
 } from "@modules/details-workspace/exports/api.js";
-import { toPromiseLike } from "@modules/details-workspace/api/core/transport.js";
 import {
+  toPromiseLike,
   findContactByEmail,
   searchCompaniesForLookup,
   searchContactsForLookup,
-} from "@modules/details-workspace/api/core/runtime.js";
+} from "@modules/details-workspace/exports/api.js";
 import { toText } from "@shared/utils/formatters.js";
 import {
   normalizeComparableText,

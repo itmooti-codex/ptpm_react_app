@@ -87,6 +87,12 @@ function getAllowedModuleImports(moduleName) {
     `@modules/${moduleName}/public/hooks.js`,
     `@modules/${moduleName}/public/constants.js`,
     `@modules/${moduleName}/public/sdk.js`,
+    `@modules/${moduleName}/exports/index.js`,
+    `@modules/${moduleName}/exports/components.js`,
+    `@modules/${moduleName}/exports/hooks.js`,
+    `@modules/${moduleName}/exports/constants.js`,
+    `@modules/${moduleName}/exports/api.js`,
+    `@modules/${moduleName}/exports/sdk.js`,
   ]);
 }
 
@@ -110,7 +116,7 @@ function validateImportsForFile(absFilePath, sourceCode) {
           line,
           specifier,
           message:
-            `Use only ${targetModuleName || "module"} public entrypoints outside modules (public/*.js or index.js).`,
+            `Use only ${targetModuleName || "module"} public entrypoints outside modules (exports/*.js or index.js).`,
         });
       }
     }
@@ -135,7 +141,7 @@ function validateImportsForFile(absFilePath, sourceCode) {
             line,
             specifier,
             message:
-              `Cross-module imports must use target module public entrypoints (module: ${targetModuleName}).`,
+              `Cross-module imports must use target module exports entrypoints (module: ${targetModuleName}).`,
           });
         }
       }
@@ -161,7 +167,7 @@ function validateImportsForFile(absFilePath, sourceCode) {
             line,
             specifier,
             message:
-              `Cross-module relative imports are not allowed (use @modules/${targetModuleName}/public/*).`,
+              `Cross-module relative imports are not allowed (use @modules/${targetModuleName}/exports/*).`,
           });
         }
       }

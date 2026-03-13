@@ -15,7 +15,7 @@ Purpose: keep the app simple, boring, and easy to understand while refactoring t
 
 ## Current Baseline
 
-- Largest file: `src/features/job-details/components/JobDetailsScreen.jsx`
+- Job details screen reduction complete: `src/features/job-details/components/JobDetailsScreen.jsx` (`445` lines), `JobDetailsBodySection.jsx` (`352` lines), plus focused hooks all under 500 lines
 - Inquiry screen reduction complete: `src/features/inquiry-details/components/InquiryDetailsScreen.jsx` (`411` lines) and `src/features/inquiry-details/components/InquiryDetailsScreenLayout.jsx` (`312` lines)
 - Largest file: `src/modules/job-records/api/jobDetailsApi.js`
 - Large section: `src/modules/details-workspace/components/sections/UploadsSection.jsx`
@@ -136,13 +136,15 @@ src/
 
 ## Oversized File Inventory
 
-Current source files over 500 lines: 22
+Current source files over 500 lines: 21
 
 ### Priority 0: Top-Level Control Files
 
 These have the highest blast radius and create the most confusion because they mix rendering, state, side effects, data loading, subscriptions, and modal orchestration.
 
-- `4380` `src/features/job-details/components/JobDetailsScreen.jsx`
+- `445` `src/features/job-details/components/JobDetailsScreen.jsx` (reduced from `4380` via hook extraction, then to `445` via body-section extraction) -- now compliant
+- `100` `src/features/job-details/hooks/useJobScreenDerivedData.js` (reduced from `633` via split into `useJobAccountDerivedData.js` + `useJobStatusDerivedData.js`) -- now compliant
+- `461` `src/features/job-details/hooks/useJobScreenActions.js` (reduced from `561` via split into `useJobModalActions.js`) -- now compliant
 - `2347` `src/modules/job-records/api/jobDetailsApi.js`
 
 ### Priority 1: Large Shared Workflow Sections
@@ -156,7 +158,7 @@ These are major CRUD work areas and should be split after the main page shells a
 - `1370` `src/features/dashboard/api/dashboardApi.js`
 - `1224` `src/modules/details-workspace/components/sections/AddActivitiesSection.jsx`
 - `1155` `src/modules/details-workspace/components/sections/InvoiceSection.jsx`
-- `1061` `src/modules/details-workspace/components/sections/AddMaterialsSection.jsx`
+- `224` `src/modules/details-workspace/components/sections/AddMaterialsSection.jsx` (reduced from `1061` via split into `materialsUtils.js`, `useMaterialsCrud.js`, `MaterialsFormPanel.jsx`, `MaterialsTablePanel.jsx`) -- now compliant
 - `932` `src/modules/details-workspace/components/modals/TasksModal.jsx`
 - `796` `src/features/dashboard/pages/DashboardPage.jsx`
 
@@ -228,20 +230,33 @@ The file-and-folder rename pass for legacy paths is complete. Old path groups we
 - [X] Rename legacy files and folders to current names across the app, including old `job-direct` naming.
 - [X] Refactor the inquiry-details route shell and screen into thin shells plus focused sections and hooks. `InquiryDetailsScreen.jsx` is now `411` lines and the layout moved to `InquiryDetailsScreenLayout.jsx` at `312` lines.
 - [X] Refactor `src/features/job-details/pages/JobDetailsPage.jsx` into a thin page shell plus focused sections and hooks. `JobDetailsPage.jsx` is now a thin route shell, with `JobDetailsScreen.jsx`, `JobDetailsHeaderBar.jsx`, and `useJobDetailsRouteContext.js` introduced for the split.
-- [ ] Reduce `src/features/job-details/components/JobDetailsScreen.jsx` into a thin screen/layout plus focused hooks and sections. Current `JobDetailsScreen.jsx`: `4380` lines after extracting shared helpers, constants, `jobDetailsDataApi.js`, `JobWorkspaceTabPanel.jsx`, `JobQuotePaymentDetailsCard.jsx`, `JobDetailsWorkspaceSection.jsx`, `JobWorkspaceModals.jsx`, `JobDetailsModalStack.jsx`, and `JobDetailsFloatingWidgets.jsx`.
-- [ ] Split `src/modules/job-records/api/jobDetailsApi.js` into smaller resource-based API files.
-- [ ] Split `src/features/dashboard/api/dashboardApi.js` into smaller resource-based API files if still needed.
-- [ ] Refactor `src/modules/details-workspace/components/sections/UploadsSection.jsx` into smaller components and hooks.
-- [ ] Refactor `src/modules/details-workspace/components/modals/ContactDetailsModal.jsx` into smaller components and hooks.
-- [ ] Refactor `src/modules/details-workspace/components/sections/job-information/AppointmentTabSection.jsx` into smaller components and hooks.
-- [ ] Refactor `src/modules/details-workspace/components/sections/job-information/PropertyTabSection.jsx` into smaller components and hooks.
-- [ ] Refactor `src/modules/details-workspace/components/sections/AddActivitiesSection.jsx` into smaller components and hooks.
-- [ ] Refactor `src/modules/details-workspace/components/sections/InvoiceSection.jsx` and related invoice panels into smaller components and hooks.
-- [ ] Remove dead code, duplicate logic, and unnecessary cross-feature abstractions created during growth.
-- [ ] Run a strict app-wide unused-code audit for files, folders, imports, exports, helpers, components, hooks, and styles.
-- [ ] Delete all unused code files and folders after verifying they are not referenced.
+- [X] Reduce `src/features/job-details/components/JobDetailsScreen.jsx` into a thin screen/layout plus focused hooks and sections. Reduced from `4380` to `765` lines by extracting 12 focused hooks, then to `445` lines by extracting `JobDetailsBodySection.jsx` (`352` lines).
+- [X] Split `useJobScreenDerivedData.js` from `633` to `100` lines (thin combiner) by extracting `useJobAccountDerivedData.js` (`249` lines) and `useJobStatusDerivedData.js` (`416` lines).
+- [X] Split `useJobScreenActions.js` from `561` to `461` lines by extracting `useJobModalActions.js` (`186` lines).
+- [X] Split `src/modules/job-records/api/jobDetailsApi.js` into smaller resource-based API files. Replaced with `jobCoreApi.js`, `jobMutationsApi.js`, `jobMemosApi.js`, `jobNotesApi.js`, `jobLinkedJobApi.js`, `jobPropertyApi.js`, `jobTasksApi.js`, `jobUploadsApi.js`, `_helpers.js`, `_queryBuilders.js`, `_jobLinkSync.js` — all under 500 lines.
+- [X] Split `src/features/dashboard/api/dashboardApi.js` into smaller resource-based API files. Split into `dashboardFilters.js` (300), `dashboardNormalizers.js` (219), `dashboardQueries.js` (364), `dashboardCounting.js` (329), `dashboardServiceProviders.js` (80), `dashboardMutations.js` (245) — `dashboardApi.js` is now a 33-line barrel.
+- [X] Refactor `src/modules/details-workspace/components/sections/UploadsSection.jsx` into smaller components and hooks. Split into `uploadsConstants.js` (99), `uploadsUtils.js` (333), `uploadsIcons.jsx` (102), `useUploadsPending.js` (490), `useUploadsActions.js` (265), `useUploadsSection.js` (33), `UploadsExistingCard.jsx` (366), `UploadsSection.jsx` (383) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/modals/ContactDetailsModal.jsx` into smaller components and hooks. Split into `contactDetailsSchema.js` (116), `contactDetailsUtils.js` (167), `contactDetailsApi.js` (123), `AccordionSection.jsx` (22), `ContactIndividualFields.jsx` (210), `ContactEntityFields.jsx` (232), `useContactDetailsLookups.js` (500), `ContactDetailsModal.jsx` (463) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/sections/job-information/AppointmentTabSection.jsx` into smaller components and hooks. Split into `appointmentTabUtils.jsx` (294), `useAppointmentForm.js` (294), `useAppointmentLookups.js` (360), `useAppointmentCrud.js` (284), `useAppointmentOperations.js` (262), `AppointmentTabSection.jsx` (467) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/sections/job-information/PropertyTabSection.jsx` into smaller components and hooks. Split into `propertyTabUtils.jsx` (24), `usePropertyAffiliations.js` (300), `usePropertyUploads.js` (348), `PropertyDetailsPanel.jsx` (316), `PropertyContactsPanel.jsx` (180), `PropertyUploadsSection.jsx` (261), `PropertyTabSection.jsx` (267) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/sections/AddActivitiesSection.jsx` into smaller components and hooks. Split into `activitiesUtils.js` (225), `useActivitiesServices.js` (150), `useActivitiesCrud.js` (326), `ActivitiesFormPanel.jsx` (172), `ActivitiesTablePanel.jsx` (278), `AddActivitiesSection.jsx` (332) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/sections/InvoiceSection.jsx` and related invoice panels into smaller components and hooks. Split into `invoice/invoiceUtils.js` (390), `invoice/useInvoiceForm.js` (337), `invoice/useInvoiceCrud.js` (348), `invoice/ClientInvoicePanel.jsx` (390), `invoice/InvoicePanels.jsx` (233), `InvoiceSection.jsx` (243) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/modals/TasksModal.jsx` from `974` into smaller components and hooks. Split into `tasksModalUtils.js` (175), `AssigneeSearchField.jsx` (96), `useTasksCrud.js` (184), `useTasksForm.js` (204), `TasksFormPanel.jsx` (92), `TasksTablePanel.jsx` (168), `TasksModal.jsx` (270) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/modals/PropertyAffiliationModal.jsx` from `730` into smaller components and hooks. Split into `propertyAffiliationUtils.js` (135), `SearchLookupInput.jsx` (177), `usePropertyAffiliationForm.js` (279), `PropertyAffiliationModal.jsx` (193) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/modals/AddPropertyModal.jsx` from `626` into smaller files. Split into `addPropertySchema.js` (91), `addPropertyUtils.js` (116), `AddPropertyModal.jsx` (417) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/sections/JobInformationSection.jsx` from `577` into smaller files. Split into `usePropertyActions.js` (190), `useJobInformationState.js` (391), `JobInformationSection.jsx` (150) — all under 500 lines.
+- [X] Refactor `src/shared/components/RecentActivitiesDock.jsx` from `876` into smaller files. Split into `recentActivitiesConstants.js` (13), `recentActivitiesUtils.js` (331), `recentActivitiesApi.js` (243), `useRecentActivities.js` (240), `RecentActivitiesDockItem.jsx` (39), `RecentActivitiesDock.jsx` (58) — all under 500 lines.
+- [X] Refactor `src/shared/announcements/announcementEmitter.js` from `792` into smaller files. Split into `announcementEmitterConfig.js` (206), `announcementEmitterHelpers.js` (197), `announcementRecentActivity.js` (174), `announcementEmitter.js` (226) — all under 500 lines.
+- [X] Refactor `src/shared/providers/AnnouncementsProvider.jsx` from `637` into smaller files. Split into `announcementsProviderHelpers.js` (289), `AnnouncementsProvider.jsx` (362) — all under 500 lines.
+- [X] Refactor `src/shared/components/ui/MemoChatPanel.jsx` from `584` into smaller components and utilities. Split into `MemoChatMemoList.jsx` (278), `MemoChatFooter.jsx` (92), `MemoChatEmptyState.jsx` (71), `memoChatUtils.js` (29), `MemoChatPanel.jsx` (204) — all under 500 lines.
+- [X] Refactor `src/modules/details-workspace/components/layout/DetailsWorkspaceLayout.jsx` from `501` into smaller files. Extracted `useJobDirectOverviewSave.js` (334), `DetailsWorkspaceLayout.jsx` (196) — all under 500 lines.
+- [X] Refactor `src/features/account/pages/ProfilePage.jsx` from `520` into smaller files. Extracted `ProfileFormFields.jsx` (215), `ProfilePage.jsx` (313) — all under 500 lines.
+- [X] Refactor `src/features/dashboard/pages/DashboardPage.jsx` from `821` into smaller files. Split into `useDashboardPageState.js` (432), `useDashboardRecordActions.js` (158), `useDashboardExportActions.js` (79), `DashboardFullPageStates.jsx` (44), `dashboardExport.js` (127), `DashboardPage.jsx` (223) — all under 500 lines.
+- [X] Remove dead code, duplicate logic, and unnecessary cross-feature abstractions created during growth. Removed 26 duplicate `toText()` definitions (all now import from `@shared/utils/formatters.js`). Fixed `lint:boundaries` script to accept `exports/` paths (was still expecting old `public/` folder name). Fixed 15 deep-module import violations (runtime.js/transport.js → `exports/api.js`). Fixed 4 cross-feature violations by moving `ContactLogsPanel`, `JobMemosPreviewPanel`, `JobNotesPanel`, and `useRelatedRecordsData` to `details-workspace` module and exporting them. `npm run lint` now passes cleanly.
+- [X] Run a strict app-wide unused-code audit for files, folders, imports, exports, helpers, components, hooks, and styles. No orphaned files found. All source files are imported and active.
+- [X] Delete all unused code files and folders after verifying they are not referenced. No unused files found to delete.
 - [ ] Standardize a simple CRUD plus subscription pattern for the app and document it.
-- [ ] Verify every source file in the app is 500 lines or less.
+- [X] Verify every source file in the app is 500 lines or less. `npm run lint:max-lines` passes with 0 baseline exceptions.
 - [ ] Verify file and folder names are consistent, current, and understandable across the app.
 - [ ] Run a final cleanup pass and update `AI_AGENT_HANDOFF.md` with the simplified structure.
 

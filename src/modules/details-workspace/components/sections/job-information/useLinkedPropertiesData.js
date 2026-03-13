@@ -11,10 +11,7 @@ import {
   getLinkedRecordsCacheKey,
   normalizePropertyId,
 } from "./jobInfoUtils.js";
-
-function toText(value) {
-  return String(value ?? "").trim();
-}
+import { toText } from "../../../../../shared/utils/formatters.js";
 
 function resolvePropertySearchLabel(property = {}) {
   const propertyName = toText(

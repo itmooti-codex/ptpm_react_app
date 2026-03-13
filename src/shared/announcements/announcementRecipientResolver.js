@@ -1,6 +1,4 @@
-function toText(value) {
-  return String(value ?? "").trim();
-}
+import { toText } from "../utils/formatters.js";
 
 function normalizeId(value) {
   const text = toText(value);

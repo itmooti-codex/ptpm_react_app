@@ -12,8 +12,10 @@ import {
   resolveJobDetailsContext,
   updateInquiryFieldsById,
 } from "../../../modules/job-records/exports/api.js";
-import { fetchServicesForActivities } from "../../../modules/details-workspace/api/core/runtime.js";
-import { toPromiseLike } from "@modules/details-workspace/api/core/transport.js";
+import {
+  fetchServicesForActivities,
+  toPromiseLike,
+} from "@modules/details-workspace/exports/api.js";
 import { toText } from "@shared/utils/formatters.js";
 
 export function useInquiryScreenDataEffects({

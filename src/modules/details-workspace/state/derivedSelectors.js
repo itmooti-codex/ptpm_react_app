@@ -1,8 +1,5 @@
 import { selectActivities, selectMaterials } from "./selectors.js";
-
-function toText(value) {
-  return String(value ?? "").trim();
-}
+import { toText } from "../../../shared/utils/formatters.js";
 
 function toNumber(value) {
   const numeric = Number(String(value ?? "").replace(/[^0-9.-]+/g, ""));

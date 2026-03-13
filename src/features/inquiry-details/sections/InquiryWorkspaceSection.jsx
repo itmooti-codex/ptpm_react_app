@@ -5,9 +5,11 @@ import {
   UploadsSection,
 } from "@modules/details-workspace/exports/components.js";
 import { SectionLoadingState } from "@shared/components/ui/SectionLoadingState.jsx";
-import { ContactLogsPanel } from "../../job-details/components/ContactLogsPanel.jsx";
-import { JobMemosPreviewPanel } from "../../job-details/components/JobMemosPreviewPanel.jsx";
-import { JobNotesPanel } from "../../job-details/components/JobNotesPanel.jsx";
+import {
+  ContactLogsPanel,
+  JobMemosPreviewPanel,
+  JobNotesPanel,
+} from "@modules/details-workspace/exports/components.js";
 
 function WorkspaceTabPanel({ isMounted = false, isActive = false, children }) {
   if (!isMounted) return null;

@@ -1,6 +1,4 @@
-export function toText(value) {
-  return String(value || "").trim();
-}
+import { toText } from "../../../../../shared/utils/formatters.js";
 
 function normalizeText(value) {
   return toText(value).toLowerCase();

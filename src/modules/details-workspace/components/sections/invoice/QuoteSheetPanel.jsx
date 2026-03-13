@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatActivityServiceLabel } from "@shared/utils/formatters.js";
-
-function toText(value) {
-  return String(value ?? "").trim();
-}
+import { formatActivityServiceLabel, toText } from "@shared/utils/formatters.js";
 
 function toNumber(value) {
   const n = Number(String(value ?? "").replace(/[^0-9.-]+/g, ""));

@@ -8,10 +8,7 @@ import {
   getSelectedDemoUserId,
   setSelectedDemoUserId,
 } from "../config/userConfig.js";
-
-function toText(value) {
-  return String(value ?? "").trim();
-}
+import { toText } from "../shared/utils/formatters.js";
 
 function normalizeContactId(value) {
   const text = toText(value);

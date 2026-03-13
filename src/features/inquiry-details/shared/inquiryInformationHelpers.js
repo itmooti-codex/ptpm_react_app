@@ -41,9 +41,7 @@ export function buildCompanyItems(list = []) {
   }));
 }
 
-export function toText(value) {
-  return String(value || "").trim();
-}
+import { toText } from "../../../shared/utils/formatters.js";
 
 export function formatPropertyPrefillDetails({ selectedProperty = null, activeProperty = null } = {}) {
   const selectedLabel = toText(selectedProperty?.label);

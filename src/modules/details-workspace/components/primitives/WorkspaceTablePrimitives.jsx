@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-function toText(value) {
-  return String(value ?? "").trim();
-}
+import { toText } from "@shared/utils/formatters.js";
 
 export function useRenderWindow(rows, { threshold = 160, pageSize = 120 } = {}) {
   const safeRows = Array.isArray(rows) ? rows : [];

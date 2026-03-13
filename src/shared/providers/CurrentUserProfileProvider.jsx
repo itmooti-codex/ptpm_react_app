@@ -1,12 +1,9 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { APP_USER } from "../../config/userConfig.js";
 import { ensureVitalStatsPlugin } from "@platform/vitalstats/bootstrap.js";
+import { toText } from "../utils/formatters.js";
 
 export const CurrentUserProfileContext = createContext(null);
-
-function toText(value) {
-  return String(value ?? "").trim();
-}
 
 function normalizeId(value) {
   const text = toText(value);

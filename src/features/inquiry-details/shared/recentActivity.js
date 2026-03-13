@@ -3,7 +3,7 @@ import {
   extractMutationErrorMessage,
   extractStatusFailure,
 } from "@modules/details-workspace/exports/api.js";
-import { toPromiseLike } from "@modules/details-workspace/api/core/transport.js";
+import { toPromiseLike } from "@modules/details-workspace/exports/api.js";
 import { toText } from "@shared/utils/formatters.js";
 
 const RECENT_ADMIN_ACTIVITY_STORAGE_KEY = "ptpm_admin_recent_activity_v1";

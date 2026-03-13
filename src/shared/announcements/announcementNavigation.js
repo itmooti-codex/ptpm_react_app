@@ -1,6 +1,4 @@
-function toText(value) {
-  return String(value ?? "").trim();
-}
+import { toText } from "../utils/formatters.js";
 
 function toPromiseLike(result) {
   if (!result) return Promise.resolve(result);

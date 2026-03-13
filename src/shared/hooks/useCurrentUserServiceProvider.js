@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentUserId } from "../../config/userConfig.js";
-
-function toText(value) {
-  return String(value ?? "").trim();
-}
+import { toText } from "../utils/formatters.js";
 
 function normalizeId(value) {
   const text = toText(value);

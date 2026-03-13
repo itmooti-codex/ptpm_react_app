@@ -1,6 +1,4 @@
-function toText(value) {
-  return String(value ?? "").trim();
-}
+import { toText } from "../shared/utils/formatters.js";
 
 const DEMO_USER_STORAGE_KEY = "ptpm_demo_user_id";
 
