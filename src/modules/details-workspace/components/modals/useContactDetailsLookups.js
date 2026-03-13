@@ -448,8 +448,8 @@ export function useContactDetailsLookups({
             contact?.sms_number || contact?.SMS_Number || contact?.office_phone || contact?.Office_Phone
           );
           const label = formatDisplayName(firstName, lastName) || email || smsNumber || id;
-          const meta = [email, smsNumber, id].filter(Boolean).join(" | ");
-          return { id, label, meta, first_name: firstName, last_name: lastName, email, sms_number: smsNumber };
+          const meta = [email, smsNumber, trimValue(contact?.address || contact?.Address), id].filter(Boolean).join(" | ");
+          return { id, label, meta, first_name: firstName, last_name: lastName, email, sms_number: smsNumber, address: trimValue(contact?.address || contact?.Address) };
         })
         .filter((item) => Boolean(item.id || item.label)),
     [lookupContacts]
@@ -475,7 +475,7 @@ export function useContactDetailsLookups({
             primary?.sms_number || primary?.SMS_Number || primary?.office_phone || primary?.Office_Phone ||
             company?.Primary_Person_SMS_Number || company?.Primary_Person_Office_Phone
           );
-          const meta = [accountType, primaryName, primaryEmail, primarySms, id].filter(Boolean).join(" | ");
+          const meta = [accountType, primaryName, primaryEmail, primarySms, trimValue(company?.phone || company?.Phone), trimValue(company?.address || company?.Address), id].filter(Boolean).join(" | ");
           return {
             id,
             label: name || id,

@@ -11,6 +11,12 @@ import {
 import { trimValue } from "./contactDetailsUtils.js";
 import { AccordionSection } from "./AccordionSection.jsx";
 
+function buildGoogleMapsUrl(address, city, state, postalCode) {
+  const parts = [address, city, state, postalCode].filter(Boolean);
+  if (!parts.length) return "";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.join(", "))}`;
+}
+
 export function ContactEntityFields({
   form,
   updateField,
@@ -133,6 +139,16 @@ export function ContactEntityFields({
           inputRef={companyAddressLookupRef}
           data-contact-field="company_address_lookup"
         />
+        {buildGoogleMapsUrl(form.company_address, form.company_city, form.company_state, form.company_postal_code) ? (
+          <a
+            href={buildGoogleMapsUrl(form.company_address, form.company_city, form.company_state, form.company_postal_code)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-sky-700 underline underline-offset-2"
+          >
+            View on Google Maps ↗
+          </a>
+        ) : null}
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
           <InputField
             label="Address"

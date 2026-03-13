@@ -241,7 +241,14 @@ export function useJobStatusDerivedData({
         .map((company) => {
           const id = toText(company?.id || company?.ID || company?.Company_ID);
           if (!id) return null;
-          return { id, label: formatCompanyLookupLabel(company) };
+          const pp = company?.Primary_Person || company?.primary_person || {};
+          const ppName = [toText(pp?.first_name || pp?.First_Name), toText(pp?.last_name || pp?.Last_Name)].filter(Boolean).join(" ");
+          const ppEmail = toText(pp?.email || pp?.Email);
+          const ppPhone = toText(pp?.sms_number || pp?.SMS_Number || pp?.office_phone || pp?.Office_Phone);
+          const companyPhone = toText(company?.phone || company?.Phone);
+          const companyAddress = toText(company?.address || company?.Address);
+          const meta = [ppName, ppEmail, ppPhone, companyPhone, companyAddress].filter(Boolean).join(" · ") || undefined;
+          return { id, label: formatCompanyLookupLabel(company), meta };
         })
         .filter(Boolean),
     [companyLookupRecords]

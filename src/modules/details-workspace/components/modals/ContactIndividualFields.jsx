@@ -5,6 +5,12 @@ import { STATE_OPTIONS, COUNTRY_OPTIONS } from "./contactDetailsSchema.js";
 import { trimValue } from "./contactDetailsUtils.js";
 import { AccordionSection } from "./AccordionSection.jsx";
 
+function buildGoogleMapsUrl(address, city, state, postalCode) {
+  const parts = [address, city, state, postalCode].filter(Boolean);
+  if (!parts.length) return "";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.join(", "))}`;
+}
+
 export function ContactIndividualFields({
   form,
   updateField,
@@ -100,6 +106,16 @@ export function ContactIndividualFields({
           inputRef={individualAddressLookupRef}
           data-contact-field="address_lookup"
         />
+        {buildGoogleMapsUrl(form.address, form.city, form.state, form.zip_code) ? (
+          <a
+            href={buildGoogleMapsUrl(form.address, form.city, form.state, form.zip_code)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-sky-700 underline underline-offset-2"
+          >
+            View on Google Maps ↗
+          </a>
+        ) : null}
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
           <InputField
             label="Lot Number"

@@ -219,6 +219,17 @@ export function ContactDetailsModal({
     onAddressSelected: handleCompanyAddressLookupSelected,
   });
 
+  // Keep lookup inputs in sync with form address fields (handles both initial load and contact prefill)
+  useEffect(() => {
+    const addr = [form.address, form.city, form.state, form.zip_code].filter(Boolean).join(", ");
+    if (individualAddressLookupRef.current) individualAddressLookupRef.current.value = addr;
+  }, [form.address, form.city, form.state, form.zip_code, individualAddressLookupRef]);
+
+  useEffect(() => {
+    const addr = [form.company_address, form.company_city, form.company_state, form.company_postal_code].filter(Boolean).join(", ");
+    if (companyAddressLookupRef.current) companyAddressLookupRef.current.value = addr;
+  }, [form.company_address, form.company_city, form.company_state, form.company_postal_code, companyAddressLookupRef]);
+
   const handleSameAsAddressChange = (event) => {
     const checked = event.target.checked;
     setSameAsAddress(checked);

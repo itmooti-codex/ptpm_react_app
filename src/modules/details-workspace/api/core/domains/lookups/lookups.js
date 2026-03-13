@@ -214,12 +214,15 @@ export async function searchCompaniesForLookup({
         scope
           .where("name", "like", likeValue)
           .orWhere("account_type", "like", likeValue)
+          .orWhere("address", "like", likeValue)
+          .orWhere("phone", "like", likeValue)
           .orWhere("Primary_Person", (personScope) => {
             personScope
               .where("first_name", "like", likeValue)
               .orWhere("last_name", "like", likeValue)
               .orWhere("email", "like", likeValue)
-              .orWhere("sms_number", "like", likeValue);
+              .orWhere("sms_number", "like", likeValue)
+              .orWhere("office_phone", "like", likeValue);
           });
       })
       .limit(resolveSearchLimit(limit));

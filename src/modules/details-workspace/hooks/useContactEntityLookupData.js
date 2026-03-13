@@ -104,6 +104,8 @@ function normalizeCompany(company = {}) {
     id,
     name: company.name || company.Name || id,
     account_type: company.account_type || company.Account_Type || "",
+    address: company.address || company.Address || "",
+    phone: company.phone || company.Phone || "",
     primary: {
       id: normalizeString(primary.id || primary.ID || ""),
       first_name: primary.first_name || primary.First_Name || "",

@@ -32,7 +32,7 @@ export const CONTACT_DUPLICATE_LOOKUP_SELECT_FIELDS = [
   "postal_code",
 ];
 
-export const COMPANY_LOOKUP_SELECT_FIELDS = ["id", "account_type", "name"];
+export const COMPANY_LOOKUP_SELECT_FIELDS = ["id", "account_type", "name", "address", "phone"];
 
 export const COMPANY_PRIMARY_PERSON_SELECT_FIELDS = [
   "id",

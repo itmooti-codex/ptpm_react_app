@@ -219,9 +219,14 @@ export function QuickInquiryAccountStep({
               searchResults.map((result) => {
                 const name = toText(result?.name || result?.Name);
                 const accountType = toText(result?.account_type || result?.Account_Type);
+                const phone = toText(result?.phone || result?.Phone);
+                const address = toText(result?.address || result?.Address);
                 const pp = result?.Primary_Person || result?.primary_person || {};
                 const ppName = [toText(pp?.first_name || pp?.First_Name), toText(pp?.last_name || pp?.Last_Name)].filter(Boolean).join(" ");
                 const ppEmail = toText(pp?.email || pp?.Email);
+                const ppPhone = toText(pp?.sms_number || pp?.SMS_Number || pp?.office_phone || pp?.Office_Phone);
+                const personMeta = [ppName, ppEmail, ppPhone].filter(Boolean).join(" · ");
+                const companyMeta = [phone, address].filter(Boolean).join(" · ");
                 return (
                   <button
                     key={toText(result?.id || result?.ID)}
@@ -232,9 +237,8 @@ export function QuickInquiryAccountStep({
                     <div className="text-sm font-medium text-slate-800">
                       {name || "(no name)"}{accountType ? ` · ${accountType}` : ""}
                     </div>
-                    {(ppName || ppEmail) ? (
-                      <div className="text-xs text-slate-500">{[ppName, ppEmail].filter(Boolean).join(" · ")}</div>
-                    ) : null}
+                    {personMeta ? <div className="text-xs text-slate-500">{personMeta}</div> : null}
+                    {companyMeta ? <div className="text-xs text-slate-400">{companyMeta}</div> : null}
                   </button>
                 );
               })
