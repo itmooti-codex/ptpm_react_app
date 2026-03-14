@@ -37,6 +37,16 @@ const PublicJobSheetPage = lazy(() =>
     default: module.PublicJobSheetPage,
   }))
 );
+const UserManagementPage = lazy(() =>
+  import("../features/user-management/pages/UserManagementPage.jsx").then((module) => ({
+    default: module.UserManagementPage,
+  }))
+);
+const UserDetailPage = lazy(() =>
+  import("../features/user-management/pages/UserDetailPage.jsx").then((module) => ({
+    default: module.UserDetailPage,
+  }))
+);
 
 function AppRouteLoader() {
   return (
@@ -100,6 +110,9 @@ export default function App() {
           <Route path="/details/:uid" element={<LegacyJobDetailsRedirect />} />
           <Route path="/job-direct" element={<Navigate to="/" replace />} />
           <Route path="/job-direct/:jobuid" element={<LegacyJobDirectRedirect />} />
+          <Route path="/admin/users" element={<UserManagementPage />} />
+          <Route path="/admin/users/new" element={<UserDetailPage />} />
+          <Route path="/admin/users/:userId" element={<UserDetailPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />

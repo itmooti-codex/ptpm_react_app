@@ -12,4 +12,12 @@ export default defineConfig({
       "@shared": fileURLToPath(new URL("./src/shared", import.meta.url)),
     },
   },
+  server: {
+    proxy: {
+      "/api": {
+        target: "http://localhost:4080",
+        changeOrigin: true,
+      },
+    },
+  },
 });

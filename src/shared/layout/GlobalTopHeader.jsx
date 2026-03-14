@@ -10,6 +10,7 @@ import {
   clearSelectedDemoUserId,
   isDemoUserSelectionEnabled,
 } from "../../config/userConfig.js";
+import { useAuth } from "../hooks/useAuth.js";
 
 function BellIcon() {
   return (
@@ -84,6 +85,7 @@ export function GlobalTopHeader() {
     openNotification,
   } = useAnnouncements();
   const { profile, displayName } = useCurrentUserProfile();
+  const { logout } = useAuth();
   const demoUserSelectionEnabled = isDemoUserSelectionEnabled();
 
   useEffect(() => {
@@ -167,6 +169,12 @@ export function GlobalTopHeader() {
       path: "/settings",
       onSelect: () => navigate("/settings"),
     },
+    {
+      key: "team",
+      label: "Team",
+      path: "/admin/users",
+      onSelect: () => navigate("/admin/users"),
+    },
     ...(demoUserSelectionEnabled
       ? [
           {
@@ -183,8 +191,11 @@ export function GlobalTopHeader() {
     {
       key: "logout",
       label: "Logout",
-      path: "/",
-      onSelect: () => navigate("/"),
+      path: "",
+      onSelect: () => {
+        logout();
+        window.location.reload();
+      },
     },
   ];
 

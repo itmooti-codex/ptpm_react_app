@@ -1,6 +1,6 @@
 # PTPM React App - AI Agent Handoff
 
-Last updated: 2026-03-13
+Last updated: 2026-03-14
 
 This file is the practical handoff for AI agents working in this repository.
 
@@ -11,7 +11,8 @@ This file is the practical handoff for AI agents working in this repository.
 - Project: `ptpm-react-app`
 - Stack: React 18, Vite 5, Tailwind CSS 3, React Router 7
 - Language: JavaScript (no TypeScript)
-- Backend: VitalStats browser SDK, loaded at runtime
+- Backend: VitalStats browser SDK (data) + Express API with MySQL (auth/users)
+- Authentication: JWT via Express backend (`ptpm_admin` MySQL database)
 - Main product areas:
   - inquiry intake and conversion
   - job operations and service-provider allocation
@@ -78,6 +79,9 @@ Defined in `src/app/App.jsx`.
 | `/profile` | `ProfilePage` |
 | `/settings` | `SettingsPage` |
 | `/notifications` | `NotificationsPage` |
+| `/admin/users` | `UserManagementPage` |
+| `/admin/users/new` | `UserDetailPage` |
+| `/admin/users/:userId` | `UserDetailPage` |
 
 ### Legacy redirect routes (redirect only, no components)
 
@@ -87,6 +91,40 @@ Defined in `src/app/App.jsx`.
 - `/details/:uid` → `/job-details/:uid`
 - `/job-direct` → `/`
 - `/job-direct/:uid` → `/job-details/:uid`
+
+---
+
+## 4b) Authentication
+
+The app uses JWT authentication via the Express backend (`ptpm_admin` MySQL database).
+
+**Provider stack** (in `main.jsx`):
+```
+AuthProvider > AuthGate > BrowserRouter > ToastProvider > CurrentUserProfileProvider > AnnouncementsProvider > App
+```
+
+**Login flow:**
+1. `AuthProvider` checks for a stored JWT in localStorage on mount
+2. `AuthGate` renders `LoginPage` if not authenticated, otherwise the app
+3. On login success, `contactId` and `serviceProviderId` from the API response are injected into `window.__PTPM_CURRENT_USER_ID` — existing VitalStats queries pick this up automatically
+4. Public routes (`/quote/*`) bypass auth
+
+**Key files:**
+- `src/features/auth/api/authApi.js` — login, verify, logout, token storage
+- `src/shared/providers/AuthProvider.jsx` — JWT context provider
+- `src/app/AuthGate.jsx` — auth gate (replaces former DemoUserGate)
+- `src/features/auth/pages/LoginPage.jsx` — login UI
+
+**Express API endpoints** (on deploy server):
+- `POST /api/login` — returns `{ token, user: { id, email, serviceProviderId, contactId, ... } }`
+- `GET /api/verify` — validates token, returns user
+- `GET /api/users` — list all users (requires auth + admin role)
+- `POST /api/users` — create user (requires auth + admin role)
+- `PATCH /api/users/:id` — update user (requires auth + admin role)
+
+**`admin_users` table columns:** id, email, password_hash, role, is_active, name, display_name, work_role, first_name, last_name, service_provider_id, contact_id, created_at, last_login_at
+
+The `service_provider_id` links to VitalStats `PeterpmServiceProvider.id` (type=Admin) and `contact_id` links to `PeterpmContact.id`.
 
 ---
 
