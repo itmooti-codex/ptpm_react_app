@@ -2,18 +2,18 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchUserById } from "../api/userManagementApi.js";
 import { updateUser } from "../api/userManagementMutations.js";
 
-export function useUserDetail({ plugin, userId } = {}) {
+export function useUserDetail({ userId } = {}) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
-    if (!plugin || !userId) return;
+    if (!userId) return;
     setIsLoading(true);
     setError(null);
     try {
-      const result = await fetchUserById({ plugin, userId });
+      const result = await fetchUserById({ userId });
       setUser(result);
     } catch (err) {
       console.error("[useUserDetail] failed", err);
@@ -21,7 +21,7 @@ export function useUserDetail({ plugin, userId } = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [plugin, userId]);
+  }, [userId]);
 
   useEffect(() => {
     load();
@@ -29,16 +29,16 @@ export function useUserDetail({ plugin, userId } = {}) {
 
   const saveUser = useCallback(
     async (payload) => {
-      if (!plugin || !userId) return;
+      if (!userId) return;
       setIsSaving(true);
       try {
-        await updateUser({ plugin, userId, payload });
+        await updateUser({ userId, payload });
         await load();
       } finally {
         setIsSaving(false);
       }
     },
-    [plugin, userId, load]
+    [userId, load]
   );
 
   return { user, isLoading, isSaving, error, saveUser, refreshUser: load };

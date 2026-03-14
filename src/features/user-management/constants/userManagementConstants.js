@@ -1,3 +1,10 @@
+// Admin role options for the admin_users table
+export const ADMIN_ROLE_OPTIONS = [
+  { value: "super_admin", label: "Super Admin" },
+  { value: "admin", label: "Admin" },
+  { value: "team_member", label: "Team Member" },
+];
+
 // Language options from PeterpmUser schema (10 enum values)
 export const LANGUAGE_OPTIONS = [
   { value: "en", label: "English" },

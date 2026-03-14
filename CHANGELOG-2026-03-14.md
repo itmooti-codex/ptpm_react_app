@@ -6,7 +6,7 @@ Author: Andrew Wadsworth (via Claude Code)
 
 ## Summary
 
-Two new features added:
+Three changes shipped today:
 
 1. **JWT Authentication with Login Page** — the app now has its own login system connected to the `ptpm_admin` MySQL database
 2. **Team/User Management** — admin UI to view and manage team members (admin_users), with VitalStats ServiceProvider linkage
@@ -170,3 +170,70 @@ If you maintain an AI agent knowledge base for this project, update the followin
 6. **API proxy:** Vite dev server proxies `/api` to `localhost:4080`. In production (Docker), nginx handles the proxy.
 
 7. **Express API auth.ts:** Now includes `service_provider_id` and `contact_id` in all user-related endpoints.
+
+---
+
+## 3) Team Management Rework — MySQL + VitalStats SP Linking
+
+### What changed (second commit)
+
+The Team Management page was originally querying VitalStats `PeterpmUser` (Ontraport system users). It has been reworked to manage `admin_users` in MySQL via the Express API, with a ServiceProvider lookup for linking users to their VitalStats identity.
+
+### Data flow
+
+- **User list and CRUD** → Express API (`GET /api/users`, `POST /api/users`, `PATCH /api/users/:id`, `GET /api/users/:id`) → MySQL `admin_users`
+- **ServiceProvider lookup** → VitalStats GraphQL (for the linking dropdown)
+- **Linked SP details** → VitalStats SDK query by `service_provider_id`
+
+### New Express endpoint
+
+`GET /api/users/:id` — returns a single admin_user by ID (added to deploy server `auth.ts`)
+
+### Role-based permissions
+
+| Feature | Team Member | Admin | Super Admin |
+|---------|-------------|-------|-------------|
+| Edit name/display name | Yes | Yes | Yes |
+| Change password | Current + new required | Current + new required | New only |
+| Edit email | No | Yes | Yes |
+| Role dropdown | No | No | Yes |
+| Active toggle | No | No | Yes |
+| Link/unlink service provider | No | No | Yes |
+| SP card details | No | No | Yes |
+| User ID in detail panel | No | No | Yes |
+| SP/Contact IDs in detail panel | No | No | Yes |
+
+### SP auto-fill
+
+When a super admin selects a service provider from the lookup, the form auto-fills first name, last name, display name, and email from the SP's contact information.
+
+### Files changed
+
+**Rewritten:**
+- `api/userManagementApi.js` — Express fetch + VitalStats SP lookup (was all VitalStats)
+- `api/userManagementMutations.js` — Express create/update (was VitalStats SDK mutations)
+- `api/userManagementNormalizers.js` — simplified to SP normalizer only
+
+**New:**
+- `components/ServiceProviderLookup.jsx` — searchable dropdown of all VitalStats SPs
+- `hooks/useServiceProviderOptions.js` — fetches SP list from VitalStats
+
+**Deleted:**
+- `components/RoleSelector.jsx` — no longer needed (Express uses string roles)
+- `hooks/useRoles.js` — no longer needed
+
+**Modified:**
+- All remaining hooks — removed VitalStats plugin dependency
+- `UserFormFields.jsx` — role-based field visibility, current password for non-super-admins
+- `UserDetailPanel.jsx` — role-based field visibility (IDs hidden from non-super-admins)
+- `UserDetailPage.jsx` — SP lookup + auto-fill, role-based sections
+- `UserManagementPage.jsx` — simplified (no VitalStats plugin needed)
+- `columns/userColumns.jsx` — updated for Express response format
+- `constants/userManagementConstants.js` — added ADMIN_ROLE_OPTIONS
+
+### AI Agent Knowledge Base Updates
+
+- Team management now uses Express API, NOT VitalStats `PeterpmUser`
+- The `admin_users` MySQL table is the source of truth for app login users
+- VitalStats is only used for ServiceProvider lookup/linking and Contact resolution
+- Role-based UI: super_admin sees everything, admin sees account settings, team_member sees profile only

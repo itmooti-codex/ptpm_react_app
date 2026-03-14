@@ -1,153 +1,109 @@
+import { getStoredToken } from "../../auth/api/authApi.js";
 import { fetchDirectWithTimeout, extractFromPayload } from "@shared/api/dashboardCore.js";
-import {
-  normalizeUserRecord,
-  normalizeRoleRecord,
-  normalizeServiceProviderRecord,
-} from "./userManagementNormalizers.js";
+import { normalizeServiceProviderRecord } from "./userManagementNormalizers.js";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Express API Helpers ─────────────────────────────────────────────────────
 
-function getModel(plugin, name) {
-  return plugin.switchTo(name);
+function getApiBase() {
+  return import.meta.env.VITE_API_BASE_URL || "/api";
 }
 
-// ─── Users ───────────────────────────────────────────────────────────────────
+function authHeaders() {
+  const token = getStoredToken();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
-const USER_LIST_FIELDS = [
-  "id", "first_name", "last_name", "email", "status",
-  "last_login", "last_activity", "profile_image", "role_id",
-];
+// ─── Users (Express API → MySQL admin_users) ─────────────────────────────────
 
-const USER_DETAIL_FIELDS = [
-  ...USER_LIST_FIELDS,
-  "login", "cell_phone", "telephone", "fax",
-  "business_name", "business_address", "business_city",
-  "business_state", "business_country", "business_zip_postal",
-  "language", "timezone", "email_from_name", "reply_to_email",
-  "manager_id", "unique_id", "image",
-];
-
-export async function fetchUsers({ plugin, page = 1, pageSize = 25, search = "" } = {}) {
-  if (!plugin) return { users: [], totalCount: 0 };
-
-  const userModel = getModel(plugin, "PeterpmUser");
-  const offset = (page - 1) * pageSize;
-
-  // Try GraphQL calc query first (more reliable for lists)
+export async function fetchUsers() {
+  const base = getApiBase();
   try {
-    const searchClause = search
-      ? `, { orWhere: { first_name: { contains: "${search}" }, last_name: { contains: "${search}" }, email: { contains: "${search}" } } }`
-      : "";
-
-    const gqlQuery = userModel.query().fromGraphql(`
-      query calcUsers {
-        calcUsers(
-          query: [
-            { limit: ${pageSize}, offset: ${offset}${searchClause} }
-          ]
-        ) {
-          ID: field(arg: ["id"])
-          First_Name: field(arg: ["first_name"])
-          Last_Name: field(arg: ["last_name"])
-          Email: field(arg: ["email"])
-          Status: field(arg: ["status"])
-          Last_Login: field(arg: ["last_login"])
-          Last_Activity: field(arg: ["last_activity"])
-          Profile_Image: field(arg: ["profile_image"])
-          Role_ID: field(arg: ["role_id"])
-        }
-      }
-    `);
-    const res = await fetchDirectWithTimeout(gqlQuery, null, 15000);
-    const records = extractFromPayload(res);
-    const users = records.map(normalizeUserRecord).filter(Boolean);
-    if (users.length > 0 || page === 1) {
-      return { users, totalCount: users.length < pageSize ? offset + users.length : -1 };
-    }
-  } catch (err) {
-    console.warn("[userManagement] GraphQL calc query failed, using SDK fallback", err);
-  }
-
-  // Fallback: SDK query builder
-  try {
-    const q = userModel
-      .query()
-      .deSelectAll()
-      .select(USER_LIST_FIELDS)
-      .orderBy("last_name", "asc")
-      .limit(pageSize)
-      .offset(offset)
-      .noDestroy();
-    q.getOrInitQueryCalc?.();
-    const res = await fetchDirectWithTimeout(q, null, 15000);
-    const records = Array.isArray(res?.resp) ? res.resp : extractFromPayload(res);
-    const users = records.map(normalizeUserRecord).filter(Boolean);
-    return { users, totalCount: users.length < pageSize ? offset + users.length : -1 };
+    const res = await fetch(`${base}/users`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`${res.status}`);
+    const data = await res.json();
+    return { users: data.users || [], totalCount: (data.users || []).length };
   } catch (err) {
     console.error("[userManagement] fetchUsers failed", err);
     return { users: [], totalCount: 0 };
   }
 }
 
-export async function fetchUserById({ plugin, userId } = {}) {
-  if (!plugin || !userId) return null;
-
-  const userModel = getModel(plugin, "PeterpmUser");
+export async function fetchUserById({ userId } = {}) {
+  if (!userId) return null;
+  const base = getApiBase();
   try {
-    const q = userModel
-      .query()
-      .deSelectAll()
-      .select(USER_DETAIL_FIELDS)
-      .where("id", userId)
-      .noDestroy();
-    q.getOrInitQueryCalc?.();
-    const res = await fetchDirectWithTimeout(q, null, 15000);
-    const records = Array.isArray(res?.resp) ? res.resp : extractFromPayload(res);
-    const first = records[0];
-    return first ? normalizeUserRecord(first) : null;
+    const res = await fetch(`${base}/users/${userId}`, { headers: authHeaders() });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.user || null;
   } catch (err) {
     console.error("[userManagement] fetchUserById failed", err);
     return null;
   }
 }
 
-// ─── Roles ───────────────────────────────────────────────────────────────────
+// ─── Service Provider Options (VitalStats — for linking dropdown) ────────────
 
-export async function fetchRoles({ plugin } = {}) {
+export async function fetchServiceProviderOptions({ plugin } = {}) {
   if (!plugin) return [];
 
-  const roleModel = getModel(plugin, "PeterpmRole");
   try {
-    const q = roleModel
-      .query()
-      .deSelectAll()
-      .select(["id", "role", "role_manager_id"])
-      .limit(50)
-      .noDestroy();
-    q.getOrInitQueryCalc?.();
-    const res = await fetchDirectWithTimeout(q, null, 10000);
-    const records = Array.isArray(res?.resp) ? res.resp : extractFromPayload(res);
-    return records.map(normalizeRoleRecord).filter(Boolean);
+    const spModel = plugin.switchTo("PeterpmServiceProvider");
+    const gqlQuery = spModel.query().fromGraphql(`
+      query calcServiceProviders {
+        calcServiceProviders(
+          query: [{ limit: 100 }]
+        ) {
+          ID: field(arg: ["id"])
+          Type: field(arg: ["type"])
+          Status: field(arg: ["status"])
+          Contact_Information_ID: field(arg: ["contact_information_id"])
+          Contact_Information_First_Name: field(arg: ["Contact_Information", "first_name"])
+          Contact_Information_Last_Name: field(arg: ["Contact_Information", "last_name"])
+          Contact_Information_Email: field(arg: ["Contact_Information", "email"])
+        }
+      }
+    `);
+    const res = await fetchDirectWithTimeout(gqlQuery, null, 15000);
+    const records = extractFromPayload(res);
+    return records
+      .map((rec) => {
+        const id = String(rec?.ID ?? "").trim();
+        if (!id) return null;
+        const firstName = String(rec?.Contact_Information_First_Name ?? "").trim();
+        const lastName = String(rec?.Contact_Information_Last_Name ?? "").trim();
+        return {
+          id,
+          type: String(rec?.Type ?? "").trim(),
+          status: String(rec?.Status ?? "").trim(),
+          contactId: String(rec?.Contact_Information_ID ?? "").trim(),
+          name: [firstName, lastName].filter(Boolean).join(" ") || `SP ${id}`,
+          email: String(rec?.Contact_Information_Email ?? "").trim(),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
   } catch (err) {
-    console.error("[userManagement] fetchRoles failed", err);
+    console.error("[userManagement] fetchServiceProviderOptions failed", err);
     return [];
   }
 }
 
-// ─── Linked Service Provider ─────────────────────────────────────────────────
+// ─── Linked Service Provider (VitalStats — by SP ID) ─────────────────────────
 
-export async function fetchLinkedServiceProvider({ plugin, userId } = {}) {
-  if (!plugin || !userId) return null;
+export async function fetchLinkedServiceProvider({ plugin, serviceProviderId } = {}) {
+  if (!plugin || !serviceProviderId) return null;
 
-  const spModel = getModel(plugin, "PeterpmServiceProvider");
+  const spModel = plugin.switchTo("PeterpmServiceProvider");
   try {
     const q = spModel
       .query()
       .deSelectAll()
-      .select([
-        "id", "status", "type", "work_email", "mobile_number", "workload_capacity",
-      ])
-      .where("owner_id", userId)
+      .select(["id", "status", "type", "work_email", "mobile_number", "workload_capacity"])
+      .where("id", serviceProviderId)
       .include("Contact_Information", (sq) =>
         sq.deSelectAll().select(["first_name", "last_name", "profile_image"])
       )
